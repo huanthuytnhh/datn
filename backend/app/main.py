@@ -1,0 +1,73 @@
+"""
+DeepGuard FastAPI Backend
+"""
+
+import os
+import sys
+
+# Add parent directory so deepguard_db is importable
+_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+# Load .env before any db imports
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.config import get_settings
+from app.routers import auth, detect, api_keys, analytics, detections, webhooks
+
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize database tables on startup
+    from deepguard_db.app.db.database import init_db
+    await init_db()
+    yield
+
+
+app = FastAPI(
+    title="DeepGuard API",
+    description="Deepfake Detection Platform for Banking & Fintech",
+    version="1.0.0-mvp",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Routers
+app.include_router(auth.router)
+app.include_router(detect.router)
+app.include_router(api_keys.router)
+app.include_router(analytics.router)
+app.include_router(detections.router)
+app.include_router(webhooks.router)
+
+
+@app.get("/health", tags=["system"])
+async def health():
+    return {"status": "ok", "version": "1.0.0-mvp"}
+
+
+@app.get("/", tags=["system"])
+async def root():
+    return {
+        "name": "DeepGuard API",
+        "docs": "/docs",
+        "health": "/health",
+    }
