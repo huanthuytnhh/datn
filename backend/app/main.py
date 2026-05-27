@@ -27,9 +27,12 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database tables on startup
     from deepguard_db.app.db.database import init_db
-    await init_db()
+    try:
+        await init_db()
+    except Exception as exc:
+        print(f"[WARNING] Database not available: {exc}")
+        print("[WARNING] Server starting without DB — endpoints requiring DB will fail.")
     yield
 
 
