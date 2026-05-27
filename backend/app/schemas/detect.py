@@ -40,3 +40,21 @@ class VideoJobResponse(BaseModel):
     job_id: uuid.UUID
     status: str
     message: str
+
+
+class FrameResult(BaseModel):
+    frame_id: int
+    prob_fake: float
+
+
+class VideoDetectionResponse(BaseModel):
+    job_id: uuid.UUID
+    verdict: str
+    confidence: float
+    prob_fake: float
+    frames_analyzed: int
+    frames_fake: int
+    frame_results: list[FrameResult]
+    model_version: str
+    processing_time_ms: int
+    created_at: datetime
