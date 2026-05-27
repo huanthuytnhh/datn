@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>DeepGuard ERD - Database Schema</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', sans-serif; background: #f8f9ff; overflow: hidden; height: 100vh; }
+#toolbar {
+  position: fixed; top: 0; left: 0; right: 0; height: 44px;
+  background: #fff; border-bottom: 1px solid #e2e5f0;
+  display: flex; align-items: center; gap: 8px; padding: 0 16px;
+  z-index: 1000; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+#toolbar h1 { font-size: 14px; font-weight: 600; color: #1e293b; margin-right: 8px; }
+.tb-btn {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid #e2e5f0;
+  background: #fff; color: #475569; font-size: 12px; cursor: pointer;
+  transition: all 0.15s; font-weight: 500;
+}
+.tb-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+.tb-btn.primary { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+.tb-btn.primary:hover { background: #4338ca; }
+.sep { width: 1px; height: 24px; background: #e2e5f0; margin: 0 4px; }
+#zoom-label { font-size: 12px; color: #64748b; min-width: 44px; text-align: center; }
+#canvas-wrap { position: fixed; top: 44px; left: 0; right: 0; bottom: 0; overflow: hidden; cursor: grab; }
+#canvas-wrap.grabbing { cursor: grabbing; }
+#canvas { position: absolute; transform-origin: 0 0; }
+.table-node {
+  position: absolute;
+  background: #fff;
+  border: 1.5px solid #c7d0e8;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(79,70,229,0.08);
+  min-width: 240px;
+  user-select: none;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.table-node:hover { border-color: #6366f1; box-shadow: 0 4px 16px rgba(79,70,229,0.16); }
+.table-node.selected { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.15); }
+.table-header {
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  cursor: move;
+  letter-spacing: 0.02em;
+  display: flex; align-items: center; gap: 6px;
+}
+.table-header .icon { opacity: 0.8; font-size: 11px; }
+.table-header .row-count { margin-left: auto; font-size: 10px; opacity: 0.85; font-weight: 500; }
+.col-row {
+  display: flex; align-items: center;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  border-top: 1px solid #f0f2f8;
+  gap: 6px;
+}
+.col-row:nth-child(even) { background: #f8f9ff; }
+.col-name { color: #1e293b; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-type { color: #94a3b8; font-size: 9.5px; white-space: nowrap; font-family: 'Consolas', monospace; }
+.badge {
+  font-size: 8.5px; font-weight: 700; padding: 1px 4px; border-radius: 3px;
+  flex-shrink: 0; line-height: 1.4;
+}
+.b-pk { background: #dbeafe; color: #1d4ed8; }
+.b-fk { background: #ede9fe; color: #6d28d9; }
+.b-uq { background: #dcfce7; color: #15803d; }
+.b-idx { background: #fef3c7; color: #92400e; }
+#svg-overlay {
+  position: absolute; top: 0; left: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.rel-line { stroke: #94a3b8; stroke-width: 1.2; fill: none; opacity: 0.7; }
+.rel-line:hover { stroke: #4f46e5; opacity: 1; }
+.rel-label {
+  font-size: 9px;
+  fill: #64748b;
+  font-family: 'Consolas', monospace;
+}
+#minimap {
+  position: fixed; bottom: 16px; right: 16px;
+  width: 200px; height: 140px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid #e2e5f0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 900;
+}
+#minimap canvas { display: block; }
+#info-box {
+  position: fixed; bottom: 16px; left: 16px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid #e2e5f0; border-radius: 8px;
+  padding: 8px 12px; font-size: 11px; color: #64748b;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  z-index: 900;
+}
+#info-box b { color: #1e293b; }
+#legend {
+  position: fixed; top: 56px; right: 16px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid #e2e5f0; border-radius: 8px;
+  padding: 10px 12px; font-size: 10.5px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  z-index: 900;
+  min-width: 180px;
+}
+#legend h3 { font-size: 11px; font-weight: 700; margin-bottom: 6px; color: #1e293b; }
+.lg-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; color: #475569; }
+.lg-dot { width: 10px; height: 10px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <h1>🛡️ DeepGuard ERD — Database Schema</h1>
+  <div class="sep"></div>
+  <button class="tb-btn" onclick="zoom(0.2)">＋</button>
+  <span id="zoom-label">100%</span>
+  <button class="tb-btn" onclick="zoom(-0.2)">－</button>
+  <button class="tb-btn" onclick="resetView()">⟳ Reset</button>
+  <div class="sep"></div>
+  <button class="tb-btn" onclick="fitAll()">⊞ Fit All</button>
+  <div class="sep"></div>
+  <span style="font-size:11px;color:#94a3b8">Scroll để zoom • Kéo canvas để di chuyển • Kéo bảng để sắp xếp</span>
+</div>
+
+<div id="canvas-wrap">
+  <div id="canvas">
+    <svg id="svg-overlay"></svg>
+  </div>
+</div>
+
+<div id="legend">
+  <h3>Nhóm bảng</h3>
+  <div class="lg-item"><span class="lg-dot" style="background:#4f46e5"></span>Tổ chức (Organization)</div>
+  <div class="lg-item"><span class="lg-dot" style="background:#f59e0b"></span>Tích hợp (Integration)</div>
+  <div class="lg-item"><span class="lg-dot" style="background:#0891b2"></span>Detection</div>
+  <div class="lg-item"><span class="lg-dot" style="background:#64748b"></span>Audit & System</div>
+  <hr style="margin:8px 0;border:none;border-top:1px solid #e2e5f0">
+  <div class="lg-item"><span class="badge b-pk">PK</span>Primary Key</div>
+  <div class="lg-item"><span class="badge b-fk">FK</span>Foreign Key</div>
+  <div class="lg-item"><span class="badge b-uq">UQ</span>Unique constraint</div>
+  <div class="lg-item"><span class="badge b-idx">IDX</span>Indexed</div>
+</div>
+
+<div id="minimap"><canvas id="mm-canvas" width="200" height="140"></canvas></div>
+
+<div id="info-box">
+  <b>10 tables</b> &nbsp;|&nbsp; <b id="rel-count">0</b> relationships &nbsp;|&nbsp; <b>PostgreSQL 15+</b>
+</div>
+
+<script>
+const SCHEMA = {
+  // ─── ORGANIZATION (4 tables, indigo) ─────────────────────────────
+  tenants: {
+    color: '#4f46e5',
+    note: 'Root entity — multi-tenancy',
+    cols: [
+      {n:'id', t:'uuid', pk:true},
+      {n:'name', t:'varchar(200)'},
+      {n:'plan', t:'enum', idx:true, note:'starter|pro|enterprise'},
+      {n:'status', t:'enum', idx:true},
+      {n:'monthly_quota', t:'integer'},
+      {n:'current_usage', t:'integer'},
+      {n:'admin_email', t:'varchar(255)'},
+      {n:'billing_email', t:'varchar(255)'},
+      {n:'metadata', t:'jsonb'},
+      {n:'created_at', t:'timestamptz', idx:true},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+  users: {
+    color: '#6366f1',
+    cols: [
+      {n:'id', t:'uuid', pk:true},
+      {n:'tenant_id', t:'uuid', fk:true, idx:true},
+      {n:'email', t:'varchar(255)', uq:true, idx:true},
+      {n:'password_hash', t:'varchar(255)'},
+      {n:'name', t:'varchar(200)'},
+      {n:'role', t:'enum', idx:true, note:'developer|compliance|admin|sysadmin'},
+      {n:'is_active', t:'boolean'},
+      {n:'last_login_at', t:'timestamptz'},
+      {n:'deleted_at', t:'timestamptz'},
+      {n:'created_at', t:'timestamptz'},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+  invitations: {
+    color: '#8b5cf6',
+    cols: [
+      {n:'id', t:'uuid', pk:true},
+      {n:'tenant_id', t:'uuid', fk:true},
+      {n:'email', t:'varchar(255)', idx:true},
+      {n:'role', t:'enum'},
+      {n:'token', t:'varchar(128)', uq:true},
+      {n:'expires_at', t:'timestamptz'},
+      {n:'accepted_at', t:'timestamptz'},
+      {n:'created_at', t:'timestamptz'},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+
+  // ─── INTEGRATION (3 tables, amber) ───────────────────────────────
+  api_keys: {
+    color: '#f59e0b',
+    note: 'Backend integration keys',
+    cols: [
+      {n:'id', t:'uuid', pk:true},
+      {n:'tenant_id', t:'uuid', fk:true, idx:true},
+      {n:'key_hash', t:'varchar(64)', uq:true, note:'SHA-256'},
+      {n:'prefix', t:'varchar(16)', idx:true},
+      {n:'name', t:'varchar(200)'},
+      {n:'status', t:'enum', idx:true},
+      {n:'quota_limit', t:'integer'},
+      {n:'quota_used', t:'integer'},
+      {n:'rate_limit_rpm', t:'integer'},
+      {n:'last_used_at', t:'timestamptz'},
+      {n:'expires_at', t:'timestamptz'},
+      {n:'deleted_at', t:'timestamptz'},
+      {n:'created_at', t:'timestamptz'},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+  webhooks: {
+    color: '#f97316',
+    cols: [
+      {n:'id', t:'uuid', pk:true},
+      {n:'tenant_id', t:'uuid', fk:true, idx:true},
+      {n:'url', t:'varchar(500)'},
+      {n:'events', t:'jsonb', note:'[job.completed,...]'},
+      {n:'secret', t:'varchar(255)', note:'HMAC verify'},
+      {n:'status', t:'enum', idx:true},
+      {n:'last_delivery_at', t:'timestamptz'},
+      {n:'last_delivery_status', t:'integer'},
+      {n:'created_at', t:'timestamptz'},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+  webhook_deliveries: {
+    color: '#fb923c',
+    note: 'Retry queue',
+    cols: [
+      {n:'id', t:'uuid', pk:true},
+      {n:'webhook_id', t:'uuid', fk:true, idx:true},
+      {n:'event_type', t:'varchar(100)'},
+      {n:'payload', t:'jsonb'},
+      {n:'status_code', t:'integer'},
+      {n:'response_body', t:'varchar(2000)'},
+      {n:'latency_ms', t:'integer'},
+      {n:'delivered', t:'boolean'},
+      {n:'attempt_count', t:'integer'},
+      {n:'next_retry_at', t:'timestamptz', idx:true},
+      {n:'created_at', t:'timestamptz'},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+
+  // ─── DETECTION (3 tables, cyan/teal) ─────────────────────────────
+  detections: {
+    color: '#0891b2',
+    note: 'Audit log mỗi /v1/detect/image',
+    cols: [
+      {n:'request_id', t:'uuid', pk:true},
+      {n:'tenant_id', t:'uuid', fk:true, idx:true},
+      {n:'api_key_id', t:'uuid', fk:true, idx:true},
+      {n:'verdict', t:'enum', idx:true, note:'REAL|FAKE|UNCERTAIN'},
+      {n:'confidence', t:'float', note:'0-100'},
+      {n:'prob_fake', t:'float'},
+      {n:'prob_cnn', t:'float'},
+      {n:'spatial_score', t:'float'},
+      {n:'frequency_score', t:'float'},
+      {n:'threshold_used', t:'float'},
+      {n:'image_hash', t:'varchar(64)', note:'SHA-256 only'},
+      {n:'image_width', t:'integer'},
+      {n:'image_height', t:'integer'},
+      {n:'heatmap_url', t:'varchar(500)'},
+      {n:'processing_time_ms', t:'integer'},
+      {n:'model_version', t:'varchar(50)'},
+      {n:'user_agent', t:'varchar(500)'},
+      {n:'ip_address', t:'varchar(45)'},
+      {n:'audit_notes', t:'jsonb'},
+      {n:'created_at', t:'timestamptz', idx:true},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+  jobs: {
+    color: '#0d9488',
+    note: 'Async video detection',
+    cols: [
+      {n:'id', t:'uuid', pk:true},
+      {n:'tenant_id', t:'uuid', fk:true, idx:true},
+      {n:'api_key_id', t:'uuid', fk:true},
+      {n:'type', t:'enum', note:'video|batch'},
+      {n:'status', t:'enum', idx:true, note:'PENDING|PROCESSING|...'},
+      {n:'progress_percent', t:'integer'},
+      {n:'input_url', t:'varchar(500)', note:'S3 URL'},
+      {n:'result', t:'jsonb'},
+      {n:'error_message', t:'varchar(1000)'},
+      {n:'started_at', t:'timestamptz'},
+      {n:'completed_at', t:'timestamptz'},
+      {n:'webhook_url', t:'varchar(500)'},
+      {n:'created_at', t:'timestamptz', idx:true},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+  model_versions: {
+    color: '#14b8a6',
+    note: 'A/B testing',
+    cols: [
+      {n:'id', t:'uuid', pk:true},
+      {n:'version', t:'varchar(50)', uq:true},
+      {n:'architecture', t:'varchar(200)'},
+      {n:'auc_celeb', t:'float'},
+      {n:'auc_ffpp', t:'float'},
+      {n:'threshold', t:'float', note:'0.6197 (eKYC)'},
+      {n:'training_dataset', t:'varchar(200)'},
+      {n:'checkpoint_path', t:'varchar(500)'},
+      {n:'is_active', t:'boolean'},
+      {n:'traffic_percent', t:'integer', note:'0-100 A/B'},
+      {n:'deployed_at', t:'timestamptz'},
+      {n:'metadata', t:'jsonb'},
+      {n:'created_at', t:'timestamptz'},
+      {n:'updated_at', t:'timestamptz'},
+    ]
+  },
+
+  // ─── AUDIT (1 table, gray) ───────────────────────────────────────
+  audit_logs: {
+    color: '#64748b',
+    note: 'BIGSERIAL — high-write',
+    cols: [
+      {n:'id', t:'bigserial', pk:true},
+      {n:'tenant_id', t:'uuid', fk:true, idx:true},
+      {n:'user_id', t:'uuid', fk:true},
+      {n:'action', t:'varchar(100)', idx:true, note:'api_key.created,...'},
+      {n:'resource_type', t:'varchar(50)', idx:true},
+      {n:'resource_id', t:'uuid'},
+      {n:'metadata', t:'jsonb'},
+      {n:'ip_address', t:'varchar(45)'},
+      {n:'user_agent', t:'varchar(500)'},
+      {n:'created_at', t:'timestamptz', idx:true},
+    ]
+  },
+};
+
+const RELATIONS = [
+  // Organization
+  ['users', 'tenants', 'tenant_id'],
+  ['invitations', 'tenants', 'tenant_id'],
+
+  // Integration
+  ['api_keys', 'tenants', 'tenant_id'],
+  ['webhooks', 'tenants', 'tenant_id'],
+  ['webhook_deliveries', 'webhooks', 'webhook_id'],
+
+  // Detection
+  ['detections', 'tenants', 'tenant_id'],
+  ['detections', 'api_keys', 'api_key_id'],
+  ['jobs', 'tenants', 'tenant_id'],
+  ['jobs', 'api_keys', 'api_key_id'],
+
+  // Audit
+  ['audit_logs', 'tenants', 'tenant_id'],
+  ['audit_logs', 'users', 'user_id'],
+];
+
+document.getElementById('rel-count').textContent = RELATIONS.length;
+
+// Layout — grouped by category
+const LAYOUT = {
+  // Organization row (top center)
+  tenants:           {x: 600, y: 40},
+  users:             {x: 300, y: 280},
+  invitations:       {x: 900, y: 280},
+
+  // Integration column (right)
+  api_keys:          {x: 1240, y: 40},
+  webhooks:          {x: 1240, y: 480},
+  webhook_deliveries:{x: 1560, y: 480},
+
+  // Detection row (bottom)
+  detections:        {x: 600, y: 600},
+  jobs:              {x: 900, y: 920},
+  model_versions:    {x: 1240, y: 920},
+
+  // Audit (left bottom)
+  audit_logs:        {x: 40, y: 600},
+};
+
+// State
+let scale = 0.7, panX = 40, panY = 40;
+let isPanning = false, panStart = {x:0,y:0}, panOrigin = {x:0,y:0};
+let isDragging = false, dragNode = null, dragOffset = {x:0,y:0};
+const nodePos = {};
+const nodeEls = {};
+const nodeSize = {};
+
+const canvas = document.getElementById('canvas');
+const wrap = document.getElementById('canvas-wrap');
+const svg = document.getElementById('svg-overlay');
+
+function applyTransform() {
+  canvas.style.transform = `translate(${panX}px,${panY}px) scale(${scale})`;
+  document.getElementById('zoom-label').textContent = Math.round(scale*100)+'%';
+  drawRelations();
+  drawMinimap();
+}
+
+function zoom(delta, cx, cy) {
+  const ww = wrap.clientWidth, wh = wrap.clientHeight;
+  cx = cx ?? ww/2; cy = cy ?? wh/2;
+  const newScale = Math.max(0.12, Math.min(2.0, scale + delta));
+  const ratio = newScale / scale;
+  panX = cx - ratio*(cx - panX);
+  panY = cy - ratio*(cy - panY);
+  scale = newScale;
+  applyTransform();
+}
+window.zoom = zoom;
+
+function resetView() { scale = 0.7; panX = 40; panY = 40; applyTransform(); }
+window.resetView = resetView;
+
+function fitAll() {
+  const names = Object.keys(SCHEMA);
+  if (!names.length) return;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  names.forEach(n => {
+    const p = nodePos[n]; const s = nodeSize[n]||{w:240,h:280};
+    if(!p) return;
+    minX=Math.min(minX,p.x); minY=Math.min(minY,p.y);
+    maxX=Math.max(maxX,p.x+s.w); maxY=Math.max(maxY,p.y+s.h);
+  });
+  const pw=wrap.clientWidth, ph=wrap.clientHeight-44;
+  const fw=maxX-minX+80, fh=maxY-minY+80;
+  scale = Math.min(pw/fw, ph/fh, 1.0);
+  panX = (pw - fw*scale)/2 - minX*scale + 40*scale;
+  panY = (ph - fh*scale)/2 - minY*scale + 40*scale;
+  applyTransform();
+}
+window.fitAll = fitAll;
+
+// Build nodes
+function createNode(name, schema) {
+  const pos = LAYOUT[name] || {x: Math.random()*1400, y: Math.random()*900};
+  nodePos[name] = {x: pos.x, y: pos.y};
+
+  const el = document.createElement('div');
+  el.className = 'table-node';
+  el.id = 'node-' + name;
+  el.style.left = pos.x + 'px';
+  el.style.top = pos.y + 'px';
+  el.style.width = '240px';
+
+  const header = document.createElement('div');
+  header.className = 'table-header';
+  header.style.background = schema.color;
+  header.innerHTML = `<span class="icon">⊞</span><span>${name}</span><span class="row-count">${schema.cols.length} cols</span>`;
+  el.appendChild(header);
+
+  if (schema.note) {
+    const noteRow = document.createElement('div');
+    noteRow.style.cssText = 'padding:3px 8px;font-size:9.5px;color:#64748b;font-style:italic;background:#f8f9ff;border-bottom:1px solid #f0f2f8;';
+    noteRow.textContent = '— ' + schema.note;
+    el.appendChild(noteRow);
+  }
+
+  schema.cols.forEach(col => {
+    const row = document.createElement('div');
+    row.className = 'col-row';
+    let badges = '';
+    if (col.pk) badges += '<span class="badge b-pk">PK</span>';
+    if (col.fk && !col.pk) badges += '<span class="badge b-fk">FK</span>';
+    if (col.uq && !col.pk) badges += '<span class="badge b-uq">UQ</span>';
+    if (col.idx && !col.pk && !col.uq) badges += '<span class="badge b-idx">IDX</span>';
+    row.innerHTML = `
+      <span class="col-name" title="${col.note || ''}">${col.n}</span>
+      <span class="col-type">${col.t}</span>
+      ${badges}`;
+    el.appendChild(row);
+  });
+
+  // Drag header
+  header.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    isDragging = true;
+    dragNode = name;
+    dragOffset = {
+      x: e.clientX/scale - nodePos[name].x - panX/scale,
+      y: e.clientY/scale - nodePos[name].y - panY/scale
+    };
+    document.querySelectorAll('.table-node').forEach(n => n.classList.remove('selected'));
+    el.classList.add('selected');
+  });
+
+  canvas.appendChild(el);
+  nodeEls[name] = el;
+
+  requestAnimationFrame(() => {
+    nodeSize[name] = {w: el.offsetWidth, h: el.offsetHeight};
+  });
+}
+
+Object.entries(SCHEMA).forEach(([name, sch]) => createNode(name, sch));
+
+function getCenter(name) {
+  const p = nodePos[name];
+  const s = nodeSize[name] || {w:240, h:280};
+  return {x: p.x + s.w/2, y: p.y + s.h/2};
+}
+
+function getEdgePoint(name, tx, ty) {
+  const p = nodePos[name];
+  const s = nodeSize[name] || {w:240, h:280};
+  const cx = p.x + s.w/2, cy = p.y + s.h/2;
+  const dx = tx - cx, dy = ty - cy;
+  const absDx = Math.abs(dx), absDy = Math.abs(dy);
+  if (absDx === 0 && absDy === 0) return {x: cx, y: cy};
+  const scaleX = s.w/2/absDx, scaleY = s.h/2/absDy;
+  const sc = Math.min(scaleX, scaleY);
+  return {x: cx + dx*sc, y: cy + dy*sc};
+}
+
+function drawRelations() {
+  const allNames = Object.keys(SCHEMA);
+  let maxX=0, maxY=0;
+  allNames.forEach(n => {
+    const p = nodePos[n]; const s = nodeSize[n]||{w:240,h:280};
+    if(p){ maxX=Math.max(maxX,p.x+s.w); maxY=Math.max(maxY,p.y+s.h); }
+  });
+  svg.style.width = (maxX+200)+'px';
+  svg.style.height = (maxY+200)+'px';
+  svg.setAttribute('width', maxX+200);
+  svg.setAttribute('height', maxY+200);
+
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  defs.innerHTML = `
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M1 1L9 5L1 9" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr-end" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="5" markerHeight="5">
+      <circle cx="4" cy="4" r="2.5" fill="#94a3b8"/>
+    </marker>`;
+  svg.appendChild(defs);
+
+  RELATIONS.forEach(([from, to, fkCol]) => {
+    if (!nodePos[from] || !nodePos[to]) return;
+    const fc = getCenter(from), tc = getCenter(to);
+    const fp = getEdgePoint(from, tc.x, tc.y);
+    const tp = getEdgePoint(to, fc.x, fc.y);
+
+    const dx = tp.x - fp.x, dy = tp.y - fp.y;
+    const cx1 = fp.x + dx*0.4;
+    const cy1 = fp.y;
+    const cx2 = tp.x - dx*0.4;
+    const cy2 = tp.y;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', `M${fp.x},${fp.y} C${cx1},${cy1} ${cx2},${cy2} ${tp.x},${tp.y}`);
+    path.setAttribute('class','rel-line');
+    path.setAttribute('marker-end','url(#arr)');
+    path.setAttribute('marker-start','url(#arr-end)');
+    svg.appendChild(path);
+
+    // Show FK column name on hover (tooltip via title)
+    if (fkCol) {
+      const title = document.createElementNS('http://www.w3.org/2000/svg','title');
+      title.textContent = `${from}.${fkCol} → ${to}.id`;
+      path.appendChild(title);
+    }
+  });
+}
+
+// Panning
+wrap.addEventListener('mousedown', e => {
+  if (e.target === wrap || e.target === canvas || e.target === svg) {
+    isPanning = true;
+    panStart = {x: e.clientX, y: e.clientY};
+    panOrigin = {x: panX, y: panY};
+    wrap.classList.add('grabbing');
+  }
+});
+
+document.addEventListener('mousemove', e => {
+  if (isDragging && dragNode) {
+    const nx = e.clientX/scale - dragOffset.x - panX/scale;
+    const ny = e.clientY/scale - dragOffset.y - panY/scale;
+    nodePos[dragNode] = {x: nx, y: ny};
+    const el = nodeEls[dragNode];
+    el.style.left = nx+'px';
+    el.style.top = ny+'px';
+    drawRelations();
+  } else if (isPanning) {
+    panX = panOrigin.x + (e.clientX - panStart.x);
+    panY = panOrigin.y + (e.clientY - panStart.y);
+    applyTransform();
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  isPanning = false;
+  isDragging = false;
+  dragNode = null;
+  wrap.classList.remove('grabbing');
+  drawMinimap();
+});
+
+wrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY < 0 ? 0.1 : -0.1;
+  zoom(delta, e.clientX, e.clientY);
+}, {passive: false});
+
+function drawMinimap() {
+  const mmCanvas = document.getElementById('mm-canvas');
+  const ctx = mmCanvas.getContext('2d');
+  ctx.clearRect(0,0,200,140);
+  ctx.fillStyle = '#f8f9ff';
+  ctx.fillRect(0,0,200,140);
+
+  const names = Object.keys(SCHEMA);
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  names.forEach(n => {
+    const p=nodePos[n]; const s=nodeSize[n]||{w:240,h:280};
+    if(!p)return;
+    minX=Math.min(minX,p.x); minY=Math.min(minY,p.y);
+    maxX=Math.max(maxX,p.x+s.w); maxY=Math.max(maxY,p.y+s.h);
+  });
+  const W=maxX-minX||1, H=maxY-minY||1;
+  const scX=180/W, scY=120/H, sc=Math.min(scX,scY)*0.85;
+  const ox=10, oy=10;
+
+  ctx.strokeStyle='#c7d0e8'; ctx.lineWidth=0.5;
+  RELATIONS.forEach(([from,to])=>{
+    if(!nodePos[from]||!nodePos[to])return;
+    const f=nodePos[from], t=nodePos[to];
+    const fs=nodeSize[from]||{w:240,h:280}, ts=nodeSize[to]||{w:240,h:280};
+    ctx.beginPath();
+    ctx.moveTo(ox+(f.x+fs.w/2-minX)*sc, oy+(f.y+fs.h/2-minY)*sc);
+    ctx.lineTo(ox+(t.x+ts.w/2-minX)*sc, oy+(t.y+ts.h/2-minY)*sc);
+    ctx.stroke();
+  });
+
+  names.forEach(n => {
+    const p=nodePos[n]; const s=nodeSize[n]||{w:240,h:280};
+    if(!p)return;
+    const x=ox+(p.x-minX)*sc, y=oy+(p.y-minY)*sc;
+    const w=s.w*sc, h=s.h*sc;
+    ctx.fillStyle=SCHEMA[n].color+'33';
+    ctx.strokeStyle=SCHEMA[n].color;
+    ctx.lineWidth=0.8;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(x,y,Math.max(w,4),Math.max(h,4),2);
+    } else {
+      ctx.rect(x,y,Math.max(w,4),Math.max(h,4));
+    }
+    ctx.fill(); ctx.stroke();
+  });
+
+  const vpX = -panX/scale, vpY = -panY/scale;
+  const vpW = wrap.clientWidth/scale, vpH = (wrap.clientHeight-44)/scale;
+  ctx.strokeStyle='#4f46e5'; ctx.lineWidth=1.5; ctx.setLineDash([2,2]);
+  ctx.strokeRect(
+    ox+(vpX-minX)*sc, oy+(vpY-minY)*sc,
+    vpW*sc, vpH*sc
+  );
+  ctx.setLineDash([]);
+}
+
+// Touch support
+wrap.addEventListener('touchstart', e=>{
+  if(e.touches.length===1){
+    const t=e.touches[0];
+    isPanning=true;
+    panStart={x:t.clientX,y:t.clientY};
+    panOrigin={x:panX,y:panY};
+  }
+},{passive:true});
+wrap.addEventListener('touchmove', e=>{
+  if(e.touches.length===1&&isPanning){
+    const t=e.touches[0];
+    panX=panOrigin.x+(t.clientX-panStart.x);
+    panY=panOrigin.y+(t.clientY-panStart.y);
+    applyTransform();
+  }
+},{passive:true});
+wrap.addEventListener('touchend',()=>{ isPanning=false; });
+
+// Init
+setTimeout(()=>{
+  Object.keys(SCHEMA).forEach(n=>{
+    const el=nodeEls[n];
+    if(el) nodeSize[n]={w:el.offsetWidth,h:el.offsetHeight};
+  });
+  drawRelations();
+  drawMinimap();
+  fitAll();
+},120);
+</script>
+</body>
+</html>
