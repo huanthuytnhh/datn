@@ -189,7 +189,7 @@ class ApiKey(Base, TimestampMixin):
     id:             Mapped[uuid.UUID]   = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id:      Mapped[uuid.UUID]   = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     key_hash:       Mapped[str]         = mapped_column(String(64), nullable=False)   # SHA-256 hash của key (không lưu plaintext)
-    prefix:         Mapped[str]         = mapped_column(String(16), nullable=False)   # 8 ký tự đầu + last 4 (để hiển thị)
+    prefix:         Mapped[str]         = mapped_column(String(32), nullable=False)   # display prefix
     name:           Mapped[str]         = mapped_column(String(200), nullable=False)
     status:         Mapped[ApiKeyStatus]= mapped_column(PGEnum(ApiKeyStatus, name="api_key_status"), default=ApiKeyStatus.ACTIVE, nullable=False)
     quota_limit:    Mapped[int]         = mapped_column(Integer, default=1000, nullable=False)
