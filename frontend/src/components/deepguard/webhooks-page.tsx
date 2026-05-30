@@ -1,39 +1,20 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Fragment, useState, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
+import { Icon } from '@/components/deepguard/shared';
+import { timeAgo } from '@/lib/dg';
+import {
+  webhooksList,
+  webhooksCreate,
+  webhooksUpdate,
+  webhooksDelete,
+  type WebhookOut,
+} from '@/lib/api';
 
 /* ──────────────────────────────────────────────
-   TYPES
+   EVENT CONFIG
    ────────────────────────────────────────────── */
-interface Webhook {
-  id: string;
-  url: string;
-  events: string[];
-  status: 'active' | 'paused';
-  lastDelivery: string;
-}
-
-/* ──────────────────────────────────────────────
-   MOCK DATA
-   ────────────────────────────────────────────── */
-const initialWebhooks: Webhook[] = [
-  {
-    id: '1',
-    url: 'https://vietbank.vn/api/webhooks/deepfake',
-    events: ['job.completed', 'job.failed'],
-    status: 'active',
-    lastDelivery: '5 phút trước',
-  },
-  {
-    id: '2',
-    url: 'https://staging.vietbank.vn/hooks/alerts',
-    events: ['quota.warning'],
-    status: 'paused',
-    lastDelivery: '2 ngày trước',
-  },
-];
-
 const availableEvents = [
   { value: 'job.completed', label: 'job.completed', color: '#2e7d32', bg: 'bg-green-50', border: 'border-green-200' },
   { value: 'job.failed', label: 'job.failed', color: '#ba1a1a', bg: 'bg-red-50', border: 'border-red-200' },
@@ -52,10 +33,17 @@ function getEventConfig(value: string) {
   return availableEvents.find((e) => e.value === value) ?? { value, label: value, color: '#64748b', bg: 'bg-slate-50', border: 'border-slate-200' };
 }
 
+/** Human-readable "last delivery" cell from a WebhookOut. */
+function lastDeliveryLabel(w: WebhookOut): string {
+  if (!w.last_delivery_at) return 'Chưa có';
+  const ago = timeAgo(w.last_delivery_at);
+  return w.last_delivery_status != null ? `${ago} · ${w.last_delivery_status}` : ago;
+}
+
 /* ──────────────────────────────────────────────
-   CONTAINER VARIANTS
+   ANIMATION VARIANTS
    ────────────────────────────────────────────── */
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
@@ -63,7 +51,7 @@ const containerVariants = {
   },
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0, transition: { type: 'tween', duration: 0.4, ease: 'easeOut' } },
 };
@@ -71,7 +59,13 @@ const itemVariants = {
 /* ──────────────────────────────────────────────
    ACTION MENU
    ────────────────────────────────────────────── */
-function ActionMenu({ webhookId, onAction }: { webhookId: string; onAction: (id: string, action: string) => void }) {
+function ActionMenu({
+  status,
+  onAction,
+}: {
+  status: 'active' | 'paused';
+  onAction: (action: 'edit' | 'toggle' | 'delete') => void;
+}) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -87,10 +81,12 @@ function ActionMenu({ webhookId, onAction }: { webhookId: string; onAction: (id:
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
-  const items = [
-    { label: 'Edit', icon: 'edit', color: 'text-slate-600' },
-    { label: 'Pause', icon: 'pause_circle', color: 'text-[#ed6c02]' },
-    { label: 'Delete', icon: 'delete', color: 'text-[#ba1a1a]' },
+  const items: { label: string; icon: string; color: string; action: 'edit' | 'toggle' | 'delete' }[] = [
+    { label: 'Edit', icon: 'edit', color: 'text-slate-600', action: 'edit' },
+    status === 'active'
+      ? { label: 'Pause', icon: 'pause_circle', color: 'text-[#ed6c02]', action: 'toggle' }
+      : { label: 'Activate', icon: 'play_circle', color: 'text-[#2e7d32]', action: 'toggle' },
+    { label: 'Delete', icon: 'delete', color: 'text-[#ba1a1a]', action: 'delete' },
   ];
 
   return (
@@ -100,9 +96,7 @@ function ActionMenu({ webhookId, onAction }: { webhookId: string; onAction: (id:
         className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors group"
         aria-label="Actions"
       >
-        <span className="material-symbols-outlined text-[18px] text-slate-400 group-hover:text-slate-600 transition-colors">
-          more_vert
-        </span>
+        <Icon name="more_vert" className="text-[18px] text-slate-400 group-hover:text-slate-600 transition-colors" />
       </button>
       <AnimatePresence>
         {open && (
@@ -118,12 +112,12 @@ function ActionMenu({ webhookId, onAction }: { webhookId: string; onAction: (id:
                 key={item.label}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onAction(webhookId, item.label.toLowerCase());
+                  onAction(item.action);
                   setOpen(false);
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold hover:bg-slate-50 transition-colors ${item.color} ${idx === items.length - 1 ? 'border-t border-slate-100 mt-1 pt-2.5' : ''}`}
               >
-                <span className="material-symbols-outlined text-[16px]">{item.icon}</span>
+                <Icon name={item.icon} className="text-[16px]" />
                 {item.label}
               </button>
             ))}
@@ -138,58 +132,98 @@ function ActionMenu({ webhookId, onAction }: { webhookId: string; onAction: (id:
    WEBHOOKS PAGE
    ────────────────────────────────────────────── */
 export default function WebhooksPage() {
-  const [webhooks, setWebhooks] = useState<Webhook[]>(initialWebhooks);
+  const [webhooks, setWebhooks] = useState<WebhookOut[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newEvents, setNewEvents] = useState<string[]>([]);
   const [newSecret, setNewSecret] = useState('');
-  const [testResult, setTestResult] = useState<Record<string, string>>({});
-  const [showEmpty, setShowEmpty] = useState(false);
 
-  const displayWebhooks = showEmpty ? [] : webhooks;
+  const loadWebhooks = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await webhooksList();
+      setWebhooks(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không tải được danh sách webhook');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const handleCreateWebhook = () => {
-    if (!newUrl.trim() || newEvents.length === 0) return;
+  useEffect(() => {
+    loadWebhooks();
+  }, [loadWebhooks]);
 
-    const newWebhook: Webhook = {
-      id: String(Date.now()),
-      url: newUrl.trim(),
-      events: [...newEvents],
-      status: 'active',
-      lastDelivery: 'Chưa có',
-    };
-
-    setWebhooks((prev) => [newWebhook, ...prev]);
+  const resetForm = () => {
     setNewUrl('');
     setNewEvents([]);
     setNewSecret('');
-    setShowCreateForm(false);
   };
 
-  const handleTestWebhook = (id: string) => {
-    const latency = Math.floor(Math.random() * 300) + 100;
-    const statusCodes = [200, 200, 200, 201, 200];
-    const code = statusCodes[Math.floor(Math.random() * statusCodes.length)];
-    setTestResult((prev) => ({
-      ...prev,
-      [id]: `✅ Delivered — ${code} OK — ${latency}ms`,
-    }));
+  const handleCreateWebhook = async () => {
+    if (!newUrl.trim() || newEvents.length === 0 || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await webhooksCreate(newUrl.trim(), [...newEvents], newSecret.trim() || undefined);
+      resetForm();
+      setShowCreateForm(false);
+      await loadWebhooks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Tạo webhook thất bại');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const handleAction = (id: string, action: string) => {
-    if (action === 'delete') {
-      setWebhooks((prev) => prev.filter((w) => w.id !== id));
-    } else if (action === 'pause') {
-      setWebhooks((prev) =>
-        prev.map((w) => (w.id === id ? { ...w, status: w.status === 'paused' ? 'active' as const : 'paused' as const } : w))
-      );
-    } else if (action === 'edit') {
-      const newUrlEdit = prompt('Nhập URL mới:');
-      if (newUrlEdit?.trim()) {
-        setWebhooks((prev) =>
-          prev.map((w) => (w.id === id ? { ...w, url: newUrlEdit.trim() } : w))
-        );
-      }
+  const handleToggleStatus = async (w: WebhookOut) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = w.status === 'active' ? 'paused' : 'active';
+      await webhooksUpdate(w.id, { status: next });
+      await loadWebhooks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Cập nhật trạng thái thất bại');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleEdit = async (w: WebhookOut) => {
+    if (busy) return;
+    const newUrlEdit = prompt('Nhập URL mới:', w.url);
+    if (!newUrlEdit?.trim() || newUrlEdit.trim() === w.url) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await webhooksUpdate(w.id, { url: newUrlEdit.trim() });
+      await loadWebhooks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Cập nhật URL thất bại');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (w: WebhookOut) => {
+    if (busy) return;
+    if (!confirm('Xóa webhook này?')) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await webhooksDelete(w.id);
+      await loadWebhooks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Xóa webhook thất bại');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -212,28 +246,37 @@ export default function WebhooksPage() {
       <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-slate-900 flex items-center gap-3">
-            <span className="material-symbols-outlined text-[28px] text-[#0050cb]">webhook</span>
+            <Icon name="webhook" className="text-[28px] text-[#0050cb]" />
             Webhooks
           </h1>
           <p className="text-sm text-slate-500 mt-1">Quản lý webhook endpoints cho hệ thống</p>
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowEmpty((prev) => !prev)}
-            className="px-3 py-2 text-[10px] font-bold text-slate-400 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors uppercase tracking-wider"
-            title="Toggle empty state (demo)"
-          >
-            {showEmpty ? 'Show Data' : 'Empty Demo'}
-          </button>
-          <button
-            onClick={() => { setShowCreateForm((prev) => !prev); setNewUrl(''); setNewEvents([]); setNewSecret(''); }}
+            onClick={() => { setShowCreateForm((prev) => !prev); resetForm(); }}
             className="px-5 py-2.5 bg-[#0050cb] text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-[#0050cb]/20 hover:shadow-xl hover:shadow-[#0050cb]/30 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
           >
-            <span className="material-symbols-outlined text-[16px]">add</span>
+            <Icon name="add" className="text-[16px]" />
             Thêm webhook
           </button>
         </div>
       </motion.div>
+
+      {/* ══════════════════════════════════════
+          ERROR BANNER
+          ══════════════════════════════════════ */}
+      {error && (
+        <motion.div variants={itemVariants} className="glass-panel rounded-xl px-5 py-3 border border-red-200 bg-red-50/60 flex items-center gap-3">
+          <Icon name="error" className="text-[18px] text-[#ba1a1a]" />
+          <span className="text-[12px] font-semibold text-[#ba1a1a]">{error}</span>
+          <button
+            onClick={loadWebhooks}
+            className="ml-auto px-3 py-1.5 text-[10px] font-bold text-[#ba1a1a] bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+          >
+            Thử lại
+          </button>
+        </motion.div>
+      )}
 
       {/* ══════════════════════════════════════
           CREATE FORM
@@ -249,7 +292,7 @@ export default function WebhooksPage() {
             <div className="glass-panel rounded-2xl p-6 shadow-md border border-white/60">
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-[#0050cb]/5 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-[20px] text-[#0050cb]">add_circle</span>
+                  <Icon name="add_circle" className="text-[20px] text-[#0050cb]" />
                 </div>
                 <div>
                   <h2 className="text-base font-black text-slate-900">Tạo Webhook mới</h2>
@@ -303,7 +346,7 @@ export default function WebhooksPage() {
                           style={{ color: newEvents.includes(evt.value) ? evt.color : undefined }}
                         >
                           {newEvents.includes(evt.value) && (
-                            <span className="material-symbols-outlined text-[12px]">check</span>
+                            <Icon name="check" className="text-[12px]" />
                           )}
                         </span>
                         <span
@@ -343,10 +386,10 @@ export default function WebhooksPage() {
                   </button>
                   <button
                     onClick={handleCreateWebhook}
-                    disabled={!newUrl.trim() || newEvents.length === 0}
+                    disabled={!newUrl.trim() || newEvents.length === 0 || busy}
                     className="px-6 py-2.5 bg-[#0050cb] text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-[#0050cb]/20 hover:shadow-xl hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                   >
-                    <span className="material-symbols-outlined text-[14px]">add</span>
+                    <Icon name={busy ? 'progress_activity' : 'add'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
                     Tạo webhook
                   </button>
                 </div>
@@ -357,22 +400,32 @@ export default function WebhooksPage() {
       </AnimatePresence>
 
       {/* ══════════════════════════════════════
+          LOADING STATE
+          ══════════════════════════════════════ */}
+      {loading && (
+        <motion.div variants={itemVariants} className="glass-panel rounded-2xl p-12 shadow-md border border-white/60 text-center">
+          <Icon name="progress_activity" className="text-[40px] text-[#0050cb] animate-spin mx-auto mb-4" />
+          <p className="text-sm text-slate-400 font-medium">Đang tải danh sách webhook…</p>
+        </motion.div>
+      )}
+
+      {/* ══════════════════════════════════════
           EMPTY STATE
           ══════════════════════════════════════ */}
-      {displayWebhooks.length === 0 && (
+      {!loading && !error && webhooks.length === 0 && (
         <motion.div variants={itemVariants} className="glass-panel rounded-2xl p-12 shadow-md border border-white/60 text-center">
           <div className="w-20 h-20 rounded-2xl bg-[#0050cb]/5 flex items-center justify-center mx-auto mb-5">
-            <span className="material-symbols-outlined text-[40px] text-[#0050cb]/30">webhook</span>
+            <Icon name="webhook" className="text-[40px] text-[#0050cb]/30" />
           </div>
           <h3 className="text-lg font-black text-slate-800 mb-2">Chưa có webhook nào</h3>
           <p className="text-sm text-slate-400 mb-6 max-w-sm mx-auto">
             Thêm webhook đầu tiên để nhận thông báo real-time khi có sự kiện trong hệ thống DeepGuard.
           </p>
           <button
-            onClick={() => { setShowCreateForm(true); setNewUrl(''); setNewEvents([]); setNewSecret(''); }}
+            onClick={() => { setShowCreateForm(true); resetForm(); }}
             className="px-6 py-3 bg-[#0050cb] text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-[#0050cb]/20 hover:shadow-xl hover:scale-[1.03] active:scale-[0.97] transition-all inline-flex items-center gap-2"
           >
-            <span className="material-symbols-outlined text-[16px]">add</span>
+            <Icon name="add" className="text-[16px]" />
             Thêm webhook đầu tiên
           </button>
         </motion.div>
@@ -381,7 +434,7 @@ export default function WebhooksPage() {
       {/* ══════════════════════════════════════
           WEBHOOK LIST TABLE
           ══════════════════════════════════════ */}
-      {displayWebhooks.length > 0 && (
+      {!loading && webhooks.length > 0 && (
         <motion.div variants={itemVariants} className="glass-panel rounded-2xl shadow-md border border-white/60 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px]">
@@ -395,83 +448,78 @@ export default function WebhooksPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {displayWebhooks.map((webhook) => (
-                  <>
-                    <tr
-                      key={webhook.id}
-                      className="hover:bg-[#0050cb]/[0.02] transition-colors group"
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-[#0050cb]/5 flex items-center justify-center shrink-0 group-hover:bg-[#0050cb]/10 transition-colors">
-                            <span className="material-symbols-outlined text-[16px] text-[#0050cb]">webhook</span>
-                          </div>
-                          <code className="text-[12px] font-mono font-semibold text-slate-700" title={webhook.url}>
-                            {truncateUrl(webhook.url)}
-                          </code>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex flex-wrap gap-1.5">
-                          {webhook.events.map((evt) => {
-                            const config = getEventConfig(evt);
-                            return (
-                              <span
-                                key={evt}
-                                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black tracking-wider border ${config.bg} ${config.border}`}
-                                style={{ color: config.color }}
-                              >
-                                {config.label}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        {webhook.status === 'active' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border bg-green-50 text-[#2e7d32] border-green-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#2e7d32] animate-pulse" />
-                            Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border bg-amber-50 text-[#ed6c02] border-amber-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#ed6c02]" />
-                            Paused
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className="text-[11px] text-slate-500 font-medium">{webhook.lastDelivery}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleTestWebhook(webhook.id)}
-                            className="px-3 py-1.5 text-[10px] font-bold text-[#0050cb] bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1"
-                          >
-                            <span className="material-symbols-outlined text-[12px]">send</span>
-                            Test
-                          </button>
-                          <ActionMenu webhookId={webhook.id} onAction={handleAction} />
-                        </div>
-                      </td>
-                    </tr>
-                    {/* Test result row */}
-                    {testResult[webhook.id] && (
-                      <tr key={`${webhook.id}-test`}>
-                        <td colSpan={5} className="px-6 py-0">
-                          <div className="mx-6 mb-3 mt-1 p-3 bg-green-50/60 rounded-xl border border-green-100">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[12px] font-bold text-[#2e7d32]">
-                                {testResult[webhook.id]}
-                              </span>
+                {webhooks.map((webhook) => {
+                  const isActive = webhook.status === 'active';
+                  return (
+                    <Fragment key={webhook.id}>
+                      <tr className="hover:bg-[#0050cb]/[0.02] transition-colors group">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-[#0050cb]/5 flex items-center justify-center shrink-0 group-hover:bg-[#0050cb]/10 transition-colors">
+                              <Icon name="webhook" className="text-[16px] text-[#0050cb]" />
                             </div>
+                            <code className="text-[12px] font-mono font-semibold text-slate-700" title={webhook.url}>
+                              {truncateUrl(webhook.url)}
+                            </code>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-wrap gap-1.5">
+                            {webhook.events.map((evt) => {
+                              const config = getEventConfig(evt);
+                              return (
+                                <span
+                                  key={evt}
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black tracking-wider border ${config.bg} ${config.border}`}
+                                  style={{ color: config.color }}
+                                >
+                                  {config.label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          {isActive ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border bg-green-50 text-[#2e7d32] border-green-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#2e7d32] animate-pulse" />
+                              Active
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border bg-amber-50 text-[#ed6c02] border-amber-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#ed6c02]" />
+                              Paused
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="text-[11px] text-slate-500 font-medium">{lastDeliveryLabel(webhook)}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              disabled
+                              title="Test delivery — sắp có"
+                              className="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed flex items-center gap-1"
+                            >
+                              <Icon name="send" className="text-[12px]" />
+                              Test
+                              <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-500 text-[8px] tracking-wider">SẮP CÓ</span>
+                            </button>
+                            <ActionMenu
+                              status={isActive ? 'active' : 'paused'}
+                              onAction={(action) => {
+                                if (action === 'edit') handleEdit(webhook);
+                                else if (action === 'toggle') handleToggleStatus(webhook);
+                                else if (action === 'delete') handleDelete(webhook);
+                              }}
+                            />
                           </div>
                         </td>
                       </tr>
-                    )}
-                  </>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -479,7 +527,7 @@ export default function WebhooksPage() {
           {/* Table Footer */}
           <div className="px-6 py-3 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
             <span className="text-[11px] text-slate-400 font-medium">
-              {displayWebhooks.length} webhook{displayWebhooks.length !== 1 ? 's' : ''}
+              {webhooks.length} webhook{webhooks.length !== 1 ? 's' : ''}
             </span>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#2e7d32] animate-pulse" />
