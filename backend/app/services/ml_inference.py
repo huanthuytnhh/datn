@@ -64,6 +64,7 @@ class InferenceResult:
     image_width: Optional[int]
     image_height: Optional[int]
     image_hash: str
+    image_thumb: Optional[str] = None  # base64 JPEG data URL of input
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -497,7 +498,69 @@ def _real_inference(image_bytes: bytes) -> InferenceResult:
         image_width=width,
         image_height=height,
         image_hash=image_hash,
+        image_thumb=_encode_image_thumb(image_bytes),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Frame thumbnail helpers (server-side, uses OpenCV — works for any codec)
+# ─────────────────────────────────────────────────────────────────────────────
+def _encode_image_thumb(image_bytes: bytes, max_dim: int = 320, quality: int = 80) -> Optional[str]:
+    """PIL-based thumbnail encoder for input image bytes — works without cv2."""
+    import base64
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return None
+
+
+def _encode_thumb_bgr(frame_bgr: np.ndarray, max_dim: int = 240, quality: int = 75) -> str:
+    """Resize a BGR frame and encode as base64 JPEG data URL."""
+    import cv2
+    import base64
+    h, w = frame_bgr.shape[:2]
+    scale = min(max_dim / max(w, 1), max_dim / max(h, 1), 1.0)
+    if scale < 1.0:
+        frame_bgr = cv2.resize(frame_bgr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+    if not ok:
+        return ""
+    return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
+
+
+def _extract_thumbs_for_ids(video_bytes: bytes, wanted_ids: list[int], max_dim: int = 240) -> dict[int, str]:
+    """Open video once, walk frames, encode only the requested frame IDs."""
+    import cv2
+    import tempfile
+    import os
+    wanted = set(wanted_ids)
+    if not wanted:
+        return {}
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        f.write(video_bytes)
+        tmp_path = f.name
+    thumbs: dict[int, str] = {}
+    try:
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            return {}
+        fid = 0
+        max_id = max(wanted)
+        while fid <= max_id:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if fid in wanted:
+                thumbs[fid] = _encode_thumb_bgr(frame, max_dim)
+            fid += 1
+        cap.release()
+    finally:
+        os.unlink(tmp_path)
+    return thumbs
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -543,6 +606,7 @@ def _real_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
                         "frame_id": frame_id,
                         "prob_fake": preds["prob_fake"],
                         "prob_cnn":  preds["prob_cnn"],
+                        "thumb":     _encode_thumb_bgr(frame),
                     })
             frame_id += 1
         cap.release()
@@ -590,6 +654,15 @@ def _mock_inference(image_bytes: bytes) -> InferenceResult:
 
     verdict, confidence = _verdict_from_prob(prob_fake, settings.MODEL_THRESHOLD)
 
+    thumb = _encode_image_thumb(image_bytes)
+    # Try to read real dimensions from the input
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as im:
+            w, h = im.size
+    except Exception:
+        w = rng.choice([640, 720, 1280])
+        h = rng.choice([480, 540, 720])
+
     return InferenceResult(
         verdict=verdict,
         confidence=confidence,
@@ -601,18 +674,44 @@ def _mock_inference(image_bytes: bytes) -> InferenceResult:
         face_detected=True,
         processing_time_ms=rng.randint(50, 250),
         model_version=settings.MODEL_VERSION,
-        image_width=rng.choice([640, 720, 1280]),
-        image_height=rng.choice([480, 540, 720]),
+        image_width=w,
+        image_height=h,
         image_hash=image_hash,
+        image_thumb=thumb,
     )
 
 
-def _mock_inference_video(video_bytes: bytes) -> dict:
+def _mock_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
     image_hash = hashlib.sha256(video_bytes).hexdigest()
     seed = int(image_hash[:8], 16)
     rng  = random.Random(seed)
-    n    = rng.randint(10, 30)
-    fake_probs = [rng.uniform(0.05, 0.95) for _ in range(n)]
+
+    # Try to read actual frame count so we can extract real thumbnails
+    try:
+        import cv2
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+            f.write(video_bytes)
+            tmp_path = f.name
+        try:
+            cap = cv2.VideoCapture(tmp_path)
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if cap.isOpened() else 0
+            cap.release()
+        finally:
+            os.unlink(tmp_path)
+    except Exception:
+        total = 0
+
+    if total > 0:
+        frame_ids = list(range(0, total, max(sample_rate, 1)))[:30]
+        thumbs    = _extract_thumbs_for_ids(video_bytes, frame_ids)
+    else:
+        n = rng.randint(10, 30)
+        frame_ids = [i * sample_rate for i in range(n)]
+        thumbs    = {}
+
+    fake_probs = [rng.uniform(0.05, 0.95) for _ in frame_ids]
     avg_prob   = float(np.mean(fake_probs))
     verdict, confidence = _verdict_from_prob(avg_prob, settings.MODEL_THRESHOLD)
     n_fake = sum(1 for p in fake_probs if p >= settings.MODEL_THRESHOLD)
@@ -620,9 +719,12 @@ def _mock_inference_video(video_bytes: bytes) -> dict:
         "verdict":        verdict,
         "confidence":     confidence,
         "prob_fake":      round(avg_prob, 4),
-        "frames_analyzed": n,
+        "frames_analyzed": len(frame_ids),
         "frames_fake":    n_fake,
-        "frame_results":  [{"frame_id": i * 3, "prob_fake": round(p, 4)} for i, p in enumerate(fake_probs)],
+        "frame_results":  [
+            {"frame_id": fid, "prob_fake": round(p, 4), "thumb": thumbs.get(fid, "")}
+            for fid, p in zip(frame_ids, fake_probs)
+        ],
     }
 
 
@@ -637,5 +739,5 @@ async def run_inference(image_bytes: bytes) -> InferenceResult:
 
 async def run_video_inference(video_bytes: bytes, sample_rate: int = 3) -> dict:
     if settings.MOCK_ML or not settings.MODEL_PATH:
-        return _mock_inference_video(video_bytes)
+        return _mock_inference_video(video_bytes, sample_rate)
     return _real_inference_video(video_bytes, sample_rate)

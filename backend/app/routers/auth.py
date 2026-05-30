@@ -62,3 +62,34 @@ async def me(current_user: User = Depends(get_current_user), db: AsyncSession = 
         user=UserOut.model_validate(current_user),
         tenant=TenantOut.model_validate(tenant),
     )
+
+
+@router.post("/logout", status_code=204)
+async def logout(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Logout — stateless JWT, client phải tự xóa token.
+    Endpoint này chỉ ghi audit log để compliance trace.
+    """
+    await crud.write_audit_log(
+        db,
+        action="user.logout",
+        resource_type="user",
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.id,
+        resource_id=current_user.id,
+    )
+    await db.commit()
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    current_user: User = Depends(get_current_user),
+):
+    """Cấp lại access token mới với expiry mới (cho long-lived sessions)."""
+    if not current_user.is_active:
+        raise unauthorized("Account is disabled")
+    token = create_access_token({"sub": str(current_user.id)})
+    return TokenResponse(access_token=token)

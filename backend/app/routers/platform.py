@@ -1,0 +1,116 @@
+"""
+Platform Console — sysadmin-only, cross-tenant endpoints (DeepGuard Ops).
+
+These intentionally do NOT filter by tenant_id; access is gated by require_sysadmin.
+"""
+
+import uuid
+from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from deepguard_db.app.db.database import get_db
+from deepguard_db.app.db import crud
+from deepguard_db.app.db.models import User, TenantPlan, TenantStatus
+
+from app.core.exceptions import bad_request, not_found
+from app.dependencies import require_sysadmin
+from app.schemas.common import Paginated
+
+router = APIRouter(tags=["platform"])
+
+
+class TenantListItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    plan: str
+    status: str
+    monthly_quota: int
+    current_usage: int
+    user_count: int
+    created_at: datetime
+
+
+class PlatformOverview(BaseModel):
+    total_tenants: int
+    active_tenants: int
+    total_users: int
+    total_requests: int
+    fake_detected: int
+    fake_rate: float
+    avg_latency_ms: int
+
+
+class UpdateTenantAdminRequest(BaseModel):
+    status: Optional[str] = None
+    plan: Optional[str] = None
+    monthly_quota: Optional[int] = None
+
+
+@router.get("/tenants", response_model=Paginated[TenantListItem])
+async def list_all_tenants(
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: User = Depends(require_sysadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """List ALL tenants across the platform (sysadmin only)."""
+    items, total = await crud.list_all_tenants(db, page=page, limit=limit)
+    return Paginated(
+        items=[TenantListItem(**item) for item in items],
+        total=total,
+        page=page,
+        limit=limit,
+    )
+
+
+@router.patch("/tenants/{tenant_id}", response_model=TenantListItem)
+async def update_tenant_admin(
+    tenant_id: uuid.UUID,
+    body: UpdateTenantAdminRequest,
+    current_user: User = Depends(require_sysadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a tenant's status | plan | monthly_quota (sysadmin only)."""
+    if body.status is not None and body.status not in {s.value for s in TenantStatus}:
+        raise bad_request(f"Invalid status: {body.status}")
+    if body.plan is not None and body.plan not in {p.value for p in TenantPlan}:
+        raise bad_request(f"Invalid plan: {body.plan}")
+    if body.monthly_quota is not None and body.monthly_quota < 0:
+        raise bad_request("monthly_quota must be >= 0")
+
+    tenant = await crud.update_tenant_admin(
+        db, tenant_id,
+        status=body.status, plan=body.plan, monthly_quota=body.monthly_quota,
+    )
+    if not tenant:
+        raise not_found("Tenant")
+    await db.commit()
+    await db.refresh(tenant)
+
+    user_count = await crud.tenant_user_count(db, tenant.id)
+
+    return TenantListItem(
+        id=tenant.id,
+        name=tenant.name,
+        plan=tenant.plan.value,
+        status=tenant.status.value,
+        monthly_quota=tenant.monthly_quota,
+        current_usage=tenant.current_usage,
+        user_count=user_count,
+        created_at=tenant.created_at,
+    )
+
+
+@router.get("/platform/overview", response_model=PlatformOverview)
+async def platform_overview(
+    days: int = Query(default=30, ge=1, le=365),
+    current_user: User = Depends(require_sysadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cross-tenant aggregate metrics for the Platform Console (sysadmin only)."""
+    data = await crud.platform_overview(db, days=days)
+    return PlatformOverview(**data)

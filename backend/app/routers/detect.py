@@ -57,6 +57,7 @@ async def detect_image(
         image_hash=result.image_hash,
         image_width=result.image_width,
         image_height=result.image_height,
+        image_thumb=result.image_thumb,
         processing_time_ms=result.processing_time_ms,
         model_version=result.model_version,
         user_agent=request.headers.get("user-agent"),

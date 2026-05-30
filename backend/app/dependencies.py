@@ -74,3 +74,26 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role not in ("admin", "sysadmin"):
         raise forbidden("Admin access required")
     return current_user
+
+
+def require_role(*roles: str):
+    """Dependency factory: chỉ cho phép các role chỉ định.
+
+    Dùng: ``user: User = Depends(require_role("admin", "sysadmin"))``.
+    So sánh theo .value để chấp nhận cả str lẫn UserRole enum.
+    """
+    allowed = {r.value if hasattr(r, "value") else str(r) for r in roles}
+
+    async def _dep(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role.value not in allowed:
+            raise forbidden(f"Requires role: {', '.join(sorted(allowed))}")
+        return current_user
+
+    return _dep
+
+
+async def require_sysadmin(current_user: User = Depends(get_current_user)) -> User:
+    """Chỉ DeepGuard Ops (xuyên tenant)."""
+    if current_user.role.value != "sysadmin":
+        raise forbidden("System admin access required")
+    return current_user

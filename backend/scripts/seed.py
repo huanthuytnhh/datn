@@ -30,6 +30,7 @@ sys.path.insert(0, _backend)
 from dotenv import load_dotenv
 load_dotenv(os.path.join(_backend, ".env"))
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from passlib.context import CryptContext
 
@@ -116,24 +117,24 @@ def _detection(
 # ─────────────────────────────────────────────────────────────────────────────
 TENANTS_DEF = [
     {
-        "name": "Vietcombank Digital",
-        "admin_email": "admin@vietcombank.com.vn",
-        "billing_email": "billing@vietcombank.com.vn",
+        "name": "FPT Bank Digital",
+        "admin_email": "admin@fptbank.vn",
+        "billing_email": "billing@fptbank.vn",
         "plan": TenantPlan.ENTERPRISE,
         "monthly_quota": 50000,
         "current_usage": 12430,
-        "metadata_": {"industry": "banking", "tier": "state-owned", "city": "Ha Noi"},
+        "metadata_": {"industry": "banking", "tier": "private", "city": "Ha Noi"},
         "users": [
-            {"email": "nguyen.van.an@vietcombank.com.vn",   "name": "Nguyen Van An",   "role": UserRole.ADMIN},
-            {"email": "tran.thi.bich@vietcombank.com.vn",   "name": "Tran Thi Bich",   "role": UserRole.DEVELOPER},
-            {"email": "le.van.cuong@vietcombank.com.vn",    "name": "Le Van Cuong",    "role": UserRole.COMPLIANCE},
-            {"email": "pham.hong.duc@vietcombank.com.vn",   "name": "Pham Hong Duc",   "role": UserRole.DEVELOPER},
+            {"email": "tran.van.son@fptbank.vn",   "name": "Tran Van Son",   "role": UserRole.ADMIN},
+            {"email": "nguyen.thi.mai@fptbank.vn", "name": "Nguyen Thi Mai", "role": UserRole.DEVELOPER},
+            {"email": "le.minh.tuan@fptbank.vn",   "name": "Le Minh Tuan",   "role": UserRole.COMPLIANCE},
+            {"email": "pham.hong.duc@fptbank.vn",  "name": "Pham Hong Duc",  "role": UserRole.DEVELOPER},
         ],
         "api_keys": [
-            {"name": "VCB Production Key", "quota_limit": 30000, "rate_limit_rpm": 120},
-            {"name": "VCB Testing Key",    "quota_limit": 5000,  "rate_limit_rpm": 60},
+            {"name": "FPT Production Key", "quota_limit": 30000, "rate_limit_rpm": 120},
+            {"name": "FPT Testing Key",    "quota_limit": 5000,  "rate_limit_rpm": 60},
         ],
-        "webhook_url": "https://api.vietcombank.com.vn/deepguard/webhook",
+        "webhook_url": "https://api.fptbank.vn/deepguard/webhook",
         "ips": ["14.161.24.10", "14.161.24.11", "14.161.24.12"],
     },
     {
@@ -196,6 +197,29 @@ TENANTS_DEF = [
         "ips": ["103.90.220.5"],
     },
 ]
+
+# ── Role-based demo login users (idempotent) ─────────────────────────────────
+# One demo user per role for testing role-based login. The tenant-scoped roles
+# live in the same demo tenant; sysadmin lives there too (role is what matters).
+DEMO_TENANT_DEF = {
+    "name": "VietBank Demo",
+    "admin_email": "admin@vietbank.vn",
+    "billing_email": "billing@vietbank.vn",
+    "plan": TenantPlan.ENTERPRISE,
+    "monthly_quota": 50000,
+    "current_usage": 0,
+    "metadata_": {"industry": "banking", "tier": "demo", "city": "Ha Noi"},
+}
+
+DEMO_USERS_DEF = [
+    {"email": "sysadmin@deepguard.vn",  "name": "System Admin",       "role": UserRole.SYSADMIN},
+    {"email": "admin@vietbank.vn",      "name": "Tenant Admin",       "role": UserRole.ADMIN},
+    {"email": "dev@vietbank.vn",        "name": "Developer",          "role": UserRole.DEVELOPER},
+    {"email": "compliance@vietbank.vn", "name": "Compliance Officer", "role": UserRole.COMPLIANCE},
+    {"email": "viewer@vietbank.vn",     "name": "Viewer",             "role": UserRole.VIEWER},
+]
+DEMO_PASSWORD = "Password123!"
+
 
 MODEL_VERSIONS_DEF = [
     {
@@ -433,10 +457,82 @@ async def print_summary(seeded: list[dict]) -> None:
     print("  ly.van.nam@vpbank.com.vn           /  DeepGuard@2024  (ADMIN)")
 
 
+async def seed_demo_role_users(db: AsyncSession) -> None:
+    """Idempotently ensure one demo login user per role exists.
+
+    Safe to re-run: finds-or-creates the demo tenant, then upserts each user by
+    (email, tenant_id) — the unique constraint on the users table.
+    """
+    print("\n  → Seeding role-based demo login users...")
+    demo_hash = pwd_ctx.hash(DEMO_PASSWORD)
+
+    # ── Find-or-create demo tenant ──────────────────────────────────────────
+    tenant = (
+        await db.execute(
+            select(Tenant).where(Tenant.name == DEMO_TENANT_DEF["name"])
+        )
+    ).scalar_one_or_none()
+
+    if tenant is None:
+        tenant = Tenant(
+            name=DEMO_TENANT_DEF["name"],
+            admin_email=DEMO_TENANT_DEF["admin_email"],
+            billing_email=DEMO_TENANT_DEF["billing_email"],
+            plan=DEMO_TENANT_DEF["plan"],
+            status=TenantStatus.ACTIVE,
+            monthly_quota=DEMO_TENANT_DEF["monthly_quota"],
+            current_usage=DEMO_TENANT_DEF["current_usage"],
+            metadata_=DEMO_TENANT_DEF["metadata_"],
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(tenant)
+        await db.flush()
+        print(f"    ✓ Created demo tenant: {tenant.name}")
+    else:
+        print(f"    ✓ Demo tenant exists: {tenant.name}")
+
+    # ── Upsert each demo user ───────────────────────────────────────────────
+    for u_def in DEMO_USERS_DEF:
+        user = (
+            await db.execute(
+                select(User).where(
+                    User.email == u_def["email"],
+                    User.tenant_id == tenant.id,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if user is None:
+            user = User(
+                tenant_id=tenant.id,
+                email=u_def["email"],
+                name=u_def["name"],
+                password_hash=demo_hash,
+                role=u_def["role"],
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(user)
+            print(f"      + created  {u_def['email']:<24} ({u_def['role'].value})")
+        else:
+            # Keep idempotent but ensure role/name/password stay in sync.
+            user.name = u_def["name"]
+            user.role = u_def["role"]
+            user.password_hash = demo_hash
+            user.is_active = True
+            user.updated_at = now
+            print(f"      = exists   {u_def['email']:<24} ({u_def['role'].value})")
+
+    await db.flush()
+    print(f"    ✓ {len(DEMO_USERS_DEF)} demo role users ready (password: {DEMO_PASSWORD})")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
-async def main(drop: bool = False) -> None:
+async def main(drop: bool = False, full: bool = False) -> None:
     if drop:
         print("⚠ Dropping all tables...")
         async with engine.begin() as conn:
@@ -448,14 +544,28 @@ async def main(drop: bool = False) -> None:
         await conn.run_sync(Base.metadata.create_all)
     print("✓ Tables ready\n")
 
+    # The bulk tenant/detection seed is NOT idempotent — it always inserts new
+    # rows. Only run it on a fresh DB (--drop/--reset) or when explicitly asked
+    # (--full), so the default invocation stays safe to re-run.
+    run_bulk = drop or full
+
     print("Seeding data...")
     async with SessionLocal() as db:
         try:
-            await seed_model_versions(db)
-            seeded = await seed_tenants(db)
+            seeded = []
+            if run_bulk:
+                await seed_model_versions(db)
+                seeded = await seed_tenants(db)
+            else:
+                print("  → Skipping bulk tenant seed (idempotent mode; use --full or --drop to include it)")
+
+            # Always ensure role-based demo login users exist (idempotent).
+            await seed_demo_role_users(db)
+
             await db.commit()
             print("\n✓ Seed completed successfully!")
-            await print_summary(seeded)
+            if seeded:
+                await print_summary(seeded)
         except Exception as exc:
             await db.rollback()
             print(f"\n✗ Seed failed: {exc}")
@@ -464,4 +574,5 @@ async def main(drop: bool = False) -> None:
 
 if __name__ == "__main__":
     drop = "--drop" in sys.argv or "--reset" in sys.argv
-    asyncio.run(main(drop=drop))
+    full = "--full" in sys.argv
+    asyncio.run(main(drop=drop, full=full))

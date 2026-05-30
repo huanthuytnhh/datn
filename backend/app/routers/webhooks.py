@@ -9,7 +9,7 @@ from deepguard_db.app.db.database import get_db
 from deepguard_db.app.db.models import User, Webhook
 from deepguard_db.app.db import crud
 
-from app.dependencies import get_current_user
+from app.dependencies import require_role
 from app.schemas.webhooks import CreateWebhookRequest, UpdateWebhookRequest, WebhookOut
 from app.core.exceptions import not_found
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 @router.post("", response_model=WebhookOut, status_code=201)
 async def create_webhook(
     body: CreateWebhookRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("admin", "developer")),
     db: AsyncSession = Depends(get_db),
 ):
     webhook = Webhook(
@@ -36,7 +36,7 @@ async def create_webhook(
 
 @router.get("", response_model=List[WebhookOut])
 async def list_webhooks(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("admin", "developer")),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -49,7 +49,7 @@ async def list_webhooks(
 async def update_webhook(
     webhook_id: uuid.UUID,
     body: UpdateWebhookRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("admin", "developer")),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -77,7 +77,7 @@ async def update_webhook(
 @router.delete("/{webhook_id}", status_code=204)
 async def delete_webhook(
     webhook_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("admin", "developer")),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
