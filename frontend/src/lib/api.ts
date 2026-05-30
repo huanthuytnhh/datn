@@ -67,7 +67,7 @@ export interface Paginated<T> { items: T[]; total: number; page: number; limit: 
 
 export const detectionsList = (params?: {
   verdict?: string; page?: number; limit?: number;
-  start_date?: string; end_date?: string;
+  start_date?: string; end_date?: string; api_key_id?: string;
 }) => {
   const qs = new URLSearchParams();
   if (params?.verdict) qs.set("verdict", params.verdict);
@@ -75,7 +75,148 @@ export const detectionsList = (params?: {
   if (params?.limit) qs.set("limit", String(params.limit));
   if (params?.start_date) qs.set("start_date", params.start_date);
   if (params?.end_date) qs.set("end_date", params.end_date);
+  if (params?.api_key_id) qs.set("api_key_id", params.api_key_id);
   return req<Paginated<DetectionListItem>>(`/detections?${qs}`);
+};
+
+export interface AuditNote {
+  note: string; author_email: string; author_id: string; created_at: string;
+}
+export interface DetectionDetail {
+  request_id: string; verdict: string; confidence: number; prob_fake: number;
+  prob_cnn: number; spatial_score: number | null; frequency_score: number | null;
+  threshold_used: number; image_hash: string;
+  image_width: number | null; image_height: number | null;
+  image_thumb: string | null;
+  heatmap_url: string | null;
+  processing_time_ms: number; model_version: string;
+  user_agent: string | null; ip_address: string | null;
+  audit_notes: AuditNote[]; created_at: string;
+  api_key_id: string; api_key_prefix: string | null; api_key_name: string | null;
+  tenant_name: string | null;
+}
+
+export const detectionsGet = (requestId: string) =>
+  req<DetectionDetail>(`/detections/${requestId}`);
+
+export const detectionsAddNote = (requestId: string, note: string) =>
+  req<DetectionDetail>(`/detections/${requestId}/notes`, {
+    method: "POST", body: JSON.stringify({ note }),
+  });
+
+// ── Audit logs ───────────────────────────────────────────────────────────────
+export interface AuditLogItem {
+  id: number;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  user_id: string | null;
+  user_email: string | null;
+  metadata: Record<string, unknown>;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+// ── Liveness (anti-spoofing) ─────────────────────────────────────────────────
+export interface LivenessResponse {
+  check_id: string;
+  verdict: string;                  // LIVE | SPOOF | UNCERTAIN
+  liveness_score: number;           // 0-1
+  confidence: number;               // 0-100
+  spoof_type: string | null;        // print | screen | mask_3d | deepfake | unknown
+  threshold_used: number;
+  mode: string;                     // passive | active
+  challenge_type: string | null;
+  challenge_passed: boolean | null;
+  frame_count: number;
+  processing_time_ms: number;
+  model_version: string;
+  image_width: number | null;
+  image_height: number | null;
+  created_at: string;
+}
+
+export interface LivenessDetail extends LivenessResponse {
+  image_thumb: string | null;
+  image_hash: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  api_key_id: string;
+  api_key_prefix: string | null;
+  api_key_name: string | null;
+  tenant_name: string | null;
+}
+
+export interface LivenessChallenge {
+  challenge_id: string;
+  challenge_type: string;
+  instructions: string;
+  expires_at: string;
+}
+
+export const detectLivenessPassive = (file: File, apiKey: string) => {
+  const form = new FormData();
+  form.append("file", file);
+  return req<LivenessResponse>("/v1/detect/liveness", { method: "POST", body: form }, apiKey);
+};
+
+export const livenessGetChallenge = (apiKey: string) =>
+  req<LivenessChallenge>("/v1/liveness/challenge", {}, apiKey);
+
+export const detectLivenessActive = (
+  frames: File[],
+  challengeType: string,
+  challengePassed: boolean,
+  apiKey: string,
+) => {
+  const form = new FormData();
+  for (const f of frames) form.append("files", f);
+  form.append("challenge_type", challengeType);
+  form.append("challenge_passed", String(challengePassed));
+  return req<LivenessResponse>("/v1/detect/liveness/active", { method: "POST", body: form }, apiKey);
+};
+
+export interface LivenessListItem {
+  check_id: string;
+  verdict: string;
+  liveness_score: number;
+  confidence: number;
+  spoof_type: string | null;
+  mode: string;
+  processing_time_ms: number;
+  model_version: string;
+  created_at: string;
+}
+
+export const livenessList = (params?: {
+  verdict?: string; mode?: string; page?: number; limit?: number;
+}) => {
+  const qs = new URLSearchParams();
+  if (params?.verdict) qs.set("verdict", params.verdict);
+  if (params?.mode) qs.set("mode", params.mode);
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  return req<Paginated<LivenessListItem>>(`/liveness?${qs}`);
+};
+
+export const livenessGet = (checkId: string) =>
+  req<LivenessDetail>(`/liveness/${checkId}`);
+
+// ── Audit ────────────────────────────────────────────────────────────────────
+export const auditLogsList = (params?: {
+  action?: string; resource_type?: string;
+  start_date?: string; end_date?: string;
+  page?: number; limit?: number;
+}) => {
+  const qs = new URLSearchParams();
+  if (params?.action) qs.set("action", params.action);
+  if (params?.resource_type) qs.set("resource_type", params.resource_type);
+  if (params?.start_date) qs.set("start_date", params.start_date);
+  if (params?.end_date) qs.set("end_date", params.end_date);
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  return req<Paginated<AuditLogItem>>(`/audit-logs?${qs}`);
 };
 
 // ── Analytics ────────────────────────────────────────────────────────────────
@@ -111,6 +252,19 @@ export const detectImage = (file: File, apiKey: string, threshold?: number) => {
 export const detectGetResult = (requestId: string, apiKey: string) =>
   req<DetectionResponse>(`/v1/results/${requestId}`, {}, apiKey);
 
+export interface FrameResult { frame_id: number; prob_fake: number; thumb?: string }
+export interface VideoDetectionResponse {
+  job_id: string; verdict: string; confidence: number; prob_fake: number;
+  frames_analyzed: number; frames_fake: number; frame_results: FrameResult[];
+  model_version: string; processing_time_ms: number; created_at: string;
+}
+
+export const detectVideo = (file: File, apiKey: string, sampleRate = 3) => {
+  const form = new FormData();
+  form.append("file", file);
+  return req<VideoDetectionResponse>(`/v1/detect/video?sample_rate=${sampleRate}`, { method: "POST", body: form }, apiKey);
+};
+
 // ── Webhooks ─────────────────────────────────────────────────────────────────
 export interface WebhookOut {
   id: string; url: string; events: string[]; status: string;
@@ -125,3 +279,54 @@ export const webhooksUpdate = (id: string, data: { url?: string; events?: string
   req<WebhookOut>(`/webhooks/${id}`, { method: "PUT", body: JSON.stringify(data) });
 export const webhooksDelete = (id: string) =>
   req<void>(`/webhooks/${id}`, { method: "DELETE" });
+
+// ── API Keys: update / get (PATCH + GET {id} already exist on backend) ────────
+export const apiKeysUpdate = (
+  id: string,
+  data: { name?: string; quota_limit?: number; rate_limit_rpm?: number; status?: string },
+) => req<ApiKeyOut>(`/api-keys/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+export const apiKeysGet = (id: string) => req<ApiKeyOut>(`/api-keys/${id}`);
+
+// ── Users / Team (backend /users already exists; admin-gated) ─────────────────
+export interface UserListItem {
+  id: string; email: string; name: string; role: string;
+  is_active: boolean; last_login_at: string | null; created_at: string;
+}
+export interface UserListResponse { items: UserListItem[]; total: number }
+export interface InviteUserResponse {
+  invitation_id: string; email: string; role: string;
+  token: string; expires_at: string; invite_url: string;
+}
+
+export const usersList = () => req<UserListResponse>("/users");
+export const usersInvite = (email: string, name: string, role: string) =>
+  req<InviteUserResponse>("/users/invite", { method: "POST", body: JSON.stringify({ email, name, role }) });
+export const usersUpdate = (id: string, data: { name?: string; role?: string; is_active?: boolean }) =>
+  req<UserListItem>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+export const usersDelete = (id: string) => req<void>(`/users/${id}`, { method: "DELETE" });
+
+// ── Tenant (current) — GET/PATCH /tenant already exist ────────────────────────
+export interface TenantInfo {
+  id: string; name: string; plan: string; status: string;
+  monthly_quota: number; current_usage: number;
+  admin_email: string; billing_email: string | null; created_at: string;
+}
+export const tenantGet = () => req<TenantInfo>("/tenant");
+export const tenantUpdate = (data: { name?: string; billing_email?: string; metadata?: Record<string, unknown> }) =>
+  req<TenantInfo>("/tenant", { method: "PATCH", body: JSON.stringify(data) });
+
+// ── Platform admin (sysadmin, cross-tenant) — backend endpoints to be added ───
+export interface TenantListItem {
+  id: string; name: string; plan: string; status: string;
+  monthly_quota: number; current_usage: number; user_count: number; created_at: string;
+}
+export interface PlatformOverview {
+  total_tenants: number; active_tenants: number; total_users: number;
+  total_requests: number; fake_detected: number; fake_rate: number;
+  avg_latency_ms: number;
+}
+export const tenantsList = () => req<Paginated<TenantListItem>>("/tenants");
+export const tenantUpdateById = (id: string, data: { status?: string; plan?: string; monthly_quota?: number }) =>
+  req<TenantListItem>(`/tenants/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+export const platformOverview = (days = 30) =>
+  req<PlatformOverview>(`/platform/overview?days=${days}`);

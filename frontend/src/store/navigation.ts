@@ -1,6 +1,26 @@
 import { create } from 'zustand';
 
-export type Page = 'login' | 'landing' | 'playground' | 'dashboard' | 'history' | 'detail' | 'apikeys' | 'analytics' | 'docs' | 'webhooks' | 'tenants';
+export type Page =
+  | 'login'
+  | 'landing'
+  | 'playground'
+  | 'dashboard'
+  | 'history'
+  | 'detail'
+  | 'apikeys'
+  | 'analytics'
+  | 'docs'
+  | 'webhooks'
+  | 'tenants'
+  | 'audit'
+  | 'liveness'
+  | 'team'
+  | 'billing'
+  | 'notifications'
+  | 'settings'
+  | 'models'
+  | 'status'
+  | 'account';
 
 interface NavigationState {
   currentPage: Page;

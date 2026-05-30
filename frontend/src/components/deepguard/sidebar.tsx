@@ -2,101 +2,166 @@
 
 import { useNavigation, type Page } from '@/store/navigation';
 import { useAuthStore } from '@/store/auth';
+import { Icon } from '@/components/deepguard/shared';
+import { canAccess, ROLE_LABEL, type Role } from '@/lib/rbac';
 
-const workspaceItems: { icon: string; label: string; page: Page }[] = [
-  { icon: 'dashboard', label: 'Dashboard', page: 'dashboard' },
-  { icon: 'terminal', label: 'API Playground', page: 'playground' },
-  { icon: 'key', label: 'API Keys', page: 'apikeys' },
-  { icon: 'analytics', label: 'Analytics', page: 'analytics' },
-  { icon: 'webhook', label: 'Webhooks', page: 'webhooks' },
-  { icon: 'menu_book', label: 'API Docs', page: 'docs' },
-];
-
-const adminItems: { icon: string; label: string; page: Page }[] = [
-  { icon: 'domain', label: 'Quản lý Tenants', page: 'tenants' },
-];
-
-const complianceItems: { icon: string; label: string; page: Page }[] = [
-  { icon: 'history', label: 'Lịch sử phát hiện', page: 'history' },
-  { icon: 'gavel', label: 'Audit Logs', page: 'history' },
-];
-
-function UserCard() {
-  const { user, tenant, logout } = useAuthStore();
-  const navigate = useNavigation((s) => s.navigate);
-  const initials = user?.name?.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() ?? 'DG';
-  const handleLogout = () => { logout(); navigate('login'); };
-  return (
-    <div className="mt-auto p-4 glass-panel rounded-xl border border-white/60">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-[#0050cb]/10 flex items-center justify-center text-[#0050cb] font-bold text-xs flex-shrink-0">{initials}</div>
-        <div className="overflow-hidden flex-1 min-w-0">
-          <p className="text-[11px] font-bold truncate">{user?.email ?? 'dev@vietbank.vn'}</p>
-          <p className="text-[9px] text-slate-500 uppercase">{user?.role ?? 'Developer'} · {tenant?.plan ?? ''}</p>
-        </div>
-        <button onClick={handleLogout} title="Đăng xuất" className="text-slate-400 hover:text-red-500 transition-colors flex-shrink-0">
-          <span className="material-symbols-outlined text-[18px]">logout</span>
-        </button>
-      </div>
-    </div>
-  );
+interface NavEntry {
+  icon: string;
+  label: string;
+  page: Page;
+  soon?: boolean;
 }
+
+const NAV: { title: string; items: NavEntry[] }[] = [
+  {
+    title: 'Workspace',
+    items: [
+      { icon: 'dashboard', label: 'Dashboard', page: 'dashboard' },
+      { icon: 'terminal', label: 'API Playground', page: 'playground' },
+      { icon: 'face_6', label: 'Liveness Check', page: 'liveness' },
+      { icon: 'analytics', label: 'Analytics', page: 'analytics' },
+      { icon: 'key', label: 'API Keys', page: 'apikeys' },
+      { icon: 'webhook', label: 'Webhooks', page: 'webhooks' },
+      { icon: 'menu_book', label: 'API Docs', page: 'docs' },
+    ],
+  },
+  {
+    title: 'AI Models',
+    items: [{ icon: 'model_training', label: 'Models & Thresholds', page: 'models' }],
+  },
+  {
+    title: 'Compliance',
+    items: [
+      { icon: 'history', label: 'Lịch sử phát hiện', page: 'history' },
+      { icon: 'gavel', label: 'Audit Logs', page: 'audit' },
+      { icon: 'monitor_heart', label: 'Status & Compliance', page: 'status' },
+    ],
+  },
+  {
+    title: 'Admin',
+    items: [
+      { icon: 'domain', label: 'Quản lý Tenants', page: 'tenants' },
+      { icon: 'group', label: 'Team & Roles', page: 'team' },
+    ],
+  },
+  {
+    title: 'Account',
+    items: [
+      { icon: 'person', label: 'Tài khoản', page: 'account' },
+      { icon: 'credit_card', label: 'Billing & Usage', page: 'billing' },
+      { icon: 'settings', label: 'Cài đặt', page: 'settings' },
+    ],
+  },
+];
 
 export default function Sidebar() {
   const { currentPage, navigate } = useNavigation();
+  const { user, tenant, logout } = useAuthStore();
+  const role = useAuthStore((s) => s.user?.role) as Role | undefined;
 
-  const isActive = (page: Page) => {
-    if (page === 'history' && currentPage === 'detail') return true;
-    return currentPage === page;
+  // Filter nav by role: hide inaccessible items, then drop empty groups.
+  const visibleNav = NAV.map((group) => ({
+    ...group,
+    items: group.items.filter((it) => canAccess(role, it.page)),
+  })).filter((group) => group.items.length > 0);
+
+  const isActive = (pg: Page) => currentPage === pg || (pg === 'history' && currentPage === 'detail');
+  const initials = user?.name?.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() ?? 'DG';
+  const handleLogout = () => {
+    logout();
+    navigate('login');
   };
 
-  const NavItem = ({ icon, label, page }: { icon: string; label: string; page: Page }) => (
-    <a
-      href="#"
-      onClick={(e) => { e.preventDefault(); navigate(page); }}
-      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-sm ${
-        isActive(page)
-          ? 'bg-[#0050cb] text-white shadow-md shadow-[#0050cb]/20 font-bold'
-          : 'text-slate-600 hover:bg-white/50'
-      }`}
-    >
-      <span className="material-symbols-outlined text-[20px]">{icon}</span> {label}
-    </a>
-  );
-
   return (
-    <aside className="fixed h-full w-[240px] left-0 top-0 border-r border-white/40 bg-white/70 backdrop-blur-xl flex flex-col py-6 px-4 shadow-md z-50">
+    <aside className="fixed h-full w-[240px] left-0 top-0 border-r border-white/50 bg-white/75 backdrop-blur-xl flex flex-col py-6 px-3.5 shadow-md z-50">
       {/* Logo */}
-      <div className="flex items-center gap-3 mb-10 px-2 cursor-pointer" onClick={() => navigate('landing')}>
-        <div className="w-10 h-10 rounded-xl bg-[#0050cb] flex items-center justify-center text-white shadow-lg">
-          <span className="material-symbols-outlined">security</span>
+      <div className="flex items-center gap-3 mb-7 px-2 cursor-pointer group" onClick={() => navigate('landing')}>
+        <div
+          className="w-11 h-11 rounded-[13px] flex items-center justify-center text-white shrink-0 transition-transform group-hover:scale-[1.03]"
+          style={{
+            background: 'linear-gradient(145deg,#0047cc 0%,#1a6fff 60%,#4f8fff 100%)',
+            boxShadow: '0 6px 18px rgba(0,71,204,0.36), inset 0 1px 0 rgba(255,255,255,0.18)',
+          }}
+        >
+          <Icon name="security" fill className="text-[22px]" />
         </div>
-        <div>
-          <h1 className="text-xl font-black tracking-tighter text-[#0050cb] italic">DeepGuard</h1>
-          <p className="text-[9px] uppercase font-bold tracking-widest text-slate-400">VietBank Workspace</p>
+        <div className="leading-none">
+          <div className="flex items-baseline">
+            <span className="text-[18px] font-light" style={{ color: '#0047cc', letterSpacing: '-0.025em' }}>Deep</span>
+            <span className="text-[18px] font-black" style={{ color: '#0a1628', letterSpacing: '-0.025em' }}>Guard</span>
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <span
+              className="inline-flex items-center px-1.5 py-[2px] rounded text-[8px] font-bold uppercase tracking-widest"
+              style={{ background: 'rgba(0,71,204,0.08)', color: '#0047cc' }}
+            >
+              {tenant?.name ?? 'VietBank'}
+            </span>
+            <span className="text-[9px] text-slate-400 font-medium">Workspace</span>
+          </div>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar">
-        <div className="px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Workspace</div>
-        {workspaceItems.map((item) => (
-          <NavItem key={item.page} {...item} />
-        ))}
-
-        <div className="px-4 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Compliance</div>
-        {complianceItems.map((item) => (
-          <NavItem key={item.page + item.label} {...item} />
-        ))}
-
-        <div className="px-4 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Admin</div>
-        {adminItems.map((item) => (
-          <NavItem key={item.page} {...item} />
+      <nav className="flex-1 space-y-0.5 overflow-y-auto custom-scrollbar -mr-1.5 pr-1.5">
+        {visibleNav.map((group) => (
+          <div key={group.title}>
+            <div className="px-4 pt-5 pb-1.5 text-[10px] font-semibold text-slate-400 tracking-widest uppercase select-none">
+              {group.title}
+            </div>
+            {group.items.map((it) => {
+              const active = isActive(it.page);
+              return (
+                <button
+                  key={it.page}
+                  onClick={() => !it.soon && navigate(it.page)}
+                  className={`group w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all text-[13px] relative ${
+                    active ? 'font-semibold' : it.soon ? 'text-slate-400 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-50/80 font-medium'
+                  }`}
+                  style={active ? { background: 'rgba(0,71,204,0.07)', color: '#0047cc', boxShadow: 'inset 2.5px 0 0 #0047cc' } : {}}
+                >
+                  <Icon name={it.icon} className="text-[18px]" fill={active} />
+                  <span className="flex-1 text-left">{it.label}</span>
+                  {it.soon && (
+                    <span className="text-[8px] font-bold text-slate-300 uppercase tracking-wide opacity-0 group-hover:opacity-100 transition-opacity">
+                      soon
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         ))}
       </nav>
 
-      {/* User Info */}
-      <UserCard />
+      {/* User card */}
+      <div className="mt-3 px-1 cursor-pointer" onClick={() => navigate('account')}>
+        <div className="flex items-center gap-2.5 p-2.5 rounded-xl transition-colors hover:bg-slate-50" style={{ boxShadow: '0 0 0 1px rgba(0,0,0,0.06)' }}>
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
+            style={{ background: 'linear-gradient(135deg,#0047cc,#4f8fff)' }}
+          >
+            {initials}
+          </div>
+          <div className="overflow-hidden flex-1 min-w-0">
+            <p className="text-[12px] font-semibold truncate text-slate-700">{user?.email ?? 'dev@vietbank.vn'}</p>
+            <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+              {role ? ROLE_LABEL[role] : (user?.role ?? 'Developer')}
+              {tenant?.plan ? ` · ${tenant.plan}` : ''}
+            </p>
+          </div>
+          <button
+            title="Đăng xuất"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleLogout();
+            }}
+            className="text-slate-300 hover:text-red-400 transition-colors shrink-0 p-1"
+          >
+            <Icon name="logout" className="text-[16px]" />
+          </button>
+        </div>
+      </div>
     </aside>
   );
 }

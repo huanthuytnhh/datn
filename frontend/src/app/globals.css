@@ -232,3 +232,73 @@ input[type="range"]::-webkit-slider-thumb {
 .animate-pulse-ring {
   animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
+
+/* ───────────────────────────────────────────────
+   DeepGuard v3 design tokens (ported from frontend-claude prototype)
+   Light mode only for now.
+   ─────────────────────────────────────────────── */
+@theme {
+  --color-dgblue: #0050cb;
+  --color-dgfake: #ba1a1a;
+  --color-dgreal: #2e7d32;
+  --color-dgwarn: #ed6c02;
+  --color-dguncertain: #ed6c02;
+}
+
+:root {
+  --dg-primary: #0050cb;
+  --dg-fake: #ba1a1a;
+  --dg-real: #2e7d32;
+  --dg-uncertain: #ed6c02;
+  --blob-opacity: 0.4;
+  --panel-alpha: 0.75;
+  /* semantic surface/text tokens */
+  --c-canvas: #f0f9ff;
+  --c-surface: #ffffff;
+  --c-surface2: #f8fafc;
+  --c-border: rgba(0, 0, 0, 0.07);
+  --c-t1: #0a1628;
+  --c-t2: #475569;
+  --c-t3: #94a3b8;
+  --c-overlay: rgba(255, 255, 255, 0.88);
+  --c-shadow: rgba(0, 0, 0, 0.07);
+}
+
+/* drive glass + blobs off the tokens so they stay consistent */
+.glass-panel {
+  background: rgba(255, 255, 255, var(--panel-alpha));
+}
+.bg-blob {
+  opacity: var(--blob-opacity);
+  animation: blob-float 12s ease-in-out infinite;
+}
+
+@keyframes blob-float {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-18px) scale(1.02); }
+}
+
+/* entrance animations */
+@keyframes dg-rise { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes dg-fade { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes feed-in { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.dg-rise { animation: dg-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.dg-fade { animation: dg-fade 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.feed-in { animation: feed-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.animate-spin-dg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* skeleton shimmer */
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.skeleton {
+  background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 50%, #eef2f7 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
+
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dg-rise, .dg-fade, .feed-in { animation: none !important; opacity: 1 !important; transform: none !important; }
+}

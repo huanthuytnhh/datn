@@ -1,29 +1,31 @@
-<?xml version="1.0" encoding="utf-8"?>
-<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-	 viewBox="0 0 30 30" style="enable-background:new 0 0 30 30;" xml:space="preserve">
-<defs>
-  <style type="text/css">
-    .st194{fill:#2D2D2D;stroke:#FFFFFF;stroke-width:0.6317;stroke-miterlimit:10;}
-    .st23{fill:#FFFFFF;}
-
-    .z-breathe {
-      animation: breathe 2.5s ease-in-out infinite;
-    }
-
-    @keyframes breathe {
-      0%, 100% { opacity: 0.7; }
-      50% { opacity: 1; }
-    }
-  </style>
-</defs>
-
-<g>
-  <path class="st194" d="M24.51,28.51H5.49c-2.21,0-4-1.79-4-4V5.49c0-2.21,1.79-4,4-4h19.03c2.21,0,4,1.79,4,4v19.03
-    C28.51,26.72,26.72,28.51,24.51,28.51z"/>
-  <g class="z-breathe">
-    <path class="st23" d="M15.47,7.1l-1.3,1.85c-0.2,0.29-0.54,0.47-0.9,0.47h-7.1V7.09C6.16,7.1,15.47,7.1,15.47,7.1z"/>
-    <polygon class="st23" points="24.3,7.1 13.14,22.91 5.7,22.91 16.86,7.1"/>
-    <path class="st23" d="M14.53,22.91l1.31-1.86c0.2-0.29,0.54-0.47,0.9-0.47h7.09v2.33H14.53z"/>
-  </g>
-</g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <rect width="400" height="400" fill="#F5F2F2" rx="40" />
+  
+  <line x1="200" y1="120" x2="200" y2="70" stroke="#5A7ACD" stroke-width="8" stroke-linecap="round" />
+  <circle cx="200" cy="70" r="15" fill="#FEB05D" />
+  
+  <rect x="70" y="170" width="20" height="60" rx="10" fill="#304c99" />
+  <rect x="310" y="170" width="20" height="60" rx="10" fill="#304c99" />
+  
+  <rect x="90" y="120" width="220" height="170" rx="50" fill="#5A7ACD" />
+  
+  <rect x="110" y="145" width="180" height="120" rx="30" fill="#ffffff" />
+  
+  <circle cx="155" cy="185" r="18" fill="#1e3a8a" />
+  <circle cx="160" cy="180" r="5" fill="#ffffff" />
+  
+  <circle cx="245" cy="185" r="18" fill="#1e3a8a" />
+  <circle cx="250" cy="180" r="5" fill="#ffffff" />
+  
+  <path d="M 160 225 Q 200 245 240 225" fill="none" stroke="#1e3a8a" stroke-width="6" stroke-linecap="round" />
+  
+  <rect x="210" y="150" width="70" height="70" rx="15" fill="none" stroke="#FEB05D" stroke-width="5" stroke-dasharray="10 5" />
+  <circle cx="225" cy="165" r="3" fill="#FEB05D" />
+  <circle cx="265" cy="165" r="3" fill="#FEB05D" />
+  <circle cx="245" cy="205" r="3" fill="#FEB05D" />
+  <line x1="225" y1="165" x2="265" y2="165" stroke="#FEB05D" stroke-width="2" />
+  <line x1="265" y1="165" x2="245" y2="205" stroke="#FEB05D" stroke-width="2" />
+  <line x1="245" y1="205" x2="225" y2="165" stroke="#FEB05D" stroke-width="2" />
+  
+  <text x="200" y="340" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#5A7ACD" text-anchor="middle">DeepCheck</text>
 </svg>
