@@ -2,14 +2,14 @@
 
 /* ──────────────────────────────────────────────
    DeepGuard — Settings (Org / Security / Notifications)
-   NOTE: No backend endpoint exists for settings. Every value below is
-   LOCAL STATE only — controls mutate React state and surface a toast.
-   // TODO: backend — wire these to a real settings/preferences API.
+   ORGANIZATION section is wired to the REAL backend (tenantGet / tenantUpdate).
+   SECURITY + NOTIFICATIONS remain LOCAL STATE only (backend not available yet).
    ────────────────────────────────────────────── */
 
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { Icon } from '@/components/deepguard/shared';
 import { useAuthStore } from '@/store/auth';
+import { tenantGet, tenantUpdate, type TenantInfo } from '@/lib/api';
 
 /* ── shared input styling (no global dg-input class) ── */
 const INPUT_CLASS =
@@ -77,12 +77,26 @@ function Switch({ on, onToggle }: { on: boolean; onToggle: (v: boolean) => void 
 type TabId = 'org' | 'security' | 'notif';
 
 export default function SettingsPage() {
-  const tenant = useAuthStore((s) => s.tenant);
+  const seedTenant = useAuthStore((s) => s.tenant);
+  const currentUser = useAuthStore((s) => s.user);
 
   const [tab, setTab] = useState<TabId>('org');
 
-  // ── all LOCAL STATE — no backend persistence ──
-  // TODO: backend — load/save these via a settings API.
+  // ── ORGANIZATION — wired to REAL backend (tenantGet / tenantUpdate) ──
+  const [tenant, setTenant] = useState<TenantInfo | null>(null);
+  const [orgLoading, setOrgLoading] = useState(true);
+  const [orgError, setOrgError] = useState<string | null>(null);
+  const [orgSaving, setOrgSaving] = useState(false);
+  const [orgSaveError, setOrgSaveError] = useState<string | null>(null);
+  // editable org form fields (source of truth seeded from tenantGet)
+  const [orgForm, setOrgForm] = useState({
+    name: seedTenant?.name ?? '',
+    billing_email: '',
+  });
+  // a non-admin/sysadmin user gets a 403 on PATCH → keep fields read-only
+  const canEditOrg = currentUser?.role === 'admin' || currentUser?.role === 'sysadmin';
+
+  // ── SECURITY + NOTIFICATIONS — LOCAL STATE only (backend not available yet) ──
   const [sec, setSec] = useState({
     twofa: true,
     sso: false,
@@ -98,13 +112,6 @@ export default function SettingsPage() {
     billing: true,
     productNews: false,
   });
-  const [org, setOrg] = useState({
-    name: tenant?.name ?? 'VietBank',
-    domain: 'vietbank.vn',
-    billing: tenant?.admin_email ?? 'billing@vietbank.vn',
-    tz: 'Asia/Ho_Chi_Minh',
-    lang: 'Tiếng Việt',
-  });
   const [ips, setIps] = useState<string[]>(['203.162.10.0/24', '14.169.0.0/16']);
   const [newIp, setNewIp] = useState('');
   const [toast, setToast] = useState<string | null>(null);
@@ -114,6 +121,54 @@ export default function SettingsPage() {
     setToast(msg);
     window.setTimeout(() => setToast(null), 2200);
   };
+
+  // ── load current tenant (source of truth for the org form) ──
+  const loadTenant = useCallback(async () => {
+    setOrgLoading(true);
+    setOrgError(null);
+    try {
+      const t = await tenantGet();
+      setTenant(t);
+      setOrgForm({ name: t.name, billing_email: t.billing_email ?? '' });
+    } catch (e) {
+      setOrgError(e instanceof Error ? e.message : 'Không tải được thông tin tổ chức');
+    } finally {
+      setOrgLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTenant();
+  }, [loadTenant]);
+
+  const onSaveOrg = async () => {
+    setOrgSaving(true);
+    setOrgSaveError(null);
+    try {
+      const updated = await tenantUpdate({
+        name: orgForm.name.trim(),
+        billing_email: orgForm.billing_email.trim(),
+      });
+      setTenant(updated);
+      setOrgForm({ name: updated.name, billing_email: updated.billing_email ?? '' });
+      onToast('Đã lưu thông tin tổ chức');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      // backend returns 403 for non-admin/sysadmin
+      if (/403|forbidden|permission|quyền/i.test(msg)) {
+        setOrgSaveError('Chỉ admin mới sửa được thông tin tổ chức.');
+      } else {
+        setOrgSaveError(msg || 'Không lưu được thông tin tổ chức.');
+      }
+    } finally {
+      setOrgSaving(false);
+    }
+  };
+
+  // read-only display helpers
+  const fmtDate = (iso?: string) =>
+    iso ? new Date(iso).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+  const fmtNum = (n?: number) => (typeof n === 'number' ? n.toLocaleString('vi-VN') : '—');
 
   const tabs: [TabId, string, string][] = [
     ['org', 'Tổ chức', 'corporate_fare'],
@@ -149,80 +204,130 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {/* ── Organization ── */}
+      {/* ── Organization (REAL backend) ── */}
       {tab === 'org' && (
         <div className="space-y-5 dg-fade">
           <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
             <h2 className="text-base font-black text-slate-900 mb-5">Thông tin tổ chức</h2>
-            <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-100">
-              <div className="w-16 h-16 rounded-2xl bg-dgblue flex items-center justify-center text-white shadow-lg shadow-dgblue/30">
-                <Icon name="account_balance" className="text-[30px]" fill />
+
+            {/* loading */}
+            {orgLoading && (
+              <div className="flex items-center gap-2 py-8 justify-center text-slate-400 text-[13px] font-medium">
+                <Icon name="progress_activity" className="text-[20px] animate-spin" />
+                Đang tải thông tin tổ chức…
               </div>
-              <div>
-                <p className="text-[13px] font-bold text-slate-800">Logo tổ chức</p>
-                <p className="text-[11px] text-slate-400 mb-2">PNG/SVG, tối thiểu 128×128px</p>
+            )}
+
+            {/* load error */}
+            {!orgLoading && orgError && (
+              <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
+                <div className="flex items-center gap-2 text-[12px] font-bold text-dgfake">
+                  <Icon name="error" className="text-[18px]" />
+                  {orgError}
+                </div>
                 <button
                   type="button"
-                  className="px-3 py-1.5 text-[11px] font-bold text-dgblue bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors"
+                  onClick={() => void loadTenant()}
+                  className="px-3 py-1.5 text-[11px] font-bold text-dgfake bg-white border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
                 >
-                  Tải lên
+                  Thử lại
                 </button>
               </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Tên tổ chức">
-                <input
-                  value={org.name}
-                  onChange={(e) => setOrg({ ...org, name: e.target.value })}
-                  className={INPUT_CLASS}
-                />
-              </Field>
-              <Field label="Domain">
-                <input
-                  value={org.domain}
-                  onChange={(e) => setOrg({ ...org, domain: e.target.value })}
-                  className={INPUT_CLASS}
-                />
-              </Field>
-              <Field label="Email thanh toán (billing)">
-                <input
-                  value={org.billing}
-                  onChange={(e) => setOrg({ ...org, billing: e.target.value })}
-                  className={INPUT_CLASS}
-                />
-              </Field>
-              <Field label="Múi giờ">
-                <select
-                  value={org.tz}
-                  onChange={(e) => setOrg({ ...org, tz: e.target.value })}
-                  className={INPUT_CLASS}
-                >
-                  <option>Asia/Ho_Chi_Minh</option>
-                  <option>Asia/Bangkok</option>
-                  <option>Asia/Singapore</option>
-                  <option>UTC</option>
-                </select>
-              </Field>
-              <Field label="Ngôn ngữ">
-                <select
-                  value={org.lang}
-                  onChange={(e) => setOrg({ ...org, lang: e.target.value })}
-                  className={INPUT_CLASS}
-                >
-                  <option>Tiếng Việt</option>
-                  <option>English</option>
-                </select>
-              </Field>
-            </div>
-            <div className="flex justify-end mt-5">
-              <button
-                type="button"
-                onClick={() => onToast('Đã lưu thông tin tổ chức')}
-                className="px-5 py-2.5 bg-dgblue text-white rounded-xl font-bold text-xs shadow-lg shadow-dgblue/25 hover:scale-[1.02] transition-all"
-              >
-                Lưu thay đổi
-              </button>
-            </div>
+            )}
+
+            {!orgLoading && !orgError && tenant && (
+              <>
+                <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-100">
+                  <div className="w-16 h-16 rounded-2xl bg-dgblue flex items-center justify-center text-white shadow-lg shadow-dgblue/30">
+                    <Icon name="account_balance" className="text-[30px]" fill />
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-bold text-slate-800">Logo tổ chức</p>
+                    <p className="text-[11px] text-slate-400 mb-2">PNG/SVG, tối thiểu 128×128px</p>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 text-[11px] font-bold text-dgblue bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      Tải lên
+                    </button>
+                  </div>
+                </div>
+
+                {/* non-admin notice */}
+                {!canEditOrg && (
+                  <div className="flex items-center gap-2 px-4 py-3 mb-4 rounded-xl bg-amber-50 border border-amber-200 text-[12px] font-bold text-amber-700">
+                    <Icon name="lock" className="text-[17px]" />
+                    Chỉ admin mới sửa được thông tin tổ chức.
+                  </div>
+                )}
+
+                {/* editable fields */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Field label="Tên tổ chức">
+                    <input
+                      value={orgForm.name}
+                      onChange={(e) => setOrgForm({ ...orgForm, name: e.target.value })}
+                      disabled={!canEditOrg || orgSaving}
+                      className={`${INPUT_CLASS} disabled:opacity-60 disabled:cursor-not-allowed`}
+                    />
+                  </Field>
+                  <Field label="Email thanh toán (billing)">
+                    <input
+                      type="email"
+                      value={orgForm.billing_email}
+                      onChange={(e) => setOrgForm({ ...orgForm, billing_email: e.target.value })}
+                      disabled={!canEditOrg || orgSaving}
+                      placeholder="billing@example.com"
+                      className={`${INPUT_CLASS} disabled:opacity-60 disabled:cursor-not-allowed`}
+                    />
+                  </Field>
+                </div>
+
+                {/* read-only tenant info */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-slate-100">
+                  <div className="px-3 py-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Gói cước</p>
+                    <p className="text-[13px] font-bold text-slate-800 mt-0.5 capitalize">{tenant.plan}</p>
+                  </div>
+                  <div className="px-3 py-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Hạn mức / tháng</p>
+                    <p className="text-[13px] font-bold text-slate-800 mt-0.5 tabular-nums">
+                      {fmtNum(tenant.current_usage)} / {fmtNum(tenant.monthly_quota)}
+                    </p>
+                  </div>
+                  <div className="px-3 py-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Email admin</p>
+                    <p className="text-[13px] font-bold text-slate-800 mt-0.5 truncate" title={tenant.admin_email}>
+                      {tenant.admin_email || '—'}
+                    </p>
+                  </div>
+                  <div className="px-3 py-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Ngày tạo</p>
+                    <p className="text-[13px] font-bold text-slate-800 mt-0.5 tabular-nums">{fmtDate(tenant.created_at)}</p>
+                  </div>
+                </div>
+
+                {/* save error (incl. 403) */}
+                {orgSaveError && (
+                  <div className="flex items-center gap-2 px-4 py-3 mt-5 rounded-xl bg-red-50 border border-red-200 text-[12px] font-bold text-dgfake">
+                    <Icon name="error" className="text-[17px]" />
+                    {orgSaveError}
+                  </div>
+                )}
+
+                <div className="flex justify-end mt-5">
+                  <button
+                    type="button"
+                    onClick={() => void onSaveOrg()}
+                    disabled={!canEditOrg || orgSaving}
+                    className="px-5 py-2.5 bg-dgblue text-white rounded-xl font-bold text-xs shadow-lg shadow-dgblue/25 hover:scale-[1.02] transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    {orgSaving && <Icon name="progress_activity" className="text-[16px] animate-spin" />}
+                    {orgSaving ? 'Đang lưu…' : 'Lưu thay đổi'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* danger zone */}
@@ -388,12 +493,19 @@ export default function SettingsPage() {
               ))}
             </div>
           </div>
+
+          {/* local-only note */}
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] font-bold text-slate-500">
+            <Icon name="cloud_off" className="text-[16px]" />
+            Lưu cục bộ — backend sắp có
+          </div>
         </div>
       )}
 
       {/* ── Notifications ── */}
       {tab === 'notif' && (
-        <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-fade">
+        <div className="space-y-5 dg-fade">
+        <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
           <h2 className="text-base font-black text-slate-900 mb-3">Tùy chọn thông báo</h2>
           <SettingRow
             icon="gpp_maybe"
@@ -440,6 +552,13 @@ export default function SettingsPage() {
               onToggle={(v) => setPrefs({ ...prefs, productNews: v })}
             />
           </SettingRow>
+        </div>
+
+        {/* local-only note */}
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] font-bold text-slate-500">
+          <Icon name="cloud_off" className="text-[16px]" />
+          Lưu cục bộ — backend sắp có
+        </div>
         </div>
       )}
 
