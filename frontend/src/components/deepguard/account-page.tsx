@@ -2,17 +2,38 @@
 
 /* ──────────────────────────────────────────────
    DeepGuard — Tài khoản cá nhân (profile, mật khẩu & bảo mật)
-   Profile header reads the REAL signed-in user from useAuthStore().
-   All editable forms are LOCAL STATE only (no backend endpoint exists).
+   Wired to the REAL backend:
+     - authMe()              → load profile + tenant on mount
+     - authUpdateMe()        → save name / phone / timezone (also refreshes auth store)
+     - authChangePassword()  → change password (surfaces backend errors)
+   2FA / connected accounts / danger-zone destructive actions have no backend yet,
+   so the UI is kept but marked "sắp có" (no fake persistence). Logout is real.
+   Light mode only. Vietnamese copy. Uses shared primitives + lib/dg helpers.
    ────────────────────────────────────────────── */
 
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { Icon } from '@/components/deepguard/shared';
 import { DG } from '@/lib/dg';
 import { useAuthStore } from '@/store/auth';
+import { useNavigation } from '@/store/navigation';
+import { authMe, authUpdateMe, authChangePassword, type UserOut, type TenantOut } from '@/lib/api';
 
 const INPUT =
   'w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all';
+
+const INPUT_RO =
+  'w-full px-4 py-3 bg-slate-50/80 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-500 cursor-not-allowed';
+
+const TZ_OPTIONS = ['Asia/Ho_Chi_Minh', 'Asia/Bangkok', 'Asia/Singapore', 'UTC'];
+
+/** "Sắp có" pill for UI sections without a backend yet. */
+function SoonTag() {
+  return (
+    <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-400 border border-slate-200">
+      Sắp có
+    </span>
+  );
+}
 
 /* ── Local form field ── */
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -50,7 +71,7 @@ function SettingRow({
   children,
 }: {
   icon?: string;
-  title: string;
+  title: ReactNode;
   desc: string;
   children: ReactNode;
 }) {
@@ -62,7 +83,7 @@ function SettingRow({
         </span>
       )}
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-bold text-slate-800">{title}</p>
+        <p className="text-[13px] font-bold text-slate-800 flex items-center gap-1.5">{title}</p>
         <p className="text-[11px] text-slate-500 mt-0.5">{desc}</p>
       </div>
       <div className="shrink-0">{children}</div>
@@ -70,66 +91,115 @@ function SettingRow({
   );
 }
 
-interface ProfileInfo {
+/** dd/mm/yyyy from an ISO string, or fallback. */
+function fmtDate(iso: string | null | undefined, fallback = '—'): string {
+  if (!iso) return fallback;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return fallback;
+  return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/* ── Editable profile draft (name / phone / timezone only) ── */
+interface ProfileDraft {
   name: string;
-  email: string;
   phone: string;
-  title: string;
-  dept: string;
   tz: string;
 }
 
-export default function AccountPage() {
-  // Real signed-in user for the profile header.
-  const user = useAuthStore((s) => s.user);
-  const tenant = useAuthStore((s) => s.tenant);
+function draftFromUser(u: UserOut | null): ProfileDraft {
+  return {
+    name: u?.name ?? '',
+    phone: u?.phone ?? '',
+    tz: u?.timezone ?? 'Asia/Ho_Chi_Minh',
+  };
+}
 
-  // Editable forms — LOCAL STATE only. // TODO: backend — no dedicated endpoint yet.
-  const [info, setInfo] = useState<ProfileInfo>({
-    name: user?.name ?? 'Người dùng',
-    email: user?.email ?? '',
-    phone: '+84 912 345 678',
-    title: 'Lead Engineer',
-    dept: tenant?.name ?? 'Risk & Fraud',
-    tz: 'Asia/Ho_Chi_Minh',
-  });
-  const [draft, setDraft] = useState<ProfileInfo>(info);
+export default function AccountPage() {
+  const navigate = useNavigation((s) => s.navigate);
+
+  // Seed from auth store, then refresh from authMe() on mount.
+  const [user, setUser] = useState<UserOut | null>(useAuthStore.getState().user);
+  const [tenant, setTenant] = useState<TenantOut | null>(useAuthStore.getState().tenant);
+
+  const [draft, setDraft] = useState<ProfileDraft>(draftFromUser(user));
+  const [savedDraft, setSavedDraft] = useState<ProfileDraft>(draftFromUser(user));
+  const [savingInfo, setSavingInfo] = useState(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
+
   const [pwd, setPwd] = useState({ cur: '', next: '', confirm: '' });
-  const [twofa, setTwofa] = useState(true);
+  const [savingPwd, setSavingPwd] = useState(false);
+  const [pwdError, setPwdError] = useState<string | null>(null);
+
   const [toast, setToast] = useState<string | null>(null);
 
-  // Sync header/form with the real user once auth hydrates from storage.
+  // Refresh the canonical profile from the backend once on mount.
   useEffect(() => {
-    if (!user) return;
-    const next: ProfileInfo = {
-      name: user.name,
-      email: user.email,
-      phone: '+84 912 345 678',
-      title: 'Lead Engineer',
-      dept: tenant?.name ?? 'Risk & Fraud',
-      tz: 'Asia/Ho_Chi_Minh',
+    let alive = true;
+    authMe()
+      .then(({ user: u, tenant: t }) => {
+        if (!alive) return;
+        setUser(u);
+        setTenant(t);
+        const d = draftFromUser(u);
+        setDraft(d);
+        setSavedDraft(d);
+      })
+      .catch(() => {
+        /* keep store-seeded values if /auth/me fails (e.g. offline) */
+      });
+    return () => {
+      alive = false;
     };
-    setInfo(next);
-    setDraft(next);
-     
-  }, [user?.email, tenant?.name]);
+  }, []);
 
-  const onToast = (msg: string) => {
+  const onToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2200);
-  };
+  }, []);
 
-  const role = user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Admin';
-  const dirty = JSON.stringify(info) !== JSON.stringify(draft);
+  const role = user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Viewer';
+  const dirty = JSON.stringify(savedDraft) !== JSON.stringify(draft);
   const initials =
-    info.name
+    (draft.name || user?.name || '')
       .trim()
       .split(/\s+/)
+      .filter(Boolean)
       .map((n) => n[0])
       .slice(-2)
       .join('')
       .toUpperCase() || 'DG';
 
+  /* ── Save personal info → authUpdateMe + refresh auth store ── */
+  const onSaveInfo = async () => {
+    if (!dirty || savingInfo) return;
+    setSavingInfo(true);
+    setInfoError(null);
+    try {
+      const updated = await authUpdateMe({
+        name: draft.name.trim(),
+        phone: draft.phone.trim() || undefined,
+        timezone: draft.tz,
+      });
+      setUser(updated);
+      const d = draftFromUser(updated);
+      setDraft(d);
+      setSavedDraft(d);
+
+      // Refresh the auth store so sidebar/header reflect the new name immediately.
+      const { token, tenant: storeTenant, setAuth } = useAuthStore.getState();
+      const tk = token ?? (typeof window !== 'undefined' ? localStorage.getItem('dg_token') : null);
+      const tn = tenant ?? storeTenant;
+      if (tk && tn) setAuth(tk, updated, tn);
+
+      onToast('Đã lưu thông tin cá nhân');
+    } catch (err) {
+      setInfoError(err instanceof Error ? err.message : 'Không thể lưu thông tin');
+    } finally {
+      setSavingInfo(false);
+    }
+  };
+
+  /* ── Change password → authChangePassword ── */
   const pwdStrength =
     pwd.next.length === 0
       ? 0
@@ -140,6 +210,29 @@ export default function AccountPage() {
           : 2;
   const strengthLabel = ['', 'Yếu', 'Khá', 'Mạnh'][pwdStrength];
   const strengthColor = ['#e2e8f0', DG.fake, DG.uncertain, DG.real][pwdStrength];
+
+  const mismatch = pwd.confirm.length > 0 && pwd.next !== pwd.confirm;
+  const pwdValid = pwd.cur.length > 0 && pwd.next.length >= 8 && pwd.next === pwd.confirm;
+
+  const onChangePwd = async () => {
+    if (!pwdValid || savingPwd) return;
+    setSavingPwd(true);
+    setPwdError(null);
+    try {
+      await authChangePassword(pwd.cur, pwd.next);
+      setPwd({ cur: '', next: '', confirm: '' });
+      onToast('Đã đổi mật khẩu thành công');
+    } catch (err) {
+      setPwdError(err instanceof Error ? err.message : 'Không thể đổi mật khẩu');
+    } finally {
+      setSavingPwd(false);
+    }
+  };
+
+  const onLogout = () => {
+    useAuthStore.getState().logout();
+    navigate('login');
+  };
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -157,86 +250,108 @@ export default function AccountPage() {
           >
             {initials}
           </div>
-          <button className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-white border border-slate-200 shadow flex items-center justify-center text-slate-500 hover:text-dgblue transition-colors">
-            <Icon name="photo_camera" className="text-[15px]" />
-          </button>
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-lg font-black text-slate-900">{info.name}</h2>
+            <h2 className="text-lg font-black text-slate-900">{user?.name || draft.name || 'Người dùng'}</h2>
             <RoleBadge role={role} />
           </div>
           <p className="text-sm text-slate-500">
-            {info.title} · {tenant?.name ?? info.dept}
+            {tenant?.name ?? 'DeepGuard'}
             {tenant?.plan ? ` · ${tenant.plan}` : ''}
           </p>
           <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-dgreal animate-pulse" />
-            Đang hoạt động · {info.email}
+            <span
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ background: user?.is_active ? DG.real : '#94a3b8' }}
+            />
+            {user?.is_active ? 'Đang hoạt động' : 'Ngưng hoạt động'} · {user?.email ?? '—'}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1 text-right">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Thành viên từ</span>
-          <span className="text-sm font-black text-slate-700 tabular-nums">01/01/2025</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Đăng nhập gần nhất</span>
+          <span className="text-sm font-black text-slate-700 tabular-nums">
+            {fmtDate(user?.last_login_at, 'Chưa có')}
+          </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* personal info — local state */}
+        {/* personal info — wired to authUpdateMe */}
         <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise">
           <h2 className="text-base font-black text-slate-900 mb-5">Thông tin cá nhân</h2>
           <div className="space-y-4">
             <Field label="Họ và tên">
-              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={INPUT} />
+              <input
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                className={INPUT}
+                placeholder="Họ và tên"
+              />
             </Field>
             <Field label="Email">
-              <input value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} className={INPUT} />
+              <input value={user?.email ?? ''} readOnly disabled className={INPUT_RO} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Số điện thoại">
-                <input value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} className={INPUT} />
+                <input
+                  value={draft.phone}
+                  onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
+                  className={INPUT}
+                  placeholder="+84 ..."
+                />
               </Field>
-              <Field label="Chức danh">
-                <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} className={INPUT} />
+              <Field label="Vai trò">
+                <input value={role} readOnly disabled className={INPUT_RO} />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Phòng ban">
-                <input value={draft.dept} onChange={(e) => setDraft({ ...draft, dept: e.target.value })} className={INPUT} />
+              <Field label="Tổ chức">
+                <input value={tenant?.name ?? '—'} readOnly disabled className={INPUT_RO} />
               </Field>
               <Field label="Múi giờ">
                 <select value={draft.tz} onChange={(e) => setDraft({ ...draft, tz: e.target.value })} className={INPUT}>
-                  <option>Asia/Ho_Chi_Minh</option>
-                  <option>Asia/Bangkok</option>
-                  <option>UTC</option>
+                  {TZ_OPTIONS.map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
                 </select>
               </Field>
             </div>
           </div>
+
+          {infoError && (
+            <p className="mt-3 text-[12px] font-semibold text-dgfake flex items-center gap-1.5 dg-fade">
+              <Icon name="error" className="text-[16px]" fill />
+              {infoError}
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 mt-5">
             <button
-              onClick={() => setDraft(info)}
-              disabled={!dirty}
+              onClick={() => {
+                setDraft(savedDraft);
+                setInfoError(null);
+              }}
+              disabled={!dirty || savingInfo}
               className="px-4 py-2.5 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Hoàn tác
             </button>
             <button
-              onClick={() => {
-                // TODO: backend — persist personal info once an endpoint exists.
-                setInfo(draft);
-                onToast('Đã lưu thông tin cá nhân');
-              }}
-              disabled={!dirty}
+              onClick={onSaveInfo}
+              disabled={!dirty || savingInfo}
               className="px-5 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] shadow-lg shadow-dgblue/25 hover:scale-[1.02] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              Lưu thay đổi
+              {savingInfo ? 'Đang lưu…' : 'Lưu thay đổi'}
             </button>
           </div>
         </div>
 
-        {/* security — local state */}
+        {/* security */}
         <div className="space-y-5">
+          {/* password change — wired to authChangePassword */}
           <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise">
             <h2 className="text-base font-black text-slate-900 mb-4">Đổi mật khẩu</h2>
             <div className="space-y-3">
@@ -244,7 +359,10 @@ export default function AccountPage() {
                 <input
                   type="password"
                   value={pwd.cur}
-                  onChange={(e) => setPwd({ ...pwd, cur: e.target.value })}
+                  onChange={(e) => {
+                    setPwd({ ...pwd, cur: e.target.value });
+                    if (pwdError) setPwdError(null);
+                  }}
                   placeholder="••••••••"
                   className={INPUT}
                 />
@@ -254,7 +372,7 @@ export default function AccountPage() {
                   type="password"
                   value={pwd.next}
                   onChange={(e) => setPwd({ ...pwd, next: e.target.value })}
-                  placeholder="Tối thiểu 12 ký tự"
+                  placeholder="Tối thiểu 8 ký tự"
                   className={INPUT}
                 />
               </Field>
@@ -283,48 +401,58 @@ export default function AccountPage() {
                   className={INPUT}
                 />
               </Field>
+              {mismatch && (
+                <p className="text-[11px] font-semibold text-dgfake dg-fade">Mật khẩu xác nhận không khớp.</p>
+              )}
             </div>
+
+            {pwdError && (
+              <p className="mt-3 text-[12px] font-semibold text-dgfake flex items-center gap-1.5 dg-fade">
+                <Icon name="error" className="text-[16px]" fill />
+                {pwdError}
+              </p>
+            )}
+
             <button
-              onClick={() => {
-                // TODO: backend — submit password change once an endpoint exists.
-                onToast('Đã đổi mật khẩu');
-                setPwd({ cur: '', next: '', confirm: '' });
-              }}
-              disabled={!pwd.cur || pwd.next.length < 8 || pwd.next !== pwd.confirm}
+              onClick={onChangePwd}
+              disabled={!pwdValid || savingPwd}
               className="w-full mt-4 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Cập nhật mật khẩu
+              {savingPwd ? 'Đang cập nhật…' : 'Cập nhật mật khẩu'}
             </button>
           </div>
 
+          {/* 2FA / recovery — no backend yet */}
           <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise">
             <SettingRow
               icon="phonelink_lock"
-              title="Two-Factor Authentication"
-              desc={twofa ? 'Đã bật · Authenticator app' : 'Tăng cường bảo mật đăng nhập'}
+              title={
+                <>
+                  Two-Factor Authentication <SoonTag />
+                </>
+              }
+              desc="Tăng cường bảo mật đăng nhập bằng ứng dụng xác thực."
             >
-              {twofa ? (
-                <button
-                  onClick={() => setTwofa(false) /* TODO: backend */}
-                  className="px-3 py-1.5 text-[11px] font-bold text-dgfake bg-red-50 border border-red-100 rounded-lg hover:bg-red-100 transition-colors"
-                >
-                  Tắt
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    // TODO: backend — enable 2FA via API.
-                    setTwofa(true);
-                    onToast('Đã bật 2FA');
-                  }}
-                  className="px-3 py-1.5 text-[11px] font-bold text-white bg-dgblue rounded-lg hover:scale-[1.03] transition-all"
-                >
-                  Thiết lập
-                </button>
-              )}
+              <button
+                disabled
+                className="px-3 py-1.5 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
+              >
+                Thiết lập
+              </button>
             </SettingRow>
-            <SettingRow icon="vpn_key" title="Recovery codes" desc="10 mã khôi phục dùng một lần khi mất thiết bị 2FA.">
-              <button className="px-3 py-1.5 text-[11px] font-bold text-dgblue bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors">
+            <SettingRow
+              icon="vpn_key"
+              title={
+                <>
+                  Recovery codes <SoonTag />
+                </>
+              }
+              desc="10 mã khôi phục dùng một lần khi mất thiết bị 2FA."
+            >
+              <button
+                disabled
+                className="px-3 py-1.5 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
+              >
                 Tạo lại
               </button>
             </SettingRow>
@@ -332,53 +460,76 @@ export default function AccountPage() {
         </div>
       </div>
 
-      {/* connected accounts */}
+      {/* connected accounts — no backend yet */}
       <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise">
-        <h2 className="text-base font-black text-slate-900 mb-4">Tài khoản liên kết</h2>
+        <h2 className="text-base font-black text-slate-900 mb-4 flex items-center gap-2">
+          Tài khoản liên kết <SoonTag />
+        </h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {(
             [
-              ['Google Workspace', 'mail', '#ea4335', true],
-              ['Okta SSO', 'shield', '#0050cb', false],
-              ['Microsoft Azure AD', 'window', '#00a4ef', false],
-            ] as [string, string, string, boolean][]
-          ).map(([name, ic, col, linked]) => (
+              ['Google Workspace', 'mail', '#ea4335'],
+              ['Okta SSO', 'shield', '#0050cb'],
+              ['Microsoft Azure AD', 'window', '#00a4ef'],
+            ] as [string, string, string][]
+          ).map(([name, ic, col]) => (
             <div key={name} className="flex items-center gap-3 p-3.5 rounded-xl bg-slate-50/70 border border-slate-100">
               <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${col}14` }}>
                 <Icon name={ic} className="text-[18px]" style={{ color: col }} />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[12px] font-bold text-slate-800 truncate">{name}</p>
-                <p className="text-[10px] font-semibold" style={{ color: linked ? DG.real : '#94a3b8' }}>
-                  {linked ? 'Đã liên kết' : 'Chưa liên kết'}
-                </p>
+                <p className="text-[10px] font-semibold text-slate-400">Chưa liên kết</p>
               </div>
-              <button
-                className={`text-[11px] font-bold transition-colors ${linked ? 'text-dgfake hover:underline' : 'text-dgblue hover:underline'}`}
-              >
-                {linked ? 'Gỡ' : 'Liên kết'}
+              <button disabled className="text-[11px] font-bold text-slate-300 cursor-not-allowed">
+                Liên kết
               </button>
             </div>
           ))}
         </div>
       </div>
 
-      {/* danger zone */}
+      {/* danger zone — destructive account actions have no backend; logout is real */}
       <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 border-l-4 border-l-dgfake dg-rise">
         <h2 className="text-base font-black text-dgfake mb-2 flex items-center gap-2">
           <Icon name="warning" className="text-[20px]" />
           Vùng nguy hiểm
         </h2>
+        <SettingRow title="Đăng xuất" desc="Kết thúc phiên đăng nhập hiện tại trên thiết bị này.">
+          <button
+            onClick={onLogout}
+            className="px-4 py-2 text-[11px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            Đăng xuất
+          </button>
+        </SettingRow>
         <SettingRow
-          title="Vô hiệu hoá tài khoản"
+          title={
+            <>
+              Vô hiệu hoá tài khoản <SoonTag />
+            </>
+          }
           desc="Tạm thời khoá tài khoản. Bạn có thể kích hoạt lại bằng cách đăng nhập."
         >
-          <button className="px-4 py-2 text-[11px] font-bold text-dgwarn bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors">
+          <button
+            disabled
+            className="px-4 py-2 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
+          >
             Vô hiệu hoá
           </button>
         </SettingRow>
-        <SettingRow title="Xoá tài khoản" desc="Xoá vĩnh viễn tài khoản & dữ liệu cá nhân. Không thể hoàn tác.">
-          <button className="px-4 py-2 text-[11px] font-bold text-dgfake bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+        <SettingRow
+          title={
+            <>
+              Xoá tài khoản <SoonTag />
+            </>
+          }
+          desc="Xoá vĩnh viễn tài khoản & dữ liệu cá nhân. Không thể hoàn tác."
+        >
+          <button
+            disabled
+            className="px-4 py-2 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
+          >
             Xoá tài khoản
           </button>
         </SettingRow>
