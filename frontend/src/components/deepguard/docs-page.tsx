@@ -1,13 +1,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useNavigation } from '@/store/navigation';
+import { useNavigation, type Page } from '@/store/navigation';
 import { Icon, CodeBlock, RangeToggle } from '@/components/deepguard/shared';
 import { DG } from '@/lib/dg';
+import { PAGE_ACCESS, ROLE_LABEL, canAccess, canEdit, ALL_ROLES, type Role } from '@/lib/rbac';
 
 /* ──────────────────────────────────────────────
-   DeepGuard — API Documentation (static)
-   Endpoints reflect the real client in @/lib/api.ts.
+   DeepGuard — Documentation Hub (static)
+   3 sections: Bắt đầu · Theo vai trò · API Reference.
+   The API Reference is the original endpoint explorer
+   (endpoints reflect the real client in @/lib/api.ts).
    ────────────────────────────────────────────── */
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
@@ -447,12 +450,216 @@ const STATUS_CODES = [
   { code: 500, label: 'Server Error', desc: 'Lỗi nội bộ — thử lại sau', color: DG.fake },
 ];
 
+/* ──────────────────────────────────────────────
+   Role-guide metadata (Section 2)
+   PAGE_ACCESS / canAccess / canEdit from @/lib/rbac
+   are the source of truth; this map only adds VN
+   labels + one-line descriptions + icons per page.
+   ────────────────────────────────────────────── */
+interface PageMeta {
+  label: string;
+  desc: string;
+  icon: string;
+}
+
+const PAGE_META: Record<Page, PageMeta> = {
+  landing: { label: 'Trang giới thiệu', desc: 'Trang công khai giới thiệu nền tảng.', icon: 'public' },
+  login: { label: 'Đăng nhập', desc: 'Xác thực email/mật khẩu để vào dashboard.', icon: 'login' },
+  dashboard: { label: 'Dashboard', desc: 'Bảng điều khiển tổng quan, hiển thị theo vai trò.', icon: 'dashboard' },
+  account: { label: 'Tài khoản', desc: 'Hồ sơ cá nhân, đổi mật khẩu, bảo mật.', icon: 'person' },
+  notifications: { label: 'Thông báo', desc: 'Cảnh báo hệ thống, hạn mức, sự kiện.', icon: 'notifications' },
+  docs: { label: 'Tài liệu', desc: 'Hướng dẫn sử dụng + API reference (trang này).', icon: 'menu_book' },
+  history: { label: 'Lịch sử', desc: 'Danh sách các lần phát hiện đã thực hiện.', icon: 'history' },
+  detail: { label: 'Chi tiết phát hiện', desc: 'Verdict, score, heatmap & ghi chú điều tra.', icon: 'frame_inspect' },
+  analytics: { label: 'Phân tích', desc: 'Biểu đồ lưu lượng, tỉ lệ fake, độ trễ.', icon: 'analytics' },
+  status: { label: 'Trạng thái & Tuân thủ', desc: 'Sức khỏe hệ thống, chứng chỉ, retention.', icon: 'monitor_heart' },
+  playground: { label: 'Playground', desc: 'Thử nhanh: upload ảnh/video → xem verdict/score/heatmap.', icon: 'science' },
+  liveness: { label: 'Liveness (eKYC)', desc: 'Kiểm tra người thật/giả mạo cho định danh.', icon: 'face' },
+  apikeys: { label: 'API Keys', desc: 'Tạo, xem & thu hồi khoá tích hợp dg_…', icon: 'key' },
+  webhooks: { label: 'Webhooks', desc: 'Đăng ký callback nhận kết quả tự động.', icon: 'webhook' },
+  models: { label: 'Models & Thresholds', desc: 'Phiên bản model, ngưỡng phán đoán, A/B traffic.', icon: 'model_training' },
+  audit: { label: 'Audit Logs', desc: 'Nhật ký mọi hành vi để tra cứu & xuất.', icon: 'fact_check' },
+  team: { label: 'Team & Roles', desc: 'Mời thành viên, gán vai trò trong tổ chức.', icon: 'group' },
+  billing: { label: 'Billing & Usage', desc: 'Gói cước, hạn mức tháng & hoá đơn.', icon: 'receipt_long' },
+  settings: { label: 'Settings', desc: 'Cấu hình tổ chức / nền tảng.', icon: 'settings' },
+  tenants: { label: 'Quản lý Tenants', desc: 'Quản trị xuyên tổ chức: plan, quota, trạng thái.', icon: 'corporate_fare' },
+};
+
+interface RoleGuide {
+  role: Role;
+  icon: string;
+  color: string;
+  tagline: string;
+  description: string;
+  workflow: string[];
+  can: string[];
+  cannot: string[];
+}
+
+const ROLE_GUIDES: Record<Role, RoleGuide> = {
+  sysadmin: {
+    role: 'sysadmin',
+    icon: 'admin_panel_settings',
+    color: DG.fake,
+    tagline: 'DeepGuard Ops · quản trị XUYÊN tenant',
+    description:
+      'Đội vận hành nền tảng DeepGuard. Quản trị toàn bộ hệ thống và mọi tenant: theo dõi sức khỏe, model, audit và cấu hình cấp nền tảng. Không can thiệp vào nghiệp vụ tích hợp của từng tenant.',
+    workflow: [
+      'Xem Platform Dashboard: tổng số tenant, mức sử dụng (usage) và tình trạng hệ thống (health).',
+      'Quản lý Tenants: tạm ngưng / kích hoạt, đổi gói (plan), chỉnh quota cho từng tổ chức.',
+      'Models & Thresholds: bật/tắt model, chỉnh ngưỡng phán đoán, phân bổ traffic A/B.',
+      'Theo dõi Status & Audit Logs trên toàn hệ thống để đảm bảo tuân thủ.',
+    ],
+    can: [
+      'Quản trị mọi tenant: plan, quota, tạm ngưng/kích hoạt.',
+      'Cấu hình model & ngưỡng cấp nền tảng, chạy A/B.',
+      'Xem Audit, Status, Analytics toàn hệ thống.',
+      'Quản lý Team & Settings ở cấp nền tảng.',
+    ],
+    cannot: [
+      'Không thao tác Playground / API Keys / Webhooks của tenant.',
+      'Không quản lý Billing của tenant (đó là việc Tenant Admin).',
+    ],
+  },
+  admin: {
+    role: 'admin',
+    icon: 'shield_person',
+    color: DG.primary,
+    tagline: 'Tenant Admin · quản trị tổ chức của mình',
+    description:
+      'Quản trị viên của một tổ chức (tenant). Toàn quyền trong phạm vi tổ chức: thành viên, khoá API, webhook, hạn mức, cấu hình và giám sát — nhưng chỉ trong tenant của mình.',
+    workflow: [
+      'Mời thành viên & gán vai trò trong trang Team & Roles.',
+      'Tạo / thu hồi API Keys cho các hệ thống tích hợp.',
+      'Theo dõi hạn mức (quota) & Billing của tổ chức.',
+      'Cấu hình tổ chức trong Settings.',
+      'Giám sát Dashboard / Analytics và soát Audit Logs.',
+    ],
+    can: [
+      'Quản lý thành viên & vai trò trong tổ chức.',
+      'Tạo/thu hồi API Keys, cấu hình Webhooks.',
+      'Xem & quản lý Billing, quota của tenant.',
+      'Dùng Playground, Liveness; xem Models/Status; soát Audit.',
+    ],
+    cannot: [
+      'Không quản lý tenant khác (đó là việc System Admin).',
+      'Không chỉnh model/ngưỡng cấp nền tảng.',
+    ],
+  },
+  developer: {
+    role: 'developer',
+    icon: 'code',
+    color: DG.real,
+    tagline: 'Kỹ sư tích hợp',
+    description:
+      'Lập trình viên tích hợp DeepGuard vào sản phẩm. Tập trung vào API Keys, thử nghiệm ở Playground, tích hợp endpoint nhận diện và nhận kết quả qua Webhooks.',
+    workflow: [
+      'Lấy API Key trong trang API Keys (lưu lại ngay, key chỉ hiện 1 lần).',
+      'Thử nhanh ở Playground: upload ảnh/video → xem verdict / score / heatmap.',
+      'Tích hợp theo API Reference: POST /v1/detect/image, /v1/detect/video, /v1/detect/liveness.',
+      'Cấu hình Webhooks để nhận kết quả tự động về hệ thống.',
+      'Theo dõi History / Analytics để giám sát chất lượng tích hợp.',
+    ],
+    can: [
+      'Tạo/thu hồi API Keys, cấu hình Webhooks.',
+      'Dùng Playground & Liveness để thử nghiệm.',
+      'Xem History, Analytics, Models (xem), Status (xem).',
+    ],
+    cannot: [
+      'Không vào Team / Billing / Settings.',
+      'Không vào Audit Logs / Tenants.',
+    ],
+  },
+  compliance: {
+    role: 'compliance',
+    icon: 'gavel',
+    color: DG.uncertain,
+    tagline: 'Kiểm toán / Tuân thủ',
+    description:
+      'Cán bộ kiểm toán & tuân thủ. Soát các case nghi vấn, thêm ghi chú điều tra, tra cứu nhật ký audit và kiểm tra chứng chỉ/retention. Có thể xem & replay nhưng không chỉnh cấu hình.',
+    workflow: [
+      'Dashboard: xem hàng đợi các case FAKE cần soát.',
+      'History → Detail: xem heatmap/score và THÊM ghi chú điều tra (notes).',
+      'Audit Logs: tra cứu hành vi, lọc theo action / user / thời gian, export.',
+      'Status & Compliance: kiểm tra chứng chỉ và chính sách lưu trữ (retention).',
+    ],
+    can: [
+      'Xem Dashboard, History/Detail, Analytics, Status, Models (xem).',
+      'Thêm ghi chú điều tra (notes) ở trang Chi tiết.',
+      'Xem/replay ở Playground & Liveness.',
+      'Tra cứu & export Audit Logs.',
+    ],
+    cannot: [
+      'Không tạo/sửa API Keys, Webhooks.',
+      'Không quản lý Team, Billing, Settings, Tenants.',
+    ],
+  },
+  viewer: {
+    role: 'viewer',
+    icon: 'visibility',
+    color: '#64748b',
+    tagline: 'Chỉ xem · stakeholder / khách',
+    description:
+      'Người dùng chỉ-xem (lãnh đạo, khách, bên liên quan). Theo dõi số liệu & báo cáo nhưng không có bất kỳ thao tác hành động nào — mọi nút tạo/sửa/xóa đều bị ẩn hoặc vô hiệu hoá.',
+    workflow: [
+      'Xem Dashboard để nắm số liệu tổng quan.',
+      'Xem History / Detail và Analytics để theo dõi báo cáo.',
+      'Xem Status để biết tình trạng hệ thống.',
+    ],
+    can: [
+      'Xem Dashboard, History/Detail, Analytics, Status.',
+      'Xem Thông báo, Tài liệu, Tài khoản cá nhân.',
+    ],
+    cannot: [
+      'Không thao tác gì (mọi nút tạo/sửa/xóa bị ẩn hoặc disabled).',
+      'Không vào Playground / API Keys / Audit / khu vực quản trị.',
+    ],
+  },
+};
+
+const DEMO_ACCOUNTS: { email: string; role: Role; note: string }[] = [
+  { email: 'sysadmin@deepguard.vn', role: 'sysadmin', note: 'DeepGuard Ops — quản trị nền tảng' },
+  { email: 'admin@vietbank.vn', role: 'admin', note: 'Tenant Admin của VietBank' },
+  { email: 'dev@vietbank.vn', role: 'developer', note: 'Kỹ sư tích hợp' },
+  { email: 'compliance@vietbank.vn', role: 'compliance', note: 'Kiểm toán / tuân thủ' },
+  { email: 'viewer@vietbank.vn', role: 'viewer', note: 'Chỉ xem' },
+];
+
+/* Pages shown in the role guide / matrix (exclude public landing/login). */
+const GUIDE_PAGES: Page[] = [
+  'dashboard',
+  'playground',
+  'liveness',
+  'history',
+  'detail',
+  'analytics',
+  'apikeys',
+  'webhooks',
+  'models',
+  'audit',
+  'status',
+  'team',
+  'billing',
+  'settings',
+  'tenants',
+  'notifications',
+  'docs',
+  'account',
+];
+
+/** Access kind for a (role, page) pair, derived purely from rbac.ts. */
+type AccessKind = 'edit' | 'view' | 'none';
+function accessKind(role: Role, page: Page): AccessKind {
+  if (!canAccess(role, page)) return 'none';
+  return canEdit(role, page) ? 'edit' : 'view';
+}
+
 /* ── Code sample builder ── */
 function endpointCode(ep: Endpoint, lang: 'curl' | 'python' | 'js'): string {
   const url = `${BASE_URL}${ep.path}`;
   const isForm = ep.params.some((p) => p.in === 'form-data');
   const auth =
-    ep.auth === 'API Key' ? '-H "X-API-Key: dg_live_a91f…"' : ep.auth === 'Bearer JWT' ? '-H "Authorization: Bearer <token>"' : '';
+    ep.auth === 'API Key' ? '-H "X-API-Key: dg_live_…"' : ep.auth === 'Bearer JWT' ? '-H "Authorization: Bearer <token>"' : '';
   const authHeaderObj =
     ep.auth === 'API Key' ? '"X-API-Key": "dg_live_a91f…"' : ep.auth === 'Bearer JWT' ? '"Authorization": "Bearer <token>"' : '';
 
@@ -641,10 +848,353 @@ function StateBlock({ icon, title, desc }: { icon: string; title: string; desc: 
   );
 }
 
+/* ── Small section heading ── */
+function PanelHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-base font-black text-slate-900 mb-4 flex items-center gap-2">
+      <span className="w-1.5 h-1.5 bg-dgblue rounded-full" />
+      {children}
+    </h2>
+  );
+}
+
 /* ──────────────────────────────────────────────
-   DOCS PAGE
+   SECTION 1 — Bắt đầu (Getting started)
    ────────────────────────────────────────────── */
-export default function DocsPage() {
+function GettingStarted() {
+  return (
+    <div className="space-y-5 dg-fade">
+      {/* intro */}
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <PanelHeading>Giới thiệu DeepGuard</PanelHeading>
+        <p className="text-sm text-slate-600 leading-relaxed">
+          DeepGuard là nền tảng <strong className="text-slate-800">phát hiện deepfake ảnh/video</strong> kết hợp{' '}
+          <strong className="text-slate-800">kiểm tra liveness (eKYC)</strong> dành cho ngân hàng và fintech. Hệ thống
+          vận hành <strong className="text-slate-800">đa tenant</strong>: mỗi tổ chức có không gian dữ liệu, hạn mức và
+          thành viên riêng, được phân quyền theo vai trò.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+          {(
+            [
+              ['photo_camera', DG.primary, 'Phát hiện ảnh', 'Phân tích spatial + frequency để bóc deepfake trên ảnh tĩnh.'],
+              ['movie', DG.uncertain, 'Phát hiện video', 'Lấy mẫu per-frame, tổng hợp verdict cho cả video.'],
+              ['face', DG.real, 'Liveness eKYC', 'Phân biệt người thật / giả mạo, hỗ trợ passive & active.'],
+            ] as const
+          ).map(([ic, col, title, desc]) => (
+            <div key={title} className="rounded-xl bg-white/60 border border-slate-100 p-4">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${col}14`, color: col }}>
+                <Icon name={ic} className="text-[20px]" fill />
+              </span>
+              <p className="text-[13px] font-bold text-slate-800 mt-3">{title}</p>
+              <p className="text-[11px] text-slate-400 leading-relaxed mt-0.5">{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* auth model */}
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <PanelHeading>Mô hình xác thực — 2 loại</PanelHeading>
+        <p className="text-sm text-slate-500 mb-4">
+          DeepGuard tách bạch xác thực <strong className="text-slate-700">người dùng dashboard</strong> và{' '}
+          <strong className="text-slate-700">hệ thống tích hợp</strong>. Hãy dùng đúng loại cho từng nhóm endpoint.
+        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* JWT */}
+          <div className="rounded-2xl border-2 p-5" style={{ borderColor: '#bfdbfe', background: '#eff6ff80' }}>
+            <div className="flex items-center gap-2 mb-2">
+              <Icon name="badge" className="text-[20px] text-dgblue" fill />
+              <h3 className="text-sm font-black text-slate-800">Dashboard — JWT</h3>
+            </div>
+            <p className="text-[12px] text-slate-600 leading-relaxed">
+              Đăng nhập email/mật khẩu ở <code className="text-[11px] font-mono bg-white px-1.5 py-0.5 rounded border border-blue-100">/auth/login</code>{' '}
+              → nhận <code className="text-[11px] font-mono bg-white px-1.5 py-0.5 rounded border border-blue-100">access_token</code>. Gửi kèm
+              header cho các API dashboard:
+            </p>
+            <code className="block mt-2 text-[11px] font-mono bg-slate-900 text-blue-200 px-3 py-2 rounded-lg">
+              Authorization: Bearer &lt;JWT&gt;
+            </code>
+            <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+              Dùng cho: <span className="font-mono text-slate-500">/auth, /analytics, /detections, /api-keys, /audit-logs, /users, /tenant, /models, /notifications, /webhooks…</span>
+            </p>
+          </div>
+          {/* API Key */}
+          <div className="rounded-2xl border-2 p-5" style={{ borderColor: '#fed7aa', background: '#fff7ed80' }}>
+            <div className="flex items-center gap-2 mb-2">
+              <Icon name="key" className="text-[20px] text-dguncertain" fill />
+              <h3 className="text-sm font-black text-slate-800">API tích hợp — API Key</h3>
+            </div>
+            <p className="text-[12px] text-slate-600 leading-relaxed">
+              Tạo key ở trang <strong className="text-slate-700">API Keys</strong> (chuỗi dạng{' '}
+              <code className="text-[11px] font-mono bg-white px-1.5 py-0.5 rounded border border-orange-100">dg_…</code>). Gửi kèm header cho các
+              endpoint nhận diện:
+            </p>
+            <code className="block mt-2 text-[11px] font-mono bg-slate-900 text-orange-200 px-3 py-2 rounded-lg">
+              Authorization: Bearer &lt;API_KEY&gt;
+            </code>
+            <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+              Dùng cho: <span className="font-mono text-slate-500">/v1/detect/*, /v1/liveness/*</span>.{' '}
+              <strong className="text-dguncertain">Key chỉ hiện 1 lần khi tạo</strong> — hãy lưu lại ngay.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* demo accounts */}
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <PanelHeading>5 tài khoản demo</PanelHeading>
+        <p className="text-sm text-slate-500 mb-4">
+          Tất cả dùng chung mật khẩu{' '}
+          <code className="text-[12px] font-mono font-bold text-dgblue bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Password123!</code>.
+          Đăng nhập để trải nghiệm dashboard theo từng vai trò.
+        </p>
+        <div className="rounded-xl border border-slate-100 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50">
+              <tr className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-2.5">Email</th>
+                <th className="px-4 py-2.5">Vai trò</th>
+                <th className="px-4 py-2.5">Mô tả</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {DEMO_ACCOUNTS.map((a) => (
+                <tr key={a.email} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="px-4 py-2.5">
+                    <code className="text-[12px] font-mono font-bold text-slate-700">{a.email}</code>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span
+                      className="text-[10px] font-black px-2 py-0.5 rounded-md border"
+                      style={{ color: ROLE_GUIDES[a.role].color, background: `${ROLE_GUIDES[a.role].color}12`, borderColor: `${ROLE_GUIDES[a.role].color}30` }}
+                    >
+                      {ROLE_LABEL[a.role]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-[12px] text-slate-500">{a.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* navigation */}
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <PanelHeading>Điều hướng theo vai trò</PanelHeading>
+        <p className="text-sm text-slate-600 leading-relaxed">
+          Thanh sidebar <strong className="text-slate-800">tự đổi theo vai trò</strong> của tài khoản đăng nhập: mỗi vai
+          trò chỉ thấy các trang được phép truy cập và vào thẳng Dashboard phù hợp (platform / tenant / integration /
+          compliance / chỉ-xem). Xem chi tiết từng vai trò ở tab{' '}
+          <strong className="text-dgblue">“Theo vai trò”</strong>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────
+   SECTION 2 — Theo vai trò (Per-role guide)
+   ────────────────────────────────────────────── */
+function RoleGuideSection() {
+  const [role, setRole] = useState<Role>('sysadmin');
+  const guide = ROLE_GUIDES[role];
+
+  // Pages this role can access — derived from PAGE_ACCESS via canAccess (source of truth).
+  const accessPages = useMemo(
+    () => GUIDE_PAGES.filter((p) => canAccess(role, p)),
+    [role],
+  );
+
+  return (
+    <div className="space-y-5 dg-fade">
+      {/* role selector cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {ALL_ROLES.map((r) => {
+          const g = ROLE_GUIDES[r];
+          const active = role === r;
+          return (
+            <button
+              key={r}
+              onClick={() => setRole(r)}
+              className={`glass-panel rounded-2xl p-4 border text-left transition-all ${
+                active ? 'shadow-md -translate-y-0.5' : 'border-white/60 hover:-translate-y-0.5'
+              }`}
+              style={active ? { borderColor: g.color, boxShadow: `0 8px 24px ${g.color}22` } : undefined}
+            >
+              <span
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: `${g.color}14`, color: g.color }}
+              >
+                <Icon name={g.icon} className="text-[20px]" fill={active} />
+              </span>
+              <p className="text-[13px] font-black text-slate-800 mt-2.5">{ROLE_LABEL[r]}</p>
+              <p className="text-[10px] font-mono text-slate-400">{r}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* role detail */}
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <div className="flex items-start gap-4">
+          <span
+            className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+            style={{ background: `${guide.color}14`, color: guide.color }}
+          >
+            <Icon name={guide.icon} className="text-[26px]" fill />
+          </span>
+          <div>
+            <h2 className="text-lg font-black text-slate-900">{ROLE_LABEL[role]}</h2>
+            <p className="text-[12px] font-bold uppercase tracking-wide" style={{ color: guide.color }}>
+              {guide.tagline}
+            </p>
+            <p className="text-sm text-slate-600 leading-relaxed mt-2">{guide.description}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* accessible pages */}
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <PanelHeading>Trang truy cập được ({accessPages.length})</PanelHeading>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          {accessPages.map((p) => {
+            const meta = PAGE_META[p];
+            const kind = accessKind(role, p);
+            const readOnly = kind === 'view';
+            return (
+              <div key={p} className="flex items-start gap-3 rounded-xl bg-white/60 border border-slate-100 p-3">
+                <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-slate-100 text-slate-500">
+                  <Icon name={meta.icon} className="text-[18px]" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[13px] font-bold text-slate-800">{meta.label}</p>
+                    {readOnly && (
+                      <span className="text-[9px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-wide flex items-center gap-0.5">
+                        <Icon name="visibility" className="text-[11px]" /> chỉ xem
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">{meta.desc}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* workflow */}
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <PanelHeading>Nhiệm vụ chính & quy trình</PanelHeading>
+        <ol className="space-y-2.5">
+          {guide.workflow.map((step, i) => (
+            <li key={i} className="flex items-start gap-3">
+              <span
+                className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 text-[11px] font-black tabular-nums"
+                style={{ background: `${guide.color}14`, color: guide.color }}
+              >
+                {i + 1}
+              </span>
+              <p className="text-[13px] text-slate-600 leading-relaxed pt-0.5">{step}</p>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* permissions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+          <h3 className="text-sm font-black text-slate-900 mb-3 flex items-center gap-2">
+            <Icon name="check_circle" className="text-[18px] text-dgreal" fill /> Làm được
+          </h3>
+          <ul className="space-y-2">
+            {guide.can.map((c, i) => (
+              <li key={i} className="flex items-start gap-2 text-[13px] text-slate-600 leading-relaxed">
+                <Icon name="check" className="text-[16px] text-dgreal shrink-0 mt-0.5" />
+                {c}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+          <h3 className="text-sm font-black text-slate-900 mb-3 flex items-center gap-2">
+            <Icon name="cancel" className="text-[18px] text-dgfake" fill /> KHÔNG làm được
+          </h3>
+          <ul className="space-y-2">
+            {guide.cannot.map((c, i) => (
+              <li key={i} className="flex items-start gap-2 text-[13px] text-slate-600 leading-relaxed">
+                <Icon name="block" className="text-[16px] text-dgfake shrink-0 mt-0.5" />
+                {c}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      {/* permission matrix */}
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <PanelHeading>Ma trận phân quyền</PanelHeading>
+        <p className="text-sm text-slate-500 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="flex items-center gap-1 text-[12px]">
+            <Icon name="edit" className="text-[14px] text-dgreal" /> = chỉnh sửa
+          </span>
+          <span className="flex items-center gap-1 text-[12px]">
+            <Icon name="visibility" className="text-[14px] text-dgblue" /> = chỉ xem
+          </span>
+          <span className="flex items-center gap-1 text-[12px]">
+            <span className="text-slate-300 font-black">—</span> = không truy cập
+          </span>
+        </p>
+        <div className="rounded-xl border border-slate-100 overflow-x-auto custom-scrollbar">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50">
+              <tr className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-2.5 sticky left-0 bg-slate-50">Trang</th>
+                {ALL_ROLES.map((r) => (
+                  <th key={r} className="px-3 py-2.5 text-center whitespace-nowrap">
+                    {ROLE_LABEL[r]}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {GUIDE_PAGES.map((p) => (
+                <tr key={p} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="px-4 py-2.5 sticky left-0 bg-white">
+                    <span className="flex items-center gap-2">
+                      <Icon name={PAGE_META[p].icon} className="text-[15px] text-slate-400" />
+                      <span className="text-[12px] font-bold text-slate-700">{PAGE_META[p].label}</span>
+                    </span>
+                  </td>
+                  {ALL_ROLES.map((r) => {
+                    const kind = accessKind(r, p);
+                    return (
+                      <td key={r} className="px-3 py-2.5 text-center">
+                        {kind === 'edit' ? (
+                          <Icon name="edit" className="text-[16px] text-dgreal" />
+                        ) : kind === 'view' ? (
+                          <Icon name="visibility" className="text-[16px] text-dgblue" />
+                        ) : (
+                          <span className="text-slate-300 font-black">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────
+   SECTION 3 — API Reference (existing explorer)
+   ────────────────────────────────────────────── */
+function ApiReferenceSection() {
   const navigate = useNavigation((s) => s.navigate);
   const [layout, setLayout] = useState<'explorer' | 'list'>('explorer');
   const [selected, setSelected] = useState(ENDPOINTS[0].id);
@@ -673,18 +1223,10 @@ export default function DocsPage() {
   const current = ENDPOINTS.find((e) => e.id === selected) ?? ENDPOINTS[0];
 
   return (
-    <div className="space-y-5">
-      {/* header */}
-      <div className="flex flex-wrap items-end justify-between gap-4 dg-fade">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900 flex items-center gap-2.5">
-            API Documentation
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider bg-blue-50 text-dgblue border border-blue-200">
-              v2.1
-            </span>
-          </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Tài liệu tham khảo DeepGuard Detection API</p>
-        </div>
+    <div className="space-y-5 dg-fade">
+      {/* layout toggle + playground */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">Tài liệu tham khảo DeepGuard Detection API — endpoints khớp với client thật.</p>
         <div className="flex items-center gap-2">
           <RangeToggle
             value={layout}
@@ -703,22 +1245,35 @@ export default function DocsPage() {
         </div>
       </div>
 
+      {/* auth note: JWT vs API key */}
+      <div className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60">
+        <div className="flex items-start gap-3">
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-blue-50 text-dgblue">
+            <Icon name="info" className="text-[20px]" fill />
+          </span>
+          <div className="text-[13px] text-slate-600 leading-relaxed">
+            <strong className="text-slate-800">Phân biệt xác thực:</strong> các endpoint nhận diện{' '}
+            <code className="text-[11px] font-mono text-dguncertain bg-orange-50 px-1.5 py-0.5 rounded">/v1/*</code> dùng{' '}
+            <strong className="text-dguncertain">API Key</strong> (chuỗi <span className="font-mono">dg_…</span>); các endpoint dashboard
+            (auth, detections, analytics, api-keys, audit-logs, webhooks…) dùng <strong className="text-dgblue">Bearer JWT</strong> lấy từ{' '}
+            <code className="text-[11px] font-mono bg-slate-100 px-1.5 py-0.5 rounded">/auth/login</code>.
+          </div>
+        </div>
+      </div>
+
       {/* quick reference */}
-      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-fade">
-        <h2 className="text-base font-black text-slate-900 mb-4 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 bg-dgblue rounded-full" />
-          Quick Reference
-        </h2>
+      <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+        <PanelHeading>Quick Reference</PanelHeading>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <CopyField label="Base URL" value={BASE_URL} accent="#34d399" />
-          <CopyField label="Authentication" value="X-API-Key: dg_live_…" accent="#fb923c" />
-          <CopyField label="Content-Type" value="multipart/form-data" accent="#60a5fa" />
+          <CopyField label="API Key header" value={AUTH_HEADER['API Key']} accent="#fb923c" />
+          <CopyField label="JWT header" value={AUTH_HEADER['Bearer JWT']} accent="#60a5fa" />
         </div>
       </div>
 
       {/* explorer / list */}
       {layout === 'explorer' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 dg-fade">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* nav */}
           <div className="lg:col-span-4 xl:col-span-3 space-y-3">
             <div className="relative">
@@ -768,7 +1323,7 @@ export default function DocsPage() {
           </div>
         </div>
       ) : (
-        <div className="space-y-3 dg-fade">
+        <div className="space-y-3">
           <div className="relative max-w-sm">
             <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
             <input
@@ -804,12 +1359,9 @@ export default function DocsPage() {
       )}
 
       {/* status codes + resources */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 dg-fade">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
-          <h2 className="text-base font-black text-slate-900 mb-4 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 bg-dgblue rounded-full" />
-            Status Codes
-          </h2>
+          <PanelHeading>Status Codes</PanelHeading>
           <div className="space-y-1.5">
             {STATUS_CODES.map((sc) => (
               <div key={sc.code} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors">
@@ -823,10 +1375,7 @@ export default function DocsPage() {
           </div>
         </div>
         <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
-          <h2 className="text-base font-black text-slate-900 mb-4 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 bg-dgblue rounded-full" />
-            Tài nguyên
-          </h2>
+          <PanelHeading>Tài nguyên</PanelHeading>
           <div className="space-y-3">
             {(
               [
@@ -853,6 +1402,50 @@ export default function DocsPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────
+   DOCS PAGE — Documentation Hub
+   ────────────────────────────────────────────── */
+type DocsSection = 'start' | 'roles' | 'api';
+
+export default function DocsPage() {
+  const [section, setSection] = useState<DocsSection>('start');
+
+  return (
+    <div className="space-y-5">
+      {/* header */}
+      <div className="flex flex-wrap items-end justify-between gap-4 dg-fade">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900 flex items-center gap-2.5">
+            Tài liệu DeepGuard
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider bg-blue-50 text-dgblue border border-blue-200">
+              v2.1
+            </span>
+          </h1>
+          <p className="text-sm text-slate-500 mt-0.5">Hướng dẫn sử dụng theo vai trò + API reference đầy đủ</p>
+        </div>
+      </div>
+
+      {/* section switcher */}
+      <div className="dg-fade">
+        <RangeToggle
+          value={section}
+          onChange={(id) => setSection(id as DocsSection)}
+          options={[
+            { id: 'start', label: 'Bắt đầu' },
+            { id: 'roles', label: 'Theo vai trò' },
+            { id: 'api', label: 'API Reference' },
+          ]}
+        />
+      </div>
+
+      {/* section content */}
+      {section === 'start' && <GettingStarted />}
+      {section === 'roles' && <RoleGuideSection />}
+      {section === 'api' && <ApiReferenceSection />}
     </div>
   );
 }
