@@ -24,6 +24,14 @@ router = APIRouter(prefix="/users", tags=["users"])
 INVITATION_TTL_DAYS = 7
 ADMIN_ROLES = {"admin", "sysadmin"}
 
+# Thứ bậc vai trò — chỉ được thao tác user có bậc THẤP HƠN hoặc BẰNG mình,
+# và không được gán vai trò cao hơn bậc của mình.
+ROLE_LEVEL = {"viewer": 0, "developer": 1, "compliance": 2, "admin": 3, "sysadmin": 4}
+
+
+def _level(role) -> int:
+    return ROLE_LEVEL.get(role.value if hasattr(role, "value") else str(role), 0)
+
 
 def _require_admin(user: User):
     if user.role.value not in ADMIN_ROLES:
@@ -85,6 +93,10 @@ async def invite_user(
     except ValueError:
         raise bad_request(f"Invalid role: {body.role}")
 
+    # Không được mời vai trò cao hơn bậc của mình (vd admin không mời sysadmin)
+    if _level(role_enum) > _level(current_user.role):
+        raise forbidden("Không thể mời vai trò cao hơn vai trò của bạn")
+
     token = secrets.token_urlsafe(48)
     expires = datetime.now(timezone.utc) + timedelta(days=INVITATION_TTL_DAYS)
     inv = Invitation(
@@ -127,13 +139,24 @@ async def update_user(
     if not user:
         raise not_found("User")
 
+    # Chặn leo thang quyền: không thao tác user có vai trò CAO HƠN mình
+    if _level(user.role) > _level(current_user.role):
+        raise forbidden("Không thể chỉnh sửa người dùng có vai trò cao hơn bạn")
+    # Không tự đổi vai trò / tự vô hiệu hóa chính mình
+    if user.id == current_user.id and (body.role is not None or body.is_active is False):
+        raise bad_request("Không thể tự đổi vai trò hoặc vô hiệu hóa chính mình")
+
     if body.name is not None:
         user.name = body.name
     if body.role is not None:
         try:
-            user.role = UserRole(body.role)
+            new_role = UserRole(body.role)
         except ValueError:
             raise bad_request(f"Invalid role: {body.role}")
+        # Không được gán vai trò cao hơn bậc của mình (admin không thể tạo sysadmin)
+        if _level(new_role) > _level(current_user.role):
+            raise forbidden("Không thể gán vai trò cao hơn vai trò của bạn")
+        user.role = new_role
     if body.is_active is not None:
         user.is_active = body.is_active
 
@@ -166,6 +189,10 @@ async def delete_user(
     user = (await db.execute(q)).scalar_one_or_none()
     if not user:
         raise not_found("User")
+
+    # Chặn xóa user có vai trò cao hơn mình (admin không xóa được sysadmin)
+    if _level(user.role) > _level(current_user.role):
+        raise forbidden("Không thể xóa người dùng có vai trò cao hơn bạn")
 
     user.deleted_at = datetime.now(timezone.utc)
     user.is_active = False
