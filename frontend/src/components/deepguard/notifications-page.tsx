@@ -2,15 +2,22 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Icon } from '@/components/deepguard/shared';
-import { DG, minsAgo, timeAgo } from '@/lib/dg';
+import { useNavigation, type Page } from '@/store/navigation';
+import {
+  notificationsList,
+  notificationMarkRead,
+  notificationsReadAll,
+  notificationDelete,
+  type NotificationOut,
+} from '@/lib/api';
+import { DG, timeAgo } from '@/lib/dg';
 
 /* ──────────────────────────────────────────────
    DeepGuard — Notifications Center
-   Ported from frontend-claude/notifications.jsx (mock data inline).
-   TODO: backend — replace NOTIFICATIONS with a real notifications endpoint.
+   Wired to the real backend /notifications API.
    ────────────────────────────────────────────── */
 
-type NotifType = 'alert' | 'quota' | 'system' | 'team' | 'billing';
+type NotifType = 'info' | 'success' | 'warning' | 'critical';
 
 interface NotifTypeMeta {
   icon: string;
@@ -19,44 +26,43 @@ interface NotifTypeMeta {
   label: string;
 }
 
-interface Notification {
-  id: string;
-  type: NotifType;
-  title: string;
-  body: string;
-  at: string;
-  read: boolean;
-}
-
 const NOTIF_TYPE: Record<NotifType, NotifTypeMeta> = {
-  alert:   { icon: 'gpp_maybe',    color: '#ba1a1a', bg: '#fef2f2', label: 'Cảnh báo' },
-  quota:   { icon: 'data_usage',   color: '#ed6c02', bg: '#fff7ed', label: 'Quota' },
-  system:  { icon: 'cloud_done',   color: '#0050cb', bg: '#eff6ff', label: 'Hệ thống' },
-  team:    { icon: 'group',        color: '#7c3aed', bg: '#f5f3ff', label: 'Team' },
-  billing: { icon: 'receipt_long', color: '#2e7d32', bg: '#f0fdf4', label: 'Billing' },
+  info:     { icon: 'info',         color: '#0050cb', bg: '#eff6ff', label: 'Thông tin' },
+  success:  { icon: 'check_circle', color: '#2e7d32', bg: '#f0fdf4', label: 'Thành công' },
+  warning:  { icon: 'warning',      color: '#ed6c02', bg: '#fff7ed', label: 'Cảnh báo' },
+  critical: { icon: 'error',        color: '#ba1a1a', bg: '#fef2f2', label: 'Nghiêm trọng' },
 };
 
-// TODO: backend — these are seeded demo notifications, ported from the prototype.
-const NOTIFICATIONS: Notification[] = [
-  { id: 'n1', type: 'alert',   title: 'Cảnh báo deepfake cao',          body: '18 phát hiện FAKE trong 1 giờ qua từ key "Production Web" — vượt ngưỡng cảnh báo.', at: minsAgo(6),    read: false },
-  { id: 'n2', type: 'quota',   title: 'Quota đạt 80%',                  body: 'Tenant VietBank đã dùng 80% hạn mức tháng. Cân nhắc nâng cấp để tránh gián đoạn.',   at: minsAgo(52),   read: false },
-  { id: 'n3', type: 'team',    title: 'Thành viên mới tham gia',        body: 'Phạm Thị Dung đã chấp nhận lời mời với vai trò Developer.',                          at: minsAgo(180),  read: false },
-  { id: 'n4', type: 'system',  title: 'Model cập nhật v2.1.3',          body: 'Model phát hiện đã nâng cấp lên v2.1.3 — cải thiện 3.2% độ chính xác trên video.',   at: minsAgo(420),  read: true },
-  { id: 'n5', type: 'billing', title: 'Hoá đơn tháng 5 đã thanh toán',  body: 'Hoá đơn INV-2026-005 (24.800.000₫) đã được thanh toán thành công.',                  at: minsAgo(1440), read: true },
-  { id: 'n6', type: 'system',  title: 'Bảo trì theo lịch hoàn tất',     body: 'Bảo trì hạ tầng inference đã hoàn tất, không gián đoạn dịch vụ.',                     at: minsAgo(2880), read: true },
-];
+const FALLBACK_META: NotifTypeMeta = NOTIF_TYPE.info;
+
+function typeMeta(type: string): NotifTypeMeta {
+  return NOTIF_TYPE[type as NotifType] ?? FALLBACK_META;
+}
 
 type FilterId = 'all' | 'unread' | NotifType;
 
 const CHIPS: { id: FilterId; label: string }[] = [
-  { id: 'all',     label: 'Tất cả' },
-  { id: 'unread',  label: 'Chưa đọc' },
-  { id: 'alert',   label: 'Cảnh báo' },
-  { id: 'quota',   label: 'Quota' },
-  { id: 'team',    label: 'Team' },
-  { id: 'system',  label: 'Hệ thống' },
-  { id: 'billing', label: 'Billing' },
+  { id: 'all',      label: 'Tất cả' },
+  { id: 'unread',   label: 'Chưa đọc' },
+  { id: 'info',     label: 'Thông tin' },
+  { id: 'success',  label: 'Thành công' },
+  { id: 'warning',  label: 'Cảnh báo' },
+  { id: 'critical', label: 'Nghiêm trọng' },
 ];
+
+// Valid in-app pages a notification link can target.
+const VALID_PAGES: ReadonlySet<Page> = new Set<Page>([
+  'dashboard', 'history', 'models', 'webhooks', 'apikeys', 'settings',
+  'analytics', 'audit', 'tenants', 'team', 'billing', 'account',
+  'status', 'liveness', 'playground', 'docs',
+]);
+
+/** Map a notification link like '/history' to a navigable Page (or null if unknown). */
+function linkToPage(link: string | null): Page | null {
+  if (!link) return null;
+  const seg = link.replace(/^\/+/, '').split(/[/?#]/)[0].trim();
+  return VALID_PAGES.has(seg as Page) ? (seg as Page) : null;
+}
 
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString('vi-VN', {
@@ -77,17 +83,30 @@ function StateBlock({ icon, title, desc }: { icon: string; title: string; desc: 
 }
 
 export default function NotificationsPage() {
-  const [items, setItems] = useState<Notification[]>(NOTIFICATIONS);
+  const navigate = useNavigation((s) => s.navigate);
+
+  const [items, setItems] = useState<NotificationOut[]>([]);
+  const [unread, setUnread] = useState(0);
   const [filter, setFilter] = useState<FilterId>('all');
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Notification | null>(null);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState<NotificationOut | null>(null);
 
-  useEffect(() => {
-    const id = setTimeout(() => setLoading(false), 500);
-    return () => clearTimeout(id);
+  const load = useCallback(() => {
+    setLoading(true);
+    setError('');
+    notificationsList({ limit: 100 })
+      .then((res) => {
+        setItems(res.items);
+        setUnread(res.unread);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải thông báo'))
+      .finally(() => setLoading(false));
   }, []);
 
-  const unread = items.filter((n) => !n.read).length;
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const filtered = useMemo(
     () =>
@@ -97,21 +116,59 @@ export default function NotificationsPage() {
     [items, filter],
   );
 
-  const markAll = useCallback(() => setItems((p) => p.map((n) => ({ ...n, read: true }))), []);
-  const markRead = useCallback(
-    (id: string) => setItems((p) => p.map((n) => (n.id === id ? { ...n, read: true } : n))),
-    [],
-  );
-  const toggle = useCallback(
-    (id: string) => setItems((p) => p.map((n) => (n.id === id ? { ...n, read: !n.read } : n))),
-    [],
-  );
-  const remove = useCallback((id: string) => setItems((p) => p.filter((n) => n.id !== id)), []);
+  // Optimistically mark an item read in local state + recompute unread count.
+  const markReadLocal = useCallback((id: string) => {
+    setItems((p) => {
+      let changed = false;
+      const next = p.map((n) => {
+        if (n.id === id && !n.read) { changed = true; return { ...n, read: true }; }
+        return n;
+      });
+      if (changed) setUnread((u) => Math.max(0, u - 1));
+      return next;
+    });
+  }, []);
 
-  const openDetail = useCallback((n: Notification) => {
-    setSelected(n);
-    if (!n.read) markRead(n.id);
-  }, [markRead]);
+  const markRead = useCallback(
+    (id: string) => {
+      markReadLocal(id);
+      notificationMarkRead(id).catch(() => load()); // reconcile on failure
+    },
+    [markReadLocal, load],
+  );
+
+  const markAll = useCallback(() => {
+    setItems((p) => p.map((n) => ({ ...n, read: true })));
+    setUnread(0);
+    notificationsReadAll()
+      .then(() => load())
+      .catch(() => load());
+  }, [load]);
+
+  const remove = useCallback(
+    (id: string) => {
+      setItems((p) => {
+        const target = p.find((n) => n.id === id);
+        if (target && !target.read) setUnread((u) => Math.max(0, u - 1));
+        return p.filter((n) => n.id !== id);
+      });
+      notificationDelete(id).catch(() => load()); // reconcile on failure
+    },
+    [load],
+  );
+
+  const openDetail = useCallback(
+    (n: NotificationOut) => {
+      if (!n.read) markRead(n.id);
+      const page = linkToPage(n.link);
+      if (page) {
+        navigate(page);
+      } else {
+        setSelected(n);
+      }
+    },
+    [markRead, navigate],
+  );
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
@@ -133,7 +190,7 @@ export default function NotificationsPage() {
           disabled={unread === 0}
           className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <Icon name="done_all" className="text-[18px]" /> Đánh dấu đã đọc
+          <Icon name="done_all" className="text-[18px]" /> Đánh dấu đã đọc tất cả
         </button>
       </div>
 
@@ -184,6 +241,12 @@ export default function NotificationsPage() {
             </div>
           ))}
         </div>
+      ) : error ? (
+        <StateBlock
+          icon="cloud_off"
+          title="Không tải được thông báo"
+          desc={error || 'Kết nối tới máy chủ bị gián đoạn. Thử lại sau giây lát.'}
+        />
       ) : filtered.length === 0 ? (
         <StateBlock
           icon="notifications_off"
@@ -197,7 +260,7 @@ export default function NotificationsPage() {
       ) : (
         <div className="space-y-2">
           {filtered.map((n) => {
-            const ty = NOTIF_TYPE[n.type];
+            const ty = typeMeta(n.type);
             return (
               <div
                 key={n.id}
@@ -217,20 +280,23 @@ export default function NotificationsPage() {
                   <div className="flex items-center gap-2">
                     <p className="text-[13px] font-black text-slate-800">{n.title}</p>
                     {!n.read && <span className="w-2 h-2 rounded-full bg-dgblue shrink-0" />}
+                    {linkToPage(n.link) && (
+                      <Icon name="open_in_new" className="text-[13px] text-slate-300" />
+                    )}
                   </div>
-                  <p className="text-[12px] text-slate-500 leading-relaxed mt-0.5">{n.body}</p>
-                  <p className="text-[10px] text-slate-400 mt-1.5 font-medium">{timeAgo(n.at)}</p>
+                  {n.body && (
+                    <p className="text-[12px] text-slate-500 leading-relaxed mt-0.5">{n.body}</p>
+                  )}
+                  <p className="text-[10px] text-slate-400 mt-1.5 font-medium">{timeAgo(n.created_at)}</p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={(e) => { e.stopPropagation(); toggle(n.id); }}
-                    title={n.read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc'}
-                    className="w-8 h-8 rounded-lg hover:bg-white flex items-center justify-center text-slate-400 hover:text-dgblue transition-colors"
+                    onClick={(e) => { e.stopPropagation(); markRead(n.id); }}
+                    disabled={n.read}
+                    title="Đánh dấu đã đọc"
+                    className="w-8 h-8 rounded-lg hover:bg-white flex items-center justify-center text-slate-400 hover:text-dgblue transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
-                    <Icon
-                      name={n.read ? 'mark_email_unread' : 'mark_email_read'}
-                      className="text-[17px]"
-                    />
+                    <Icon name="mark_email_read" className="text-[17px]" />
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); remove(n.id); }}
@@ -255,7 +321,8 @@ export default function NotificationsPage() {
           />
           <aside className="relative w-full max-w-md h-full bg-white shadow-2xl border-l border-slate-100 flex flex-col feed-in custom-scrollbar overflow-y-auto">
             {(() => {
-              const ty = NOTIF_TYPE[selected.type];
+              const ty = typeMeta(selected.type);
+              const page = linkToPage(selected.link);
               return (
                 <>
                   <div className="flex items-start justify-between gap-4 p-6 border-b border-slate-100">
@@ -290,24 +357,29 @@ export default function NotificationsPage() {
                     <h2 className="text-lg font-black text-slate-900 leading-snug">
                       {selected.title}
                     </h2>
-                    <p className="text-sm text-slate-600 leading-relaxed">{selected.body}</p>
+                    {selected.body && (
+                      <p className="text-sm text-slate-600 leading-relaxed">{selected.body}</p>
+                    )}
                     <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
                       <Icon name="schedule" className="text-[15px]" />
-                      <span className="tabular-nums">{fmtDateTime(selected.at)}</span>
-                      <span>· {timeAgo(selected.at)}</span>
+                      <span className="tabular-nums">{fmtDateTime(selected.created_at)}</span>
+                      <span>· {timeAgo(selected.created_at)}</span>
                     </div>
                   </div>
                   <div className="p-6 border-t border-slate-100 flex items-center gap-2">
-                    <button
-                      onClick={() => { toggle(selected.id); setSelected(null); }}
-                      className="flex-1 flex items-center justify-center gap-2 h-10 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all"
-                    >
-                      <Icon
-                        name={selected.read ? 'mark_email_unread' : 'mark_email_read'}
-                        className="text-[18px]"
-                      />
-                      {selected.read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc'}
-                    </button>
+                    {page && (
+                      <button
+                        onClick={() => { navigate(page); setSelected(null); }}
+                        className="flex-1 flex items-center justify-center gap-2 h-10 bg-dgblue text-white rounded-xl text-xs font-bold hover:bg-dgblue/90 transition-all shadow-sm"
+                      >
+                        <Icon name="open_in_new" className="text-[18px]" /> Mở
+                      </button>
+                    )}
+                    {!page && (
+                      <div className="flex-1 flex items-center justify-center gap-2 h-10 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-400">
+                        <Icon name="mark_email_read" className="text-[18px]" /> Đã đọc
+                      </div>
+                    )}
                     <button
                       onClick={() => { remove(selected.id); setSelected(null); }}
                       className="flex items-center justify-center gap-2 h-10 px-4 bg-white border border-slate-200 rounded-xl text-xs font-bold text-dgfake hover:bg-dgfake/5 transition-all"

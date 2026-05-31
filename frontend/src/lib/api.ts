@@ -351,3 +351,23 @@ export const modelUpdate = (id: string, data: { threshold?: number; is_active?: 
   req<ModelOut>(`/models/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 export const modelsCheckUpdate = () =>
   req<{ status: string; latest_version: string | null; message: string }>("/models/check-update", { method: "POST" });
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+export interface NotificationOut {
+  id: string; type: string; title: string;
+  body: string | null; link: string | null; read: boolean; created_at: string;
+}
+export interface NotificationListResponse { items: NotificationOut[]; total: number; unread: number }
+
+export const notificationsList = (params?: { unread_only?: boolean; limit?: number }) => {
+  const qs = new URLSearchParams();
+  if (params?.unread_only) qs.set("unread_only", "true");
+  if (params?.limit) qs.set("limit", String(params.limit));
+  return req<NotificationListResponse>(`/notifications?${qs}`);
+};
+export const notificationMarkRead = (id: string) =>
+  req<NotificationOut>(`/notifications/${id}/read`, { method: "PATCH" });
+export const notificationsReadAll = () =>
+  req<void>("/notifications/read-all", { method: "POST" });
+export const notificationDelete = (id: string) =>
+  req<void>(`/notifications/${id}`, { method: "DELETE" });
