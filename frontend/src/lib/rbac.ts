@@ -63,6 +63,8 @@ export function canAccess(role: Role | undefined | null, page: Page): boolean {
 export function canEdit(role: Role | undefined | null, page: Page): boolean {
   if (!role) return false;
   if (role === 'viewer') return false; // viewer never edits
+  // Models & thresholds are PLATFORM-GLOBAL config → only sysadmin may mutate.
+  if (page === 'models') return role === 'sysadmin';
   if (role === 'compliance') {
     // compliance may add review notes but not mutate config/data
     return page === 'detail';

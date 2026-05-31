@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
 from deepguard_db.app.db.models import ModelVersion, User
-from app.dependencies import get_current_user, require_role
+from app.dependencies import get_current_user, require_sysadmin
 from app.core.exceptions import not_found
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -55,7 +55,7 @@ async def list_models(
 async def update_model(
     model_id: uuid.UUID,
     body: UpdateModelRequest,
-    current_user: User = Depends(require_role("admin", "sysadmin")),
+    current_user: User = Depends(require_sysadmin),
     db: AsyncSession = Depends(get_db),
 ):
     m = await db.get(ModelVersion, model_id)
@@ -74,7 +74,7 @@ async def update_model(
 
 @router.post("/check-update")
 async def check_update(
-    current_user: User = Depends(require_role("admin", "sysadmin")),
+    current_user: User = Depends(require_sysadmin),
 ):
     """Stub: chưa kết nối registry model. Trả trạng thái mặc định."""
     return {"status": "up_to_date", "latest_version": None, "message": "Đang dùng model mới nhất"}
