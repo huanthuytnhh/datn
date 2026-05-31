@@ -108,9 +108,10 @@ async def get_detection_detail(
 async def add_audit_note(
     request_id: uuid.UUID,
     payload: AuditNoteCreate,
-    current_user: User = Depends(require_role("admin", "developer", "compliance")),
+    current_user: User = Depends(require_role("admin", "compliance")),
     db: AsyncSession = Depends(get_db),
 ):
+    # SoD: chỉ admin/compliance ghi ghi-chú điều tra; developer (bên tạo detection) không tự ghi audit của mình
     d = await _load_detection_with_relations(db, request_id, current_user.tenant_id)
     if not d:
         raise not_found("Detection")
