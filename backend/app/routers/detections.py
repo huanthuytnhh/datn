@@ -64,7 +64,11 @@ async def _load_detection_with_relations(
     return (await db.execute(q)).scalar_one_or_none()
 
 
-def _to_detail(d: Detection) -> DetectionDetail:
+# Vai trò được xem PII thô (ảnh khuôn mặt thumbnail, IP, user-agent) — phục vụ điều tra.
+_PII_ROLES = {"admin", "compliance", "sysadmin"}
+
+
+def _to_detail(d: Detection, mask_pii: bool = False) -> DetectionDetail:
     return DetectionDetail(
         request_id=d.request_id,
         verdict=d.verdict.value,
@@ -77,12 +81,12 @@ def _to_detail(d: Detection) -> DetectionDetail:
         image_hash=d.image_hash,
         image_width=d.image_width,
         image_height=d.image_height,
-        image_thumb=d.image_thumb,
+        image_thumb=None if mask_pii else d.image_thumb,
         heatmap_url=d.heatmap_url,
         processing_time_ms=d.processing_time_ms,
         model_version=d.model_version,
-        user_agent=d.user_agent,
-        ip_address=d.ip_address,
+        user_agent=None if mask_pii else d.user_agent,
+        ip_address=None if mask_pii else d.ip_address,
         audit_notes=d.audit_notes or [],
         created_at=d.created_at,
         api_key_id=d.api_key_id,
@@ -101,7 +105,7 @@ async def get_detection_detail(
     d = await _load_detection_with_relations(db, request_id, current_user.tenant_id)
     if not d:
         raise not_found("Detection")
-    return _to_detail(d)
+    return _to_detail(d, mask_pii=current_user.role.value not in _PII_ROLES)
 
 
 @router.post("/{request_id}/notes", response_model=DetectionDetail)
