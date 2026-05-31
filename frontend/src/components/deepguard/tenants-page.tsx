@@ -8,11 +8,13 @@ import {
   tenantUpdateById,
   tenantUsers,
   tenantApiKeys,
+  tenantUserUpdate,
   type TenantListItem,
   type TenantUserItem,
   type TenantApiKeyItem,
 } from '@/lib/api';
 import { ROLE_LABEL, type Role } from '@/lib/rbac';
+import { useAuthStore } from '@/store/auth';
 
 /* ──────────────────────────────────────────────
    TYPES
@@ -87,17 +89,6 @@ function keyPct(used: number, limit: number): number {
   return Math.min(100, Math.round((used / limit) * 100));
 }
 
-/** Role → badge color. Falls back to neutral slate for unknown roles. */
-const ROLE_STYLE: Record<string, { color: string; bg: string; border: string }> = {
-  sysadmin: { color: DG.fake, bg: '#fef2f2', border: '#fecaca' },
-  admin: { color: DG.primary, bg: '#eff6ff', border: '#bfdbfe' },
-  developer: { color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
-  compliance: { color: DG.uncertain, bg: '#fff7ed', border: '#fed7aa' },
-  viewer: { color: '#475569', bg: '#f1f5f9', border: '#e2e8f0' },
-};
-function roleStyle(role: string) {
-  return ROLE_STYLE[role] ?? ROLE_STYLE.viewer;
-}
 function roleLabel(role: string): string {
   return role in ROLE_LABEL ? ROLE_LABEL[role as Role] : role;
 }
@@ -113,6 +104,8 @@ function keyStatusStyle(status: string): { label: string; color: string; bg: str
 
 const PLANS: Plan[] = ['Starter', 'Pro', 'Enterprise'];
 const REGIONS = ['Hà Nội', 'TP.HCM', 'Đà Nẵng', 'Cần Thơ', 'Hải Phòng'];
+/** Roles a sysadmin may assign here — sysadmin itself is excluded (backend 400s). */
+const EDITABLE_ROLES: Role[] = ['viewer', 'developer', 'compliance', 'admin'];
 
 /* ──────────────────────────────────────────────
    SMALL PRESENTATIONAL PIECES
@@ -283,9 +276,114 @@ function PanelState({ kind, text }: { kind: 'loading' | 'error' | 'empty'; text:
   );
 }
 
-/** READ-ONLY list of a tenant's users. */
-function UsersPanel({ drill }: { drill: TenantDrill }) {
+/** Single editable user row — role <select> + activate/deactivate toggle (sysadmin). */
+function UserRow({
+  user,
+  tenantId,
+  isSelf,
+  onUpdated,
+  onError,
+}: {
+  user: TenantUserItem;
+  tenantId: string;
+  isSelf: boolean;
+  onUpdated: (u: TenantUserItem) => void;
+  onError: (msg: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  // sysadmin role isn't editable here; if a user already holds it, keep it shown but locked.
+  const roleEditable = !isSelf && user.role !== 'sysadmin';
+
+  const patch = async (data: { role?: string; is_active?: boolean }) => {
+    setSaving(true);
+    onError('');
+    try {
+      const updated = await tenantUserUpdate(tenantId, user.id, data);
+      onUpdated(updated);
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : 'Cập nhật người dùng thất bại');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="px-3.5 py-2.5 flex items-center gap-2.5">
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px] font-bold text-slate-800 truncate flex items-center gap-1.5">
+          {user.name || user.email}
+          {isSelf && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black tracking-wider bg-dgblue/10 text-dgblue shrink-0">
+              BẠN
+            </span>
+          )}
+        </p>
+        <p className="text-[10.5px] text-slate-400 truncate">{user.email}</p>
+      </div>
+
+      {/* Role select (locked for self / existing sysadmin) */}
+      <select
+        value={user.role}
+        disabled={saving || !roleEditable}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (next !== user.role) void patch({ role: next });
+        }}
+        title={roleEditable ? 'Đổi vai trò' : 'Không thể sửa vai trò này'}
+        className="shrink-0 w-[112px] px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10.5px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {/* keep an out-of-list role (e.g. sysadmin) visible even though it's locked */}
+        {!(EDITABLE_ROLES as string[]).includes(user.role) && (
+          <option value={user.role}>{roleLabel(user.role)}</option>
+        )}
+        {EDITABLE_ROLES.map((r) => (
+          <option key={r} value={r}>
+            {ROLE_LABEL[r]}
+          </option>
+        ))}
+      </select>
+
+      {/* Activate / deactivate toggle */}
+      <button
+        type="button"
+        disabled={saving || isSelf}
+        onClick={() => void patch({ is_active: !user.is_active })}
+        title={isSelf ? 'Không thể sửa chính bạn' : user.is_active ? 'Tạm ngưng' : 'Kích hoạt'}
+        className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9.5px] font-black tracking-wider border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+          user.is_active
+            ? 'text-dgreal bg-green-50 border-green-200 hover:bg-green-100'
+            : 'text-dgwarn bg-orange-50 border-orange-200 hover:bg-orange-100'
+        }`}
+      >
+        {saving ? (
+          <Icon name="progress_activity" className="text-[12px] animate-spin" />
+        ) : (
+          <Icon name={user.is_active ? 'toggle_on' : 'toggle_off'} className="text-[14px]" fill />
+        )}
+        {user.is_active ? 'Active' : 'Tạm ngưng'}
+      </button>
+
+      <span className="shrink-0 w-[58px] text-right text-[9.5px] text-slate-400">
+        {relTime(user.last_login_at)}
+      </span>
+    </div>
+  );
+}
+
+/** Editable list of a tenant's users (sysadmin cross-tenant). */
+function UsersPanel({
+  drill,
+  tenantId,
+  currentUserId,
+  onUserUpdated,
+}: {
+  drill: TenantDrill;
+  tenantId: string;
+  currentUserId: string | undefined;
+  onUserUpdated: (tenantId: string, user: TenantUserItem) => void;
+}) {
   const { loading, error, users } = drill;
+  const [rowError, setRowError] = useState('');
   return (
     <div>
       <PanelHead icon="group" title="Người dùng" count={users?.length} />
@@ -296,33 +394,26 @@ function UsersPanel({ drill }: { drill: TenantDrill }) {
       ) : !users || users.length === 0 ? (
         <PanelState kind="empty" text="Chưa có người dùng" />
       ) : (
-        <div className="bg-white/70 rounded-lg border border-slate-100 divide-y divide-slate-50 max-h-[260px] overflow-y-auto custom-scrollbar">
-          {users.map((u) => {
-            const rs = roleStyle(u.role);
-            return (
-              <div key={u.id} className="px-3.5 py-2.5 flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[12px] font-bold text-slate-800 truncate">{u.name || u.email}</p>
-                  <p className="text-[10.5px] text-slate-400 truncate">{u.email}</p>
-                </div>
-                <span
-                  className="inline-flex items-center px-2 py-0.5 rounded text-[9.5px] font-black tracking-wider border shrink-0"
-                  style={{ color: rs.color, background: rs.bg, borderColor: rs.border }}
-                >
-                  {roleLabel(u.role)}
-                </span>
-                <div className="text-right shrink-0 w-[88px]">
-                  <span
-                    className={`block text-[10px] font-black ${u.is_active ? 'text-dgreal' : 'text-dgwarn'}`}
-                  >
-                    {u.is_active ? 'Active' : 'Tạm ngưng'}
-                  </span>
-                  <span className="block text-[9.5px] text-slate-400">{relTime(u.last_login_at)}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <>
+          {rowError && (
+            <div className="mb-2 rounded-lg px-3 py-2 border border-red-200 bg-red-50/70 flex items-center gap-1.5 text-[10.5px] font-semibold text-dgfake dg-fade">
+              <Icon name="error" className="text-[13px] shrink-0" />
+              <span className="min-w-0 break-words">{rowError}</span>
+            </div>
+          )}
+          <div className="bg-white/70 rounded-lg border border-slate-100 divide-y divide-slate-50 max-h-[260px] overflow-y-auto custom-scrollbar">
+            {users.map((u) => (
+              <UserRow
+                key={u.id}
+                user={u}
+                tenantId={tenantId}
+                isSelf={u.id === currentUserId}
+                onUpdated={(updated) => onUserUpdated(tenantId, updated)}
+                onError={setRowError}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -383,7 +474,17 @@ function ApiKeysPanel({ drill }: { drill: TenantDrill }) {
   );
 }
 
-function TenantDetail({ tenant, drill }: { tenant: Tenant; drill: TenantDrill }) {
+function TenantDetail({
+  tenant,
+  drill,
+  currentUserId,
+  onUserUpdated,
+}: {
+  tenant: Tenant;
+  drill: TenantDrill;
+  currentUserId: string | undefined;
+  onUserUpdated: (tenantId: string, user: TenantUserItem) => void;
+}) {
   const pct = quotaPct(tenant);
   return (
     <div className="px-6 py-5 bg-slate-50/60 border-t border-slate-100">
@@ -420,8 +521,13 @@ function TenantDetail({ tenant, drill }: { tenant: Tenant; drill: TenantDrill })
           </div>
         </div>
 
-        {/* Users — real, lazy-loaded, read-only */}
-        <UsersPanel drill={drill} />
+        {/* Users — real, lazy-loaded, editable (sysadmin cross-tenant) */}
+        <UsersPanel
+          drill={drill}
+          tenantId={tenant.id}
+          currentUserId={currentUserId}
+          onUserUpdated={onUserUpdated}
+        />
 
         {/* API Keys — real, lazy-loaded, read-only */}
         <ApiKeysPanel drill={drill} />
@@ -551,6 +657,23 @@ export default function TenantsPage() {
   const [wizStep, setWizStep] = useState(0);
   /** Per-tenant drill-down cache (users + api keys), keyed by tenant id. */
   const [drilldowns, setDrilldowns] = useState<Record<string, TenantDrill>>({});
+  /** Current sysadmin's own id — used to lock their row in the users panel. */
+  const currentUserId = useAuthStore((s) => s.user?.id);
+
+  /** Patch a single user inside a tenant's drill-down cache after a successful edit. */
+  const patchDrillUser = useCallback((tenantId: string, updated: TenantUserItem) => {
+    setDrilldowns((prev) => {
+      const cur = prev[tenantId];
+      if (!cur?.users) return prev;
+      return {
+        ...prev,
+        [tenantId]: {
+          ...cur,
+          users: cur.users.map((u) => (u.id === updated.id ? updated : u)),
+        },
+      };
+    });
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -935,6 +1058,8 @@ export default function TenantsPage() {
                             <TenantDetail
                               tenant={tn}
                               drill={drilldowns[tn.id] ?? { loading: true, error: '', users: null, keys: null }}
+                              currentUserId={currentUserId}
+                              onUserUpdated={patchDrillUser}
                             />
                           </td>
                         </tr>
