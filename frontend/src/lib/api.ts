@@ -29,6 +29,7 @@ export interface TokenResponse { access_token: string; token_type: string }
 export interface UserOut {
   id: string; email: string; name: string; role: string;
   tenant_id: string; is_active: boolean; last_login_at: string | null;
+  phone?: string | null; timezone?: string | null;
 }
 export interface TenantOut {
   id: string; name: string; plan: string; status: string;
@@ -43,6 +44,12 @@ export const authRegister = (tenant_name: string, email: string, password: strin
   req<TokenResponse>("/auth/register", { method: "POST", body: JSON.stringify({ tenant_name, email, password, name }) });
 
 export const authMe = () => req<MeResponse>("/auth/me");
+
+export const authUpdateMe = (data: { name?: string; phone?: string; timezone?: string }) =>
+  req<UserOut>("/auth/me", { method: "PATCH", body: JSON.stringify(data) });
+
+export const authChangePassword = (current_password: string, new_password: string) =>
+  req<void>("/auth/change-password", { method: "POST", body: JSON.stringify({ current_password, new_password }) });
 
 // ── API Keys ─────────────────────────────────────────────────────────────────
 export interface ApiKeyOut {

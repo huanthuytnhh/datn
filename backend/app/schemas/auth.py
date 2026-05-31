@@ -29,8 +29,21 @@ class UserOut(BaseModel):
     tenant_id: uuid.UUID
     is_active: bool
     last_login_at: Optional[datetime] = None
+    phone: Optional[str] = None
+    timezone: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class UpdateMeRequest(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    timezone: Optional[str] = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class TenantOut(BaseModel):
