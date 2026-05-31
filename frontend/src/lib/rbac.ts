@@ -93,14 +93,20 @@ export const ROLE_LEVEL: Record<Role, number> = {
 const lvl = (r: string | undefined | null): number =>
   (r && r in ROLE_LEVEL ? ROLE_LEVEL[r as Role] : 0);
 
-/** Can `actor` edit/delete a user whose role is `targetRole`?
- *  Only admin/sysadmin manage users, and never someone ranked higher than them. */
+// SoD: compliance (auditor) & sysadmin do NỀN TẢNG (sysadmin) quản — tenant admin không đụng.
+const ADMIN_PROTECTED: ReadonlySet<string> = new Set(['compliance', 'sysadmin']);
+
+/** Can `actor` edit/delete/reset a user whose role is `targetRole`?
+ *  sysadmin manages anyone; admin manages everyone EXCEPT compliance/sysadmin. */
 export function canManageUser(actor: Role | undefined | null, targetRole: string): boolean {
-  if (actor !== 'admin' && actor !== 'sysadmin') return false;
-  return lvl(targetRole) <= lvl(actor);
+  if (actor === 'sysadmin') return true;
+  if (actor === 'admin') return !ADMIN_PROTECTED.has(targetRole);
+  return false;
 }
 
-/** Roles `actor` may assign/invite — never above their own level. */
+/** Roles `actor` may assign/invite/create. sysadmin → all; admin → all except compliance/sysadmin. */
 export function assignableRoles(actor: Role | undefined | null): Role[] {
-  return ALL_ROLES.filter((r) => lvl(r) <= lvl(actor)).sort((a, b) => lvl(a) - lvl(b));
+  if (actor === 'sysadmin') return [...ALL_ROLES].sort((a, b) => lvl(a) - lvl(b));
+  if (actor === 'admin') return ALL_ROLES.filter((r) => !ADMIN_PROTECTED.has(r)).sort((a, b) => lvl(a) - lvl(b));
+  return [];
 }

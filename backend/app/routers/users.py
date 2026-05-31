@@ -36,6 +36,35 @@ def _level(role) -> int:
     return ROLE_LEVEL.get(role.value if hasattr(role, "value") else str(role), 0)
 
 
+# SoD: compliance (auditor) & sysadmin được quản bởi NỀN TẢNG (sysadmin) — tenant admin
+# KHÔNG được sửa/xóa/đổi-role/đặt-lại-mật-khẩu auditor giám sát chính mình.
+ADMIN_PROTECTED_ROLES = {"compliance", "sysadmin"}
+
+
+def _role_value(role) -> str:
+    return role.value if hasattr(role, "value") else str(role)
+
+
+def _can_manage(actor: User, target_role) -> bool:
+    """actor có quyền sửa/xóa/reset user mang target_role không."""
+    a = actor.role.value
+    if a == "sysadmin":
+        return True
+    if a == "admin":
+        return _role_value(target_role) not in ADMIN_PROTECTED_ROLES
+    return False
+
+
+def _can_assign(actor: User, role_value: str) -> bool:
+    """actor có quyền gán/mời/tạo vai trò role_value không."""
+    a = actor.role.value
+    if a == "sysadmin":
+        return True
+    if a == "admin":
+        return role_value not in ADMIN_PROTECTED_ROLES
+    return False
+
+
 def _require_admin(user: User):
     if user.role.value not in ADMIN_ROLES:
         raise forbidden("Admin role required")
@@ -87,9 +116,9 @@ async def create_user_direct(
         role_enum = UserRole(body.role)
     except ValueError:
         raise bad_request(f"Invalid role: {body.role}")
-    # Không tạo user có vai trò cao hơn bậc của mình
-    if _level(role_enum) > _level(current_user.role):
-        raise forbidden("Không thể tạo người dùng có vai trò cao hơn vai trò của bạn")
+    # SoD: admin không tạo compliance/sysadmin (do nền tảng quản)
+    if not _can_assign(current_user, role_enum.value):
+        raise forbidden("Không thể tạo người dùng vai trò này (compliance/sysadmin do quản trị nền tảng cấp)")
 
     # Email không trùng trong tenant
     existing_q = select(User).where(
@@ -140,9 +169,9 @@ async def invite_user(
     except ValueError:
         raise bad_request(f"Invalid role: {body.role}")
 
-    # Không được mời vai trò cao hơn bậc của mình (vd admin không mời sysadmin)
-    if _level(role_enum) > _level(current_user.role):
-        raise forbidden("Không thể mời vai trò cao hơn vai trò của bạn")
+    # SoD: admin không mời compliance/sysadmin
+    if not _can_assign(current_user, role_enum.value):
+        raise forbidden("Không thể mời vai trò này (compliance/sysadmin do quản trị nền tảng cấp)")
 
     token = secrets.token_urlsafe(48)
     expires = datetime.now(timezone.utc) + timedelta(days=INVITATION_TTL_DAYS)
@@ -186,9 +215,9 @@ async def update_user(
     if not user:
         raise not_found("User")
 
-    # Chặn leo thang quyền: không thao tác user có vai trò CAO HƠN mình
-    if _level(user.role) > _level(current_user.role):
-        raise forbidden("Không thể chỉnh sửa người dùng có vai trò cao hơn bạn")
+    # SoD: admin không thao tác compliance/sysadmin (auditor do nền tảng quản)
+    if not _can_manage(current_user, user.role):
+        raise forbidden("Không thể chỉnh sửa người dùng vai trò này (compliance/sysadmin do quản trị nền tảng quản)")
     # Không tự đổi vai trò / tự vô hiệu hóa chính mình
     if user.id == current_user.id and (body.role is not None or body.is_active is False):
         raise bad_request("Không thể tự đổi vai trò hoặc vô hiệu hóa chính mình")
@@ -200,9 +229,9 @@ async def update_user(
             new_role = UserRole(body.role)
         except ValueError:
             raise bad_request(f"Invalid role: {body.role}")
-        # Không được gán vai trò cao hơn bậc của mình (admin không thể tạo sysadmin)
-        if _level(new_role) > _level(current_user.role):
-            raise forbidden("Không thể gán vai trò cao hơn vai trò của bạn")
+        # Không được gán vai trò compliance/sysadmin (nếu là admin)
+        if not _can_assign(current_user, new_role.value):
+            raise forbidden("Không thể gán vai trò này (compliance/sysadmin do quản trị nền tảng cấp)")
         user.role = new_role
     if body.is_active is not None:
         user.is_active = body.is_active
@@ -244,8 +273,8 @@ async def reset_member_password(
     user = (await db.execute(q)).scalar_one_or_none()
     if not user:
         raise not_found("User")
-    if _level(user.role) > _level(current_user.role):
-        raise forbidden("Không thể đặt lại mật khẩu cho người dùng có vai trò cao hơn bạn")
+    if not _can_manage(current_user, user.role):
+        raise forbidden("Không thể đặt lại mật khẩu cho người dùng vai trò này (compliance/sysadmin do nền tảng quản)")
     if user.id == current_user.id:
         raise bad_request("Dùng trang Tài khoản để tự đổi mật khẩu")
 
@@ -286,9 +315,9 @@ async def delete_user(
     if not user:
         raise not_found("User")
 
-    # Chặn xóa user có vai trò cao hơn mình (admin không xóa được sysadmin)
-    if _level(user.role) > _level(current_user.role):
-        raise forbidden("Không thể xóa người dùng có vai trò cao hơn bạn")
+    # SoD: admin không xóa compliance/sysadmin (auditor do nền tảng quản)
+    if not _can_manage(current_user, user.role):
+        raise forbidden("Không thể xóa người dùng vai trò này (compliance/sysadmin do quản trị nền tảng quản)")
 
     user.deleted_at = datetime.now(timezone.utc)
     user.is_active = False
