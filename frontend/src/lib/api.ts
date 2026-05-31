@@ -337,3 +337,17 @@ export const tenantUpdateById = (id: string, data: { status?: string; plan?: str
   req<TenantListItem>(`/tenants/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 export const platformOverview = (days = 30) =>
   req<PlatformOverview>(`/platform/overview?days=${days}`);
+
+// ── Models & Thresholds (backed by model_versions table) ──────────────────────
+export interface ModelOut {
+  id: string; version: string; architecture: string;
+  auc_celeb: number | null; auc_ffpp: number | null;
+  threshold: number; training_dataset: string | null;
+  is_active: boolean; traffic_percent: number;
+  deployed_at: string | null; created_at: string;
+}
+export const modelsList = () => req<ModelOut[]>("/models");
+export const modelUpdate = (id: string, data: { threshold?: number; is_active?: boolean; traffic_percent?: number }) =>
+  req<ModelOut>(`/models/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+export const modelsCheckUpdate = () =>
+  req<{ status: string; latest_version: string | null; message: string }>("/models/check-update", { method: "POST" });

@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.routers import auth, detect, api_keys, analytics, detections, webhooks, audit, liveness, users, tenants, platform
+from app.routers import auth, detect, api_keys, analytics, detections, webhooks, audit, liveness, users, tenants, platform, models
 
 settings = get_settings()
 
@@ -66,6 +66,7 @@ app.include_router(liveness.dashboard_router)
 app.include_router(users.router)
 app.include_router(tenants.router)
 app.include_router(platform.router)
+app.include_router(models.router)
 
 # Real eKYC pipeline (MediaPipe + InsightFace + B4 deepfake)
 try:
