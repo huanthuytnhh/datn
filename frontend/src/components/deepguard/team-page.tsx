@@ -469,6 +469,7 @@ function genPassword(len = 16): string {
 export default function TeamPage() {
   const currentUser = useAuthStore((s) => s.user);
   const myRole = useAuthStore((s) => s.user?.role) as Role | undefined;
+  const orgName = useAuthStore((s) => s.tenant?.name);
   const myId = useAuthStore((s) => s.user?.id);
 
   /* Roles this actor may assign when creating an employee (admin → 4, sysadmin → all 5). */
@@ -667,9 +668,19 @@ export default function TeamPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4 dg-rise">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">Team &amp; Roles</h1>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-black tracking-tight text-slate-900">Team &amp; Roles</h1>
+            {orgName && (
+              <span
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold"
+                style={{ background: 'rgba(0,80,203,0.08)', color: '#0047cc' }}
+              >
+                <Icon name="domain" className="text-[14px]" /> {orgName}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            {members.length} thành viên · {activeCount} đang hoạt động
+            Thành viên trong tổ chức này · {members.length} người · {activeCount} đang hoạt động
           </p>
         </div>
         <button
