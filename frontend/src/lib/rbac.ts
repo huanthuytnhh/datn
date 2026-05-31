@@ -83,3 +83,22 @@ export function defaultPageFor(role: Role | undefined | null): Page {
 }
 
 export const ALL_ROLES: Role[] = ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'];
+
+// ── Role hierarchy (must mirror backend users.py ROLE_LEVEL) ──────────────────
+export const ROLE_LEVEL: Record<Role, number> = {
+  viewer: 0, developer: 1, compliance: 2, admin: 3, sysadmin: 4,
+};
+const lvl = (r: string | undefined | null): number =>
+  (r && r in ROLE_LEVEL ? ROLE_LEVEL[r as Role] : 0);
+
+/** Can `actor` edit/delete a user whose role is `targetRole`?
+ *  Only admin/sysadmin manage users, and never someone ranked higher than them. */
+export function canManageUser(actor: Role | undefined | null, targetRole: string): boolean {
+  if (actor !== 'admin' && actor !== 'sysadmin') return false;
+  return lvl(targetRole) <= lvl(actor);
+}
+
+/** Roles `actor` may assign/invite — never above their own level. */
+export function assignableRoles(actor: Role | undefined | null): Role[] {
+  return ALL_ROLES.filter((r) => lvl(r) <= lvl(actor)).sort((a, b) => lvl(a) - lvl(b));
+}

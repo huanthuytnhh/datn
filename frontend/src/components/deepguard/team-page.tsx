@@ -5,6 +5,12 @@ import { Icon, StatPill } from '@/components/deepguard/shared';
 import { DG, timeAgo } from '@/lib/dg';
 import { useAuthStore } from '@/store/auth';
 import {
+  canManageUser,
+  assignableRoles,
+  ROLE_LABEL,
+  type Role,
+} from '@/lib/rbac';
+import {
   usersList,
   usersInvite,
   usersUpdate,
@@ -25,37 +31,39 @@ import {
    fetched from the backend.
    ────────────────────────────────────────────── */
 
-/* ── Backend role names (deepguard_db UserRole enum) ── */
-type RoleName = 'viewer' | 'developer' | 'compliance' | 'admin' | 'sysadmin';
-
-/* Roles selectable when inviting / changing (match InviteUserRequest). */
-const ASSIGNABLE_ROLES: RoleName[] = ['developer', 'compliance', 'admin'];
+/* ── Backend role names (deepguard_db UserRole enum) — mirrors rbac `Role`. ── */
+type RoleName = Role;
 
 interface RoleMeta {
-  label: string;
   color: string;
   desc: string;
 }
 
-/* ── Static reference: role metadata + permission matrix (descriptive only) ── */
+/* ── Static reference: per-role color + description (labels come from ROLE_LABEL). ── */
 const ROLES: Record<RoleName, RoleMeta> = {
-  admin: { label: 'Admin', color: '#0050cb', desc: 'Toàn quyền: quản lý tổ chức, billing, thành viên, keys' },
-  developer: { label: 'Developer', color: '#7c3aed', desc: 'Tạo & dùng API keys, xem analytics, chạy playground' },
-  compliance: { label: 'Compliance', color: '#2e7d32', desc: 'Xem lịch sử, analytics, audit logs, thêm ghi chú review' },
-  viewer: { label: 'Viewer', color: '#64748b', desc: 'Chỉ xem dashboard & lịch sử, không chỉnh sửa' },
-  sysadmin: { label: 'Sysadmin', color: '#be123c', desc: 'Vận hành nền tảng DeepGuard (xuyên tenant)' },
+  sysadmin: { color: '#be123c', desc: 'Vận hành nền tảng DeepGuard (xuyên tenant), toàn quyền hệ thống' },
+  admin: { color: '#0050cb', desc: 'Toàn quyền: quản lý tổ chức, billing, thành viên, keys' },
+  developer: { color: '#7c3aed', desc: 'Tạo & dùng API keys, xem analytics, chạy playground' },
+  compliance: { color: '#2e7d32', desc: 'Xem lịch sử, analytics, audit logs, thêm ghi chú review' },
+  viewer: { color: '#64748b', desc: 'Chỉ xem dashboard & lịch sử, không chỉnh sửa' },
 };
 
-/** Resolve role metadata defensively for any role string the backend returns. */
-function roleMeta(role: string): RoleMeta {
-  return ROLES[role as RoleName] ?? { label: role, color: '#64748b', desc: '' };
+/** Resolve role label + metadata defensively for any role string the backend returns. */
+function roleMeta(role: string): RoleMeta & { label: string } {
+  const meta = ROLES[role as RoleName];
+  return {
+    label: ROLE_LABEL[role as RoleName] ?? role,
+    color: meta?.color ?? '#64748b',
+    desc: meta?.desc ?? '',
+  };
 }
 
-/* Roles shown across the descriptive matrix / role chips. */
-const MATRIX_ROLES: RoleName[] = ['admin', 'developer', 'compliance', 'viewer'];
+/* Roles shown across the descriptive reference matrix / role chips (all 5). */
+const MATRIX_ROLES: RoleName[] = ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'];
 
 interface Permission {
   cap: string;
+  sysadmin: boolean;
   admin: boolean;
   developer: boolean;
   compliance: boolean;
@@ -63,13 +71,14 @@ interface Permission {
 }
 
 const PERMISSIONS: Permission[] = [
-  { cap: 'Xem Dashboard & Analytics', admin: true, developer: true, compliance: true, viewer: true },
-  { cap: 'Chạy Playground / Detect API', admin: true, developer: true, compliance: false, viewer: false },
-  { cap: 'Quản lý API Keys', admin: true, developer: true, compliance: false, viewer: false },
-  { cap: 'Thêm ghi chú review', admin: true, developer: true, compliance: true, viewer: false },
-  { cap: 'Cấu hình Model & Threshold', admin: true, developer: false, compliance: false, viewer: false },
-  { cap: 'Quản lý thành viên & quyền', admin: true, developer: false, compliance: false, viewer: false },
-  { cap: 'Billing & subscription', admin: true, developer: false, compliance: false, viewer: false },
+  { cap: 'Xem Dashboard & Analytics', sysadmin: true, admin: true, developer: true, compliance: true, viewer: true },
+  { cap: 'Chạy Playground / Detect API', sysadmin: true, admin: true, developer: true, compliance: false, viewer: false },
+  { cap: 'Quản lý API Keys', sysadmin: true, admin: true, developer: true, compliance: false, viewer: false },
+  { cap: 'Thêm ghi chú review', sysadmin: true, admin: true, developer: true, compliance: true, viewer: false },
+  { cap: 'Cấu hình Model & Threshold', sysadmin: true, admin: true, developer: false, compliance: false, viewer: false },
+  { cap: 'Quản lý thành viên & quyền', sysadmin: true, admin: true, developer: false, compliance: false, viewer: false },
+  { cap: 'Billing & subscription', sysadmin: false, admin: true, developer: false, compliance: false, viewer: false },
+  { cap: 'Quản trị nền tảng (xuyên tenant)', sysadmin: true, admin: false, developer: false, compliance: false, viewer: false },
 ];
 
 /* ── Helpers ── */
@@ -172,6 +181,7 @@ function Field({ label, req, children }: { label: string; req?: boolean; childre
 function MemberDrawer({
   member,
   isSelf,
+  myRole,
   busy,
   onClose,
   onChangeRole,
@@ -180,6 +190,7 @@ function MemberDrawer({
 }: {
   member: UserListItem | null;
   isSelf: boolean;
+  myRole: Role | undefined;
   busy: boolean;
   onClose: () => void;
   onChangeRole: (id: string, role: string) => void;
@@ -189,7 +200,15 @@ function MemberDrawer({
   if (!member) return null;
   const meta = roleMeta(member.role);
   const key = member.role as keyof Permission;
-  const caps = PERMISSIONS.filter((p) => p[key as 'admin' | 'developer' | 'compliance' | 'viewer']);
+  const caps = PERMISSIONS.filter(
+    (p) => p[key as 'sysadmin' | 'admin' | 'developer' | 'compliance' | 'viewer'],
+  );
+  /* Can the current actor manage this member at all? (never self, never higher rank) */
+  const manageable = !isSelf && canManageUser(myRole, member.role);
+  const options = assignableRoles(myRole);
+  const roleInOptions = options.some((r) => r === member.role);
+  /* All write controls require manage rights; self-protection handled by `manageable`. */
+  const controlsDisabled = !manageable || busy;
   return (
     <div className="fixed inset-0 z-[55] flex justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm dg-fade" />
@@ -241,27 +260,36 @@ function MemberDrawer({
 
           <div>
             <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">Vai trò</p>
-            <select
-              value={member.role}
-              disabled={isSelf || busy}
-              onChange={(e) => onChangeRole(member.id, e.target.value)}
-              className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ color: meta.color, fontWeight: 700 }}
-            >
-              {/* keep current role selectable even if it's not in the assignable set */}
-              {!ASSIGNABLE_ROLES.includes(member.role as RoleName) && (
-                <option value={member.role}>{meta.label}</option>
-              )}
-              {ASSIGNABLE_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLES[r].label}
-                </option>
-              ))}
-            </select>
+            {manageable && roleInOptions ? (
+              <select
+                value={member.role}
+                disabled={busy}
+                onChange={(e) => onChangeRole(member.id, e.target.value)}
+                className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ color: meta.color, fontWeight: 700 }}
+              >
+                {options.map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABEL[r]}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              /* Not manageable (higher rank / self / actor not admin) → static badge of ACTUAL role. */
+              <div className="flex items-center gap-2">
+                <RoleBadge role={member.role} />
+                <Icon name="lock" className="text-[14px] text-slate-300" />
+              </div>
+            )}
             <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">{meta.desc}</p>
             {isSelf && (
               <p className="text-[11px] text-dgwarn mt-1.5 font-semibold">
                 Không thể đổi vai trò của chính bạn.
+              </p>
+            )}
+            {!isSelf && !manageable && (
+              <p className="text-[11px] text-dgwarn mt-1.5 font-semibold">
+                Bạn không thể quản lý thành viên có vai trò cao hơn.
               </p>
             )}
           </div>
@@ -280,29 +308,31 @@ function MemberDrawer({
             </div>
           </div>
 
-          <div className="pt-2 space-y-2">
-            <button
-              onClick={() => onToggleActive(member.id, !member.is_active)}
-              disabled={isSelf || busy}
-              className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgwarn bg-orange-50 border-orange-200 hover:bg-orange-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-orange-50"
-            >
-              <Icon name={member.is_active ? 'pause_circle' : 'play_circle'} className="text-[16px]" />
-              {member.is_active ? 'Tạm ngưng truy cập' : 'Kích hoạt lại'}
-            </button>
-            <button
-              onClick={() => onRemove(member.id)}
-              disabled={isSelf || busy}
-              className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgfake bg-red-50 border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-50"
-            >
-              <Icon name="person_remove" className="text-[16px]" />
-              Gỡ khỏi workspace
-            </button>
-            {isSelf && (
-              <p className="text-[11px] text-slate-400 text-center">
-                Bạn không thể tạm ngưng hoặc gỡ chính mình.
-              </p>
-            )}
-          </div>
+          {manageable && (
+            <div className="pt-2 space-y-2">
+              <button
+                onClick={() => onToggleActive(member.id, !member.is_active)}
+                disabled={controlsDisabled}
+                className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgwarn bg-orange-50 border-orange-200 hover:bg-orange-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-orange-50"
+              >
+                <Icon name={member.is_active ? 'pause_circle' : 'play_circle'} className="text-[16px]" />
+                {member.is_active ? 'Tạm ngưng truy cập' : 'Kích hoạt lại'}
+              </button>
+              <button
+                onClick={() => onRemove(member.id)}
+                disabled={controlsDisabled}
+                className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgfake bg-red-50 border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-50"
+              >
+                <Icon name="person_remove" className="text-[16px]" />
+                Gỡ khỏi workspace
+              </button>
+            </div>
+          )}
+          {isSelf && (
+            <p className="text-[11px] text-slate-400 text-center pt-2">
+              Bạn không thể tạm ngưng hoặc gỡ chính mình.
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -390,6 +420,11 @@ function InviteResult({ result, onClose }: { result: InviteUserResponse; onClose
 /* ── Page ── */
 export default function TeamPage() {
   const currentUser = useAuthStore((s) => s.user);
+  const myRole = useAuthStore((s) => s.user?.role) as Role | undefined;
+  const myId = useAuthStore((s) => s.user?.id);
+
+  /* Roles this actor may invite/assign (admin → 4, sysadmin → all 5). */
+  const inviteRoles = useMemo(() => assignableRoles(myRole), [myRole]);
 
   const [members, setMembers] = useState<UserListItem[]>([]);
   const [query, setQuery] = useState('');
@@ -508,7 +543,7 @@ export default function TeamPage() {
 
   const roleChips: { id: 'ALL' | RoleName; label: string }[] = [
     { id: 'ALL', label: 'Tất cả' },
-    ...MATRIX_ROLES.map((r) => ({ id: r, label: ROLES[r].label })),
+    ...MATRIX_ROLES.map((r) => ({ id: r, label: ROLE_LABEL[r] })),
   ];
 
   const activeCount = members.filter((m) => m.is_active).length;
@@ -647,6 +682,10 @@ export default function TeamPage() {
                     {filtered.map((m) => {
                       const meta = roleMeta(m.role);
                       const self = isSelf(m.id);
+                      /* Manageable = actor outranks-or-equals target AND it's not the actor's own row. */
+                      const manageable = canManageUser(myRole, m.role) && m.id !== myId;
+                      const rowOptions = assignableRoles(myRole);
+                      const roleInOptions = rowOptions.some((r) => r === m.role);
                       return (
                         <tr
                           key={m.id}
@@ -675,22 +714,24 @@ export default function TeamPage() {
                             </div>
                           </td>
                           <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                            <select
-                              value={m.role}
-                              disabled={self || busy}
-                              onChange={(e) => changeRole(m.id, e.target.value)}
-                              className="text-[11px] font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-dgblue disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ color: meta.color }}
-                            >
-                              {!ASSIGNABLE_ROLES.includes(m.role as RoleName) && (
-                                <option value={m.role}>{meta.label}</option>
-                              )}
-                              {ASSIGNABLE_ROLES.map((r) => (
-                                <option key={r} value={r}>
-                                  {ROLES[r].label}
-                                </option>
-                              ))}
-                            </select>
+                            {manageable && roleInOptions ? (
+                              <select
+                                value={m.role}
+                                disabled={busy}
+                                onChange={(e) => changeRole(m.id, e.target.value)}
+                                className="text-[11px] font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-dgblue disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ color: meta.color }}
+                              >
+                                {rowOptions.map((r) => (
+                                  <option key={r} value={r}>
+                                    {ROLE_LABEL[r]}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              /* Higher-ranked member, self, or actor lacks rights → static badge of ACTUAL role. */
+                              <RoleBadge role={m.role} />
+                            )}
                           </td>
                           <td className="px-4 py-4">
                             <StatusBadge active={m.is_active} />
@@ -730,7 +771,7 @@ export default function TeamPage() {
                       <Icon name="shield_person" className="text-[19px]" style={{ color: r.color }} fill />
                     </span>
                     <div>
-                      <p className="text-sm font-black text-slate-800">{r.label}</p>
+                      <p className="text-sm font-black text-slate-800">{ROLE_LABEL[role]}</p>
                       <p className="text-[10px] font-bold tabular-nums" style={{ color: r.color }}>
                         {members.filter((m) => m.role === role).length} thành viên
                       </p>
@@ -755,7 +796,7 @@ export default function TeamPage() {
                     <th className="px-6 py-3.5 text-left">Khả năng</th>
                     {MATRIX_ROLES.map((r) => (
                       <th key={r} className="px-4 py-3.5 text-center" style={{ color: ROLES[r].color }}>
-                        {ROLES[r].label}
+                        {ROLE_LABEL[r]}
                       </th>
                     ))}
                   </tr>
@@ -785,6 +826,7 @@ export default function TeamPage() {
       <MemberDrawer
         member={detail}
         isSelf={detail ? isSelf(detail.id) : false}
+        myRole={myRole}
         busy={busy}
         onClose={() => setDetail(null)}
         onChangeRole={changeRole}
@@ -827,15 +869,16 @@ export default function TeamPage() {
                 onChange={(e) => setForm({ ...form, role: e.target.value as RoleName })}
                 className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
               >
-                {ASSIGNABLE_ROLES.map((r) => (
+                {/* Actor can never invite a role above their own level (admin can't invite sysadmin). */}
+                {inviteRoles.map((r) => (
                   <option key={r} value={r}>
-                    {ROLES[r].label}
+                    {ROLE_LABEL[r]}
                   </option>
                 ))}
               </select>
             </Field>
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <p className="text-[11px] text-slate-500 leading-relaxed">{ROLES[form.role].desc}</p>
+              <p className="text-[11px] text-slate-500 leading-relaxed">{roleMeta(form.role).desc}</p>
             </div>
           </div>
           <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-end gap-3">
