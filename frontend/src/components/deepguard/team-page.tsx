@@ -1,97 +1,100 @@
 'use client';
 
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import { Icon, StatPill } from '@/components/deepguard/shared';
-import { DG, timeAgo, minsAgo } from '@/lib/dg';
+import { DG, timeAgo } from '@/lib/dg';
+import { useAuthStore } from '@/store/auth';
+import {
+  usersList,
+  usersInvite,
+  usersUpdate,
+  usersDelete,
+  type UserListItem,
+  type InviteUserResponse,
+} from '@/lib/api';
 
 /* ──────────────────────────────────────────────
    DeepGuard — Team & Roles (RBAC)
-   Ported from frontend-claude prototype (team.jsx + data-saas.jsx).
-   No backend endpoint for team membership yet → mock data is inlined below.
-   TODO: backend — replace MEMBERS / PENDING_INVITES / ROLES / PERMISSIONS
-   with real /tenants/{id}/members + /roles API calls once available.
+   Wired to the real backend /users API (admin-gated):
+     • usersList()   → load members
+     • usersInvite() → invite a new member (returns invite_url/token)
+     • usersUpdate() → change role / activate-deactivate
+     • usersDelete() → remove (soft-delete) a member
+   The ROLES / PERMISSIONS matrix below is STATIC descriptive reference
+   content only — it documents what each backend role can do; it is not
+   fetched from the backend.
    ────────────────────────────────────────────── */
 
-/* ── Types ── */
-type RoleName = 'Admin' | 'Developer' | 'Analyst' | 'Viewer';
+/* ── Backend role names (deepguard_db UserRole enum) ── */
+type RoleName = 'viewer' | 'developer' | 'compliance' | 'admin' | 'sysadmin';
+
+/* Roles selectable when inviting / changing (match InviteUserRequest). */
+const ASSIGNABLE_ROLES: RoleName[] = ['developer', 'compliance', 'admin'];
 
 interface RoleMeta {
+  label: string;
   color: string;
   desc: string;
 }
 
+/* ── Static reference: role metadata + permission matrix (descriptive only) ── */
+const ROLES: Record<RoleName, RoleMeta> = {
+  admin: { label: 'Admin', color: '#0050cb', desc: 'Toàn quyền: quản lý tổ chức, billing, thành viên, keys' },
+  developer: { label: 'Developer', color: '#7c3aed', desc: 'Tạo & dùng API keys, xem analytics, chạy playground' },
+  compliance: { label: 'Compliance', color: '#2e7d32', desc: 'Xem lịch sử, analytics, audit logs, thêm ghi chú review' },
+  viewer: { label: 'Viewer', color: '#64748b', desc: 'Chỉ xem dashboard & lịch sử, không chỉnh sửa' },
+  sysadmin: { label: 'Sysadmin', color: '#be123c', desc: 'Vận hành nền tảng DeepGuard (xuyên tenant)' },
+};
+
+/** Resolve role metadata defensively for any role string the backend returns. */
+function roleMeta(role: string): RoleMeta {
+  return ROLES[role as RoleName] ?? { label: role, color: '#64748b', desc: '' };
+}
+
+/* Roles shown across the descriptive matrix / role chips. */
+const MATRIX_ROLES: RoleName[] = ['admin', 'developer', 'compliance', 'viewer'];
+
 interface Permission {
   cap: string;
-  Admin: boolean;
-  Developer: boolean;
-  Analyst: boolean;
-  Viewer: boolean;
+  admin: boolean;
+  developer: boolean;
+  compliance: boolean;
+  viewer: boolean;
 }
-
-interface Member {
-  id: string;
-  name: string;
-  email: string;
-  role: RoleName;
-  status: 'active' | 'inactive';
-  lastActive: string;
-  initials: string;
-  joined: string;
-}
-
-interface Invite {
-  email: string;
-  role: RoleName;
-  sentAt: string;
-}
-
-/* ── Mock data (TODO: backend) ── */
-const ROLES: Record<RoleName, RoleMeta> = {
-  Admin: { color: '#0050cb', desc: 'Toàn quyền: quản lý tổ chức, billing, thành viên, keys' },
-  Developer: { color: '#7c3aed', desc: 'Tạo & dùng API keys, xem analytics, chạy playground' },
-  Analyst: { color: '#2e7d32', desc: 'Xem lịch sử, analytics, thêm ghi chú review' },
-  Viewer: { color: '#64748b', desc: 'Chỉ xem dashboard & lịch sử, không chỉnh sửa' },
-};
-const ROLE_NAMES = Object.keys(ROLES) as RoleName[];
 
 const PERMISSIONS: Permission[] = [
-  { cap: 'Xem Dashboard & Analytics', Admin: true, Developer: true, Analyst: true, Viewer: true },
-  { cap: 'Chạy Playground / Detect API', Admin: true, Developer: true, Analyst: false, Viewer: false },
-  { cap: 'Quản lý API Keys', Admin: true, Developer: true, Analyst: false, Viewer: false },
-  { cap: 'Thêm ghi chú review', Admin: true, Developer: true, Analyst: true, Viewer: false },
-  { cap: 'Cấu hình Model & Threshold', Admin: true, Developer: false, Analyst: false, Viewer: false },
-  { cap: 'Quản lý thành viên & quyền', Admin: true, Developer: false, Analyst: false, Viewer: false },
-  { cap: 'Billing & subscription', Admin: true, Developer: false, Analyst: false, Viewer: false },
+  { cap: 'Xem Dashboard & Analytics', admin: true, developer: true, compliance: true, viewer: true },
+  { cap: 'Chạy Playground / Detect API', admin: true, developer: true, compliance: false, viewer: false },
+  { cap: 'Quản lý API Keys', admin: true, developer: true, compliance: false, viewer: false },
+  { cap: 'Thêm ghi chú review', admin: true, developer: true, compliance: true, viewer: false },
+  { cap: 'Cấu hình Model & Threshold', admin: true, developer: false, compliance: false, viewer: false },
+  { cap: 'Quản lý thành viên & quyền', admin: true, developer: false, compliance: false, viewer: false },
+  { cap: 'Billing & subscription', admin: true, developer: false, compliance: false, viewer: false },
 ];
 
-const MEMBERS: Member[] = [
-  { id: 'u1', name: 'Nguyễn Văn An', email: 'an.nguyen@vietbank.vn', role: 'Admin', status: 'active', lastActive: minsAgo(4), initials: 'NA', joined: '01/01/2025' },
-  { id: 'u2', name: 'Trần Thị Bình', email: 'binh.tran@vietbank.vn', role: 'Developer', status: 'active', lastActive: minsAgo(38), initials: 'TB', joined: '08/01/2025' },
-  { id: 'u3', name: 'Lê Văn Cường', email: 'cuong.le@vietbank.vn', role: 'Analyst', status: 'active', lastActive: minsAgo(140), initials: 'LC', joined: '15/01/2025' },
-  { id: 'u4', name: 'Phạm Thị Dung', email: 'dung.pham@vietbank.vn', role: 'Developer', status: 'active', lastActive: minsAgo(420), initials: 'PD', joined: '22/02/2025' },
-  { id: 'u5', name: 'Hoàng Văn Em', email: 'em.hoang@vietbank.vn', role: 'Viewer', status: 'inactive', lastActive: minsAgo(8640), initials: 'HE', joined: '03/03/2025' },
-];
-
-const PENDING_INVITES: Invite[] = [
-  { email: 'fdung@vietbank.vn', role: 'Analyst', sentAt: minsAgo(120) },
-  { email: 'gminh@vietbank.vn', role: 'Developer', sentAt: minsAgo(1500) },
-];
+/* ── Helpers ── */
+function initialsOf(name: string, email: string): string {
+  const src = (name || email || '?').trim();
+  const parts = src.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return src.slice(0, 2).toUpperCase();
+}
 
 /* ── Local helper components ── */
-function RoleBadge({ role }: { role: RoleName }) {
-  const r = ROLES[role] ?? ROLES.Viewer;
+function RoleBadge({ role }: { role: string }) {
+  const r = roleMeta(role);
   return (
     <span
       className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border"
       style={{ color: r.color, background: `${r.color}10`, borderColor: `${r.color}33` }}
     >
-      {role}
+      {r.label}
     </span>
   );
 }
 
-function StatusBadge({ status }: { status: Member['status'] }) {
-  if (status === 'active') {
+function StatusBadge({ active }: { active: boolean }) {
+  if (active) {
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-dgreal">
         <span className="w-1.5 h-1.5 rounded-full bg-dgreal animate-pulse" />
@@ -168,19 +171,25 @@ function Field({ label, req, children }: { label: string; req?: boolean; childre
 
 function MemberDrawer({
   member,
+  isSelf,
+  busy,
   onClose,
   onChangeRole,
-  onSuspend,
+  onToggleActive,
   onRemove,
 }: {
-  member: Member | null;
+  member: UserListItem | null;
+  isSelf: boolean;
+  busy: boolean;
   onClose: () => void;
-  onChangeRole: (id: string, role: RoleName) => void;
-  onSuspend: (id: string) => void;
+  onChangeRole: (id: string, role: string) => void;
+  onToggleActive: (id: string, next: boolean) => void;
   onRemove: (id: string) => void;
 }) {
   if (!member) return null;
-  const caps = PERMISSIONS.filter((p) => p[member.role]);
+  const meta = roleMeta(member.role);
+  const key = member.role as keyof Permission;
+  const caps = PERMISSIONS.filter((p) => p[key as 'admin' | 'developer' | 'compliance' | 'viewer']);
   return (
     <div className="fixed inset-0 z-[55] flex justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm dg-fade" />
@@ -202,15 +211,15 @@ function MemberDrawer({
           <div className="flex items-center gap-4">
             <div
               className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-xl font-black shadow-lg"
-              style={{ background: ROLES[member.role].color }}
+              style={{ background: meta.color }}
             >
-              {member.initials}
+              {initialsOf(member.name, member.email)}
             </div>
             <div className="min-w-0">
               <p className="text-lg font-black text-slate-900 truncate">{member.name}</p>
               <p className="text-[12px] text-slate-400 truncate">{member.email}</p>
               <div className="mt-1">
-                <StatusBadge status={member.status} />
+                <StatusBadge active={member.is_active} />
               </div>
             </div>
           </div>
@@ -218,11 +227,15 @@ function MemberDrawer({
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-100">
               <p className="text-[9px] font-black text-slate-400 uppercase">Hoạt động cuối</p>
-              <p className="text-[13px] font-bold text-slate-700">{timeAgo(member.lastActive)}</p>
+              <p className="text-[13px] font-bold text-slate-700">
+                {member.last_login_at ? timeAgo(member.last_login_at) : 'Chưa đăng nhập'}
+              </p>
             </div>
             <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-100">
               <p className="text-[9px] font-black text-slate-400 uppercase">Tham gia</p>
-              <p className="text-[13px] font-bold text-slate-700">{member.joined}</p>
+              <p className="text-[13px] font-bold text-slate-700">
+                {new Date(member.created_at).toLocaleDateString('vi-VN')}
+              </p>
             </div>
           </div>
 
@@ -230,21 +243,33 @@ function MemberDrawer({
             <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">Vai trò</p>
             <select
               value={member.role}
-              onChange={(e) => onChangeRole(member.id, e.target.value as RoleName)}
-              className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
-              style={{ color: ROLES[member.role].color, fontWeight: 700 }}
+              disabled={isSelf || busy}
+              onChange={(e) => onChangeRole(member.id, e.target.value)}
+              className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ color: meta.color, fontWeight: 700 }}
             >
-              {ROLE_NAMES.map((r) => (
+              {/* keep current role selectable even if it's not in the assignable set */}
+              {!ASSIGNABLE_ROLES.includes(member.role as RoleName) && (
+                <option value={member.role}>{meta.label}</option>
+              )}
+              {ASSIGNABLE_ROLES.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {ROLES[r].label}
                 </option>
               ))}
             </select>
-            <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">{ROLES[member.role].desc}</p>
+            <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">{meta.desc}</p>
+            {isSelf && (
+              <p className="text-[11px] text-dgwarn mt-1.5 font-semibold">
+                Không thể đổi vai trò của chính bạn.
+              </p>
+            )}
           </div>
 
           <div>
-            <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">Quyền hạn ({caps.length})</p>
+            <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+              Quyền hạn ({caps.length}) · tham khảo
+            </p>
             <div className="space-y-1.5">
               {caps.map((c) => (
                 <div key={c.cap} className="flex items-center gap-2 text-[12px] text-slate-600">
@@ -257,19 +282,26 @@ function MemberDrawer({
 
           <div className="pt-2 space-y-2">
             <button
-              onClick={() => onSuspend(member.id)}
-              className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgwarn bg-orange-50 border-orange-200 hover:bg-orange-100"
+              onClick={() => onToggleActive(member.id, !member.is_active)}
+              disabled={isSelf || busy}
+              className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgwarn bg-orange-50 border-orange-200 hover:bg-orange-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-orange-50"
             >
-              <Icon name={member.status === 'active' ? 'pause_circle' : 'play_circle'} className="text-[16px]" />
-              {member.status === 'active' ? 'Tạm ngưng truy cập' : 'Kích hoạt lại'}
+              <Icon name={member.is_active ? 'pause_circle' : 'play_circle'} className="text-[16px]" />
+              {member.is_active ? 'Tạm ngưng truy cập' : 'Kích hoạt lại'}
             </button>
             <button
               onClick={() => onRemove(member.id)}
-              className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgfake bg-red-50 border-red-200 hover:bg-red-100"
+              disabled={isSelf || busy}
+              className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgfake bg-red-50 border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-50"
             >
               <Icon name="person_remove" className="text-[16px]" />
               Gỡ khỏi workspace
             </button>
+            {isSelf && (
+              <p className="text-[11px] text-slate-400 text-center">
+                Bạn không thể tạm ngưng hoặc gỡ chính mình.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -277,33 +309,128 @@ function MemberDrawer({
   );
 }
 
+/* ── Invite success result (shows returned token / invite_url) ── */
+function InviteResult({ result, onClose }: { result: InviteUserResponse; onClose: () => void }) {
+  const [copied, setCopied] = useState<'url' | 'token' | null>(null);
+  const copy = (kind: 'url' | 'token', value: string) => {
+    navigator.clipboard?.writeText(value).then(() => {
+      setCopied(kind);
+      setTimeout(() => setCopied(null), 1600);
+    });
+  };
+  return (
+    <Modal onClose={onClose}>
+      <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-dgreal/[0.08] flex items-center justify-center">
+          <Icon name="mark_email_read" className="text-[20px] text-dgreal" />
+        </div>
+        <div>
+          <h2 className="text-base font-black text-slate-900">Đã tạo lời mời</h2>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Gửi link dưới đây cho {result.email} để hoàn tất đăng ký
+          </p>
+        </div>
+      </div>
+      <div className="px-6 py-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <RoleBadge role={result.role} />
+          <span className="text-[11px] text-slate-400">
+            Hết hạn {new Date(result.expires_at).toLocaleString('vi-VN')}
+          </span>
+        </div>
+
+        <Field label="Invite URL">
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={result.invite_url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="flex-1 h-10 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20"
+            />
+            <button
+              onClick={() => copy('url', result.invite_url)}
+              className="h-10 px-3 bg-dgblue text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.97] transition-all shrink-0"
+            >
+              <Icon name={copied === 'url' ? 'check' : 'content_copy'} className="text-[15px]" />
+              {copied === 'url' ? 'Đã copy' : 'Copy'}
+            </button>
+          </div>
+        </Field>
+
+        <Field label="Token">
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={result.token}
+              onFocus={(e) => e.currentTarget.select()}
+              className="flex-1 h-10 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20"
+            />
+            <button
+              onClick={() => copy('token', result.token)}
+              className="h-10 px-3 bg-white border border-slate-200 text-slate-600 rounded-lg font-bold text-[11px] flex items-center gap-1.5 hover:bg-slate-50 transition-all shrink-0"
+            >
+              <Icon name={copied === 'token' ? 'check' : 'content_copy'} className="text-[15px]" />
+              {copied === 'token' ? 'Đã copy' : 'Copy'}
+            </button>
+          </div>
+        </Field>
+      </div>
+      <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-end">
+        <button
+          onClick={onClose}
+          className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all"
+        >
+          Xong
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ── Page ── */
 export default function TeamPage() {
-  const [members, setMembers] = useState<Member[]>(MEMBERS);
-  const [invites, setInvites] = useState<Invite[]>(PENDING_INVITES);
+  const currentUser = useAuthStore((s) => s.user);
+
+  const [members, setMembers] = useState<UserListItem[]>([]);
   const [query, setQuery] = useState('');
   const [roleF, setRoleF] = useState<'ALL' | RoleName>('ALL');
   const [tab, setTab] = useState<'members' | 'roles'>('members');
   const [showInvite, setShowInvite] = useState(false);
-  const [form, setForm] = useState<{ email: string; role: RoleName }>({ email: '', role: 'Developer' });
+  const [form, setForm] = useState<{ email: string; name: string; role: RoleName }>({
+    email: '',
+    name: '',
+    role: 'developer',
+  });
   const [loading, setLoading] = useState(true);
-  const [detail, setDetail] = useState<Member | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [detail, setDetail] = useState<UserListItem | null>(null);
+  const [inviteResult, setInviteResult] = useState<InviteUserResponse | null>(null);
 
-  useEffect(() => {
-    const id = setTimeout(() => setLoading(false), 600);
-    return () => clearTimeout(id);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await usersList();
+      setMembers(res.items);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không tải được danh sách thành viên');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const counts = useMemo<Record<'ALL' | RoleName, number>>(
-    () => ({
-      ALL: members.length,
-      Admin: members.filter((m) => m.role === 'Admin').length,
-      Developer: members.filter((m) => m.role === 'Developer').length,
-      Analyst: members.filter((m) => m.role === 'Analyst').length,
-      Viewer: members.filter((m) => m.role === 'Viewer').length,
-    }),
-    [members],
-  );
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const isSelf = useCallback((id: string) => !!currentUser && currentUser.id === id, [currentUser]);
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { ALL: members.length };
+    for (const r of MATRIX_ROLES) c[r] = members.filter((m) => m.role === r).length;
+    return c;
+  }, [members]);
 
   const filtered = useMemo(
     () =>
@@ -317,32 +444,74 @@ export default function TeamPage() {
     [members, roleF, query],
   );
 
-  const invite = () => {
-    if (!form.email.trim()) return;
-    // TODO: backend — POST invite once /tenants/{id}/invites exists.
-    setInvites((p) => [{ email: form.email.trim(), role: form.role, sentAt: new Date().toISOString() }, ...p]);
-    setShowInvite(false);
-    setForm({ email: '', role: 'Developer' });
+  const invite = async () => {
+    if (!form.email.trim() || !form.name.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await usersInvite(form.email.trim(), form.name.trim(), form.role);
+      setShowInvite(false);
+      setForm({ email: '', name: '', role: 'developer' });
+      setInviteResult(res);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Mời thành viên thất bại');
+    } finally {
+      setBusy(false);
+    }
   };
-  const changeRole = (id: string, role: RoleName) => {
-    setMembers((p) => p.map((m) => (m.id === id ? { ...m, role } : m)));
-    setDetail((d) => (d && d.id === id ? { ...d, role } : d));
+
+  const changeRole = async (id: string, role: string) => {
+    if (isSelf(id) || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await usersUpdate(id, { role });
+      setMembers((p) => p.map((m) => (m.id === id ? updated : m)));
+      setDetail((d) => (d && d.id === id ? updated : d));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Đổi vai trò thất bại');
+    } finally {
+      setBusy(false);
+    }
   };
-  const removeMember = (id: string) => {
-    setMembers((p) => p.filter((m) => m.id !== id));
-    setDetail(null);
+
+  const toggleActive = async (id: string, next: boolean) => {
+    if (isSelf(id) || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await usersUpdate(id, { is_active: next });
+      setMembers((p) => p.map((m) => (m.id === id ? updated : m)));
+      setDetail((d) => (d && d.id === id ? updated : d));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Cập nhật trạng thái thất bại');
+    } finally {
+      setBusy(false);
+    }
   };
-  const toggleSuspend = (id: string) => {
-    setMembers((p) =>
-      p.map((m) => (m.id === id ? { ...m, status: m.status === 'active' ? 'inactive' : 'active' } : m)),
-    );
-    setDetail((d) => (d && d.id === id ? { ...d, status: d.status === 'active' ? 'inactive' : 'active' } : d));
+
+  const removeMember = async (id: string) => {
+    if (isSelf(id) || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await usersDelete(id);
+      setDetail(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Gỡ thành viên thất bại');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const roleChips: { id: 'ALL' | RoleName; label: string }[] = [
     { id: 'ALL', label: 'Tất cả' },
-    ...ROLE_NAMES.map((r) => ({ id: r, label: r })),
+    ...MATRIX_ROLES.map((r) => ({ id: r, label: ROLES[r].label })),
   ];
+
+  const activeCount = members.filter((m) => m.is_active).length;
 
   return (
     <div className="space-y-5">
@@ -350,7 +519,7 @@ export default function TeamPage() {
         <div>
           <h1 className="text-2xl font-black tracking-tight text-slate-900">Team &amp; Roles</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {members.length} thành viên · {invites.length} lời mời đang chờ
+            {members.length} thành viên · {activeCount} đang hoạt động
           </p>
         </div>
         <button
@@ -361,12 +530,22 @@ export default function TeamPage() {
         </button>
       </div>
 
+      {error && (
+        <div className="glass-panel rounded-xl px-4 py-3 border border-red-200 bg-red-50/70 flex items-center gap-2 dg-rise">
+          <Icon name="error" className="text-[18px] text-dgfake" />
+          <span className="text-[12px] font-semibold text-dgfake flex-1">{error}</span>
+          <button onClick={() => setError(null)} className="text-dgfake/60 hover:text-dgfake">
+            <Icon name="close" className="text-[16px]" />
+          </button>
+        </div>
+      )}
+
       {/* quick stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-rise">
         <StatPill icon="group" label="Thành viên" value={members.length} />
-        <StatPill icon="bolt" label="Đang hoạt động" value={members.filter((m) => m.status === 'active').length} color={DG.real} />
-        <StatPill icon="schedule_send" label="Lời mời chờ" value={invites.length} color={DG.uncertain} />
-        <StatPill icon="admin_panel_settings" label="Vai trò" value={ROLE_NAMES.length} color="#7c3aed" />
+        <StatPill icon="bolt" label="Đang hoạt động" value={activeCount} color={DG.real} />
+        <StatPill icon="block" label="Tạm ngưng" value={members.length - activeCount} color={DG.uncertain} />
+        <StatPill icon="admin_panel_settings" label="Vai trò" value={MATRIX_ROLES.length} color="#7c3aed" />
       </div>
 
       {/* tabs */}
@@ -392,33 +571,6 @@ export default function TeamPage() {
 
       {tab === 'members' ? (
         <>
-          {/* pending invites */}
-          {invites.length > 0 && (
-            <div className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60 dg-rise">
-              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                <Icon name="schedule_send" className="text-[15px]" /> Lời mời đang chờ ({invites.length})
-              </h3>
-              <div className="space-y-2">
-                {invites.map((iv, i) => (
-                  <div key={i} className="flex items-center gap-3 p-2.5 rounded-xl bg-amber-50/60 border border-amber-100">
-                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                      <Icon name="mail" className="text-[16px] text-dgwarn" />
-                    </div>
-                    <span className="text-[12px] font-semibold text-slate-700 flex-1 truncate">{iv.email}</span>
-                    <RoleBadge role={iv.role} />
-                    <span className="text-[10px] text-slate-400">{timeAgo(iv.sentAt)}</span>
-                    <button
-                      onClick={() => setInvites((p) => p.filter((x) => x !== iv))}
-                      className="text-slate-400 hover:text-dgfake transition-colors"
-                    >
-                      <Icon name="close" className="text-[16px]" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* filter */}
           <div className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-rise flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[200px]">
@@ -447,7 +599,7 @@ export default function TeamPage() {
                       roleF === c.id ? 'bg-white/20' : 'bg-slate-100'
                     }`}
                   >
-                    {counts[c.id]}
+                    {counts[c.id] ?? 0}
                   </span>
                 </button>
               ))}
@@ -468,8 +620,12 @@ export default function TeamPage() {
           ) : filtered.length === 0 ? (
             <StateBlock
               icon="person_search"
-              title="Không tìm thấy thành viên"
-              desc="Thử đổi bộ lọc vai trò hoặc mời thành viên mới."
+              title={members.length === 0 ? 'Chưa có thành viên' : 'Không tìm thấy thành viên'}
+              desc={
+                members.length === 0
+                  ? 'Mời thành viên đầu tiên vào workspace của bạn.'
+                  : 'Thử đổi bộ lọc vai trò hoặc mời thành viên mới.'
+              }
               action="Mời thành viên"
               onAction={() => setShowInvite(true)}
             />
@@ -488,50 +644,69 @@ export default function TeamPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filtered.map((m) => (
-                      <tr
-                        key={m.id}
-                        className="data-table-row hover:bg-dgblue/[0.02] transition-colors group cursor-pointer"
-                        onClick={() => setDetail(m)}
-                      >
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-[11px] shrink-0"
-                              style={{ background: ROLES[m.role].color }}
+                    {filtered.map((m) => {
+                      const meta = roleMeta(m.role);
+                      const self = isSelf(m.id);
+                      return (
+                        <tr
+                          key={m.id}
+                          className="data-table-row hover:bg-dgblue/[0.02] transition-colors group cursor-pointer"
+                          onClick={() => setDetail(m)}
+                        >
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-[11px] shrink-0"
+                                style={{ background: meta.color }}
+                              >
+                                {initialsOf(m.name, m.email)}
+                              </div>
+                              <div>
+                                <p className="text-[13px] font-bold text-slate-800 flex items-center gap-1.5">
+                                  {m.name}
+                                  {self && (
+                                    <span className="text-[9px] font-black text-dgblue bg-dgblue/[0.08] px-1.5 py-0.5 rounded">
+                                      BẠN
+                                    </span>
+                                  )}
+                                </p>
+                                <p className="text-[11px] text-slate-400">{m.email}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={m.role}
+                              disabled={self || busy}
+                              onChange={(e) => changeRole(m.id, e.target.value)}
+                              className="text-[11px] font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-dgblue disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{ color: meta.color }}
                             >
-                              {m.initials}
-                            </div>
-                            <div>
-                              <p className="text-[13px] font-bold text-slate-800">{m.name}</p>
-                              <p className="text-[11px] text-slate-400">{m.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                          <select
-                            value={m.role}
-                            onChange={(e) => changeRole(m.id, e.target.value as RoleName)}
-                            className="text-[11px] font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-dgblue"
-                            style={{ color: ROLES[m.role].color }}
-                          >
-                            {ROLE_NAMES.map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-4">
-                          <StatusBadge status={m.status} />
-                        </td>
-                        <td className="px-4 py-4 text-[11px] text-slate-500 font-medium">{timeAgo(m.lastActive)}</td>
-                        <td className="px-4 py-4 text-[11px] text-slate-500 font-medium">{m.joined}</td>
-                        <td className="px-6 py-4 text-right">
-                          <Icon name="chevron_right" className="text-[18px] text-slate-300 group-hover:text-dgblue transition-colors" />
-                        </td>
-                      </tr>
-                    ))}
+                              {!ASSIGNABLE_ROLES.includes(m.role as RoleName) && (
+                                <option value={m.role}>{meta.label}</option>
+                              )}
+                              {ASSIGNABLE_ROLES.map((r) => (
+                                <option key={r} value={r}>
+                                  {ROLES[r].label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-4">
+                            <StatusBadge active={m.is_active} />
+                          </td>
+                          <td className="px-4 py-4 text-[11px] text-slate-500 font-medium">
+                            {m.last_login_at ? timeAgo(m.last_login_at) : '—'}
+                          </td>
+                          <td className="px-4 py-4 text-[11px] text-slate-500 font-medium">
+                            {new Date(m.created_at).toLocaleDateString('vi-VN')}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <Icon name="chevron_right" className="text-[18px] text-slate-300 group-hover:text-dgblue transition-colors" />
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -540,39 +715,47 @@ export default function TeamPage() {
         </>
       ) : (
         <>
-          {/* role cards */}
+          {/* role cards (descriptive reference) */}
+          <div className="flex items-center gap-2 text-[11px] text-slate-400 dg-rise">
+            <Icon name="info" className="text-[15px]" />
+            Bảng dưới là tài liệu tham khảo về vai trò &amp; quyền — không phải cấu hình động từ backend.
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 dg-rise">
-            {(Object.entries(ROLES) as [RoleName, RoleMeta][]).map(([role, r]) => (
-              <div key={role} className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60">
-                <div className="flex items-center gap-2.5 mb-2">
-                  <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${r.color}12` }}>
-                    <Icon name="shield_person" className="text-[19px]" style={{ color: r.color }} fill />
-                  </span>
-                  <div>
-                    <p className="text-sm font-black text-slate-800">{role}</p>
-                    <p className="text-[10px] font-bold tabular-nums" style={{ color: r.color }}>
-                      {members.filter((m) => m.role === role).length} thành viên
-                    </p>
+            {MATRIX_ROLES.map((role) => {
+              const r = ROLES[role];
+              return (
+                <div key={role} className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60">
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${r.color}12` }}>
+                      <Icon name="shield_person" className="text-[19px]" style={{ color: r.color }} fill />
+                    </span>
+                    <div>
+                      <p className="text-sm font-black text-slate-800">{r.label}</p>
+                      <p className="text-[10px] font-bold tabular-nums" style={{ color: r.color }}>
+                        {members.filter((m) => m.role === role).length} thành viên
+                      </p>
+                    </div>
                   </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">{r.desc}</p>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">{r.desc}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          {/* permission matrix */}
+          {/* permission matrix (descriptive reference) */}
           <div className="glass-panel rounded-2xl shadow-sm border border-white/60 overflow-hidden dg-rise">
             <div className="px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-black text-slate-900">Ma trận phân quyền</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">Tham khảo · mô tả khả năng theo từng vai trò</p>
             </div>
             <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full min-w-[640px]">
                 <thead className="bg-white/60 border-b border-slate-100">
                   <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                     <th className="px-6 py-3.5 text-left">Khả năng</th>
-                    {ROLE_NAMES.map((r) => (
+                    {MATRIX_ROLES.map((r) => (
                       <th key={r} className="px-4 py-3.5 text-center" style={{ color: ROLES[r].color }}>
-                        {r}
+                        {ROLES[r].label}
                       </th>
                     ))}
                   </tr>
@@ -581,7 +764,7 @@ export default function TeamPage() {
                   {PERMISSIONS.map((p) => (
                     <tr key={p.cap} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-3 text-[12px] font-semibold text-slate-700">{p.cap}</td>
-                      {ROLE_NAMES.map((r) => (
+                      {MATRIX_ROLES.map((r) => (
                         <td key={r} className="px-4 py-3 text-center">
                           {p[r] ? (
                             <Icon name="check_circle" className="text-[18px] text-dgreal" fill />
@@ -601,9 +784,11 @@ export default function TeamPage() {
 
       <MemberDrawer
         member={detail}
+        isSelf={detail ? isSelf(detail.id) : false}
+        busy={busy}
         onClose={() => setDetail(null)}
         onChangeRole={changeRole}
-        onSuspend={toggleSuspend}
+        onToggleActive={toggleActive}
         onRemove={removeMember}
       />
 
@@ -615,16 +800,24 @@ export default function TeamPage() {
             </div>
             <div>
               <h2 className="text-base font-black text-slate-900">Mời thành viên</h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">Gửi lời mời qua email vào workspace</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Tạo lời mời vào workspace</p>
             </div>
           </div>
           <div className="px-6 py-5 space-y-4">
+            <Field label="Họ tên" req>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Nguyễn Văn A"
+                autoFocus
+                className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
+              />
+            </Field>
             <Field label="Email" req>
               <input
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 placeholder="ten@vietbank.vn"
-                autoFocus
                 className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
               />
             </Field>
@@ -634,9 +827,9 @@ export default function TeamPage() {
                 onChange={(e) => setForm({ ...form, role: e.target.value as RoleName })}
                 className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
               >
-                {ROLE_NAMES.map((r) => (
+                {ASSIGNABLE_ROLES.map((r) => (
                   <option key={r} value={r}>
-                    {r}
+                    {ROLES[r].label}
                   </option>
                 ))}
               </select>
@@ -654,14 +847,17 @@ export default function TeamPage() {
             </button>
             <button
               onClick={invite}
-              disabled={!form.email.trim()}
+              disabled={!form.email.trim() || !form.name.trim() || busy}
               className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              <Icon name="send" className="text-[14px]" /> Gửi lời mời
+              <Icon name={busy ? 'progress_activity' : 'send'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
+              {busy ? 'Đang gửi…' : 'Gửi lời mời'}
             </button>
           </div>
         </Modal>
       )}
+
+      {inviteResult && <InviteResult result={inviteResult} onClose={() => setInviteResult(null)} />}
     </div>
   );
 }
