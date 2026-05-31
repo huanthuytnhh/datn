@@ -1,26 +1,17 @@
 'use client';
 
-import { useState, useMemo, Fragment, type ReactNode } from 'react';
-import { Icon, StatPill, Sparkline, Donut } from '@/components/deepguard/shared';
+import { useState, useMemo, useEffect, useCallback, Fragment, type ReactNode } from 'react';
+import { Icon, StatPill, Donut } from '@/components/deepguard/shared';
 import { DG, fmtInt } from '@/lib/dg';
+import { tenantsList, tenantUpdateById, type TenantListItem } from '@/lib/api';
 
 /* ──────────────────────────────────────────────
    TYPES
    ────────────────────────────────────────────── */
 type Plan = 'Starter' | 'Pro' | 'Enterprise';
 type TenantStatus = 'active' | 'suspended';
-type KeyStatus = 'active' | 'rotating' | 'revoked';
 
-interface TenantApiKey {
-  name: string;
-  prefix: string;
-  status: KeyStatus;
-}
-interface TenantUser {
-  name: string;
-  email: string;
-  role: string;
-}
+/** Normalised view-model derived from the real TenantListItem. */
 interface Tenant {
   id: string;
   name: string;
@@ -30,84 +21,37 @@ interface Tenant {
   users: number;
   status: TenantStatus;
   created: string;
-  region: string;
-  fakeRate: number;
-  trend: number[];
-  reqMonth: number;
-  apiKeys: TenantApiKey[];
-  userList: TenantUser[];
 }
 
 /* ──────────────────────────────────────────────
-   MOCK DATA
-   TODO: wire to backend when tenant endpoints exist.
-   There is currently NO backend route for tenants, so this
-   page operates entirely on local in-memory state.
+   API → VIEW-MODEL MAPPING
    ────────────────────────────────────────────── */
-const TENANTS: Tenant[] = [
-  {
-    id: '1', name: 'VietBank', plan: 'Enterprise', quotaUsed: 8470, quotaLimit: 10000, users: 5,
-    status: 'active', created: '01/01/2025', region: 'Hà Nội', fakeRate: 2.7,
-    trend: [620, 710, 680, 790, 845, 910, 870], reqMonth: 8470,
-    apiKeys: [
-      { name: 'Production', prefix: 'dg_live_…8af3', status: 'active' },
-      { name: 'Staging', prefix: 'dg_test_…b12a', status: 'active' },
-      { name: 'Testing', prefix: 'dg_test_…d4e7', status: 'rotating' },
-    ],
-    userList: [
-      { name: 'Nguyễn Văn A', email: 'nguyenvana@vietbank.vn', role: 'Admin' },
-      { name: 'Trần Thị B', email: 'tranthib@vietbank.vn', role: 'Developer' },
-      { name: 'Lê Văn C', email: 'levanc@vietbank.vn', role: 'Viewer' },
-    ],
-  },
-  {
-    id: '2', name: 'TechcomFinance', plan: 'Pro', quotaUsed: 6120, quotaLimit: 8000, users: 4,
-    status: 'active', created: '15/02/2025', region: 'TP.HCM', fakeRate: 3.4,
-    trend: [410, 480, 520, 600, 580, 640, 612], reqMonth: 6120,
-    apiKeys: [
-      { name: 'Main', prefix: 'dg_live_…1a2b', status: 'active' },
-      { name: 'Backup', prefix: 'dg_live_…3c4d', status: 'active' },
-    ],
-    userList: [
-      { name: 'Phạm Minh D', email: 'phamminhd@tcf.vn', role: 'Admin' },
-      { name: 'Hoàng Thị E', email: 'hoangthie@tcf.vn', role: 'Developer' },
-    ],
-  },
-  {
-    id: '3', name: 'MoMo Wallet', plan: 'Enterprise', quotaUsed: 19240, quotaLimit: 20000, users: 8,
-    status: 'active', created: '20/12/2024', region: 'TP.HCM', fakeRate: 4.1,
-    trend: [2100, 2400, 2650, 2800, 2750, 2900, 2840], reqMonth: 19240,
-    apiKeys: [
-      { name: 'Production', prefix: 'dg_live_…9z0x', status: 'active' },
-      { name: 'KYC Batch', prefix: 'dg_live_…7y2k', status: 'active' },
-    ],
-    userList: [
-      { name: 'Đỗ Văn F', email: 'dovanf@momo.vn', role: 'Admin' },
-      { name: 'Vũ Thị G', email: 'vuthig@momo.vn', role: 'Developer' },
-    ],
-  },
-  {
-    id: '4', name: 'Sacombank', plan: 'Pro', quotaUsed: 7650, quotaLimit: 8000, users: 3,
-    status: 'active', created: '08/03/2025', region: 'Đà Nẵng', fakeRate: 2.2,
-    trend: [820, 910, 980, 1040, 1010, 1090, 1065], reqMonth: 7650,
-    apiKeys: [{ name: 'Production', prefix: 'dg_live_…5m6n', status: 'active' }],
-    userList: [{ name: 'Bùi Văn H', email: 'buivanh@sacombank.vn', role: 'Admin' }],
-  },
-  {
-    id: '5', name: 'ZaloPay Test', plan: 'Starter', quotaUsed: 92, quotaLimit: 100, users: 2,
-    status: 'suspended', created: '10/04/2025', region: 'TP.HCM', fakeRate: 1.1,
-    trend: [12, 18, 9, 22, 14, 8, 9], reqMonth: 92,
-    apiKeys: [{ name: 'Default', prefix: 'dg_test_…q1w2', status: 'revoked' }],
-    userList: [{ name: 'Ngô Thị I', email: 'ngothii@zalopay.vn', role: 'Admin' }],
-  },
-  {
-    id: '6', name: 'VNPay', plan: 'Starter', quotaUsed: 41, quotaLimit: 100, users: 1,
-    status: 'active', created: '22/04/2025', region: 'Hà Nội', fakeRate: 0,
-    trend: [4, 6, 3, 8, 5, 7, 8], reqMonth: 41,
-    apiKeys: [{ name: 'Sandbox', prefix: 'dg_test_…e3r4', status: 'active' }],
-    userList: [{ name: 'Lý Văn K', email: 'lyvank@vnpay.vn', role: 'Admin' }],
-  },
-];
+function normPlan(p: string): Plan {
+  const v = (p || '').toLowerCase();
+  if (v.startsWith('enter')) return 'Enterprise';
+  if (v.startsWith('pro')) return 'Pro';
+  return 'Starter';
+}
+function normStatus(s: string): TenantStatus {
+  return (s || '').toLowerCase() === 'suspended' ? 'suspended' : 'active';
+}
+function fmtDate(iso: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('vi-VN');
+}
+function mapTenant(t: TenantListItem): Tenant {
+  return {
+    id: t.id,
+    name: t.name,
+    plan: normPlan(t.plan),
+    quotaUsed: t.current_usage ?? 0,
+    quotaLimit: t.monthly_quota ?? 0,
+    users: t.user_count ?? 0,
+    status: normStatus(t.status),
+    created: fmtDate(t.created_at),
+  };
+}
 
 /* ──────────────────────────────────────────────
    HELPERS / STYLE MAPS
@@ -122,14 +66,8 @@ function quotaColor(p: number): string {
 }
 function quotaPct(t: Tenant): number {
   if (t.quotaLimit === 0) return 0;
-  return Math.round((t.quotaUsed / t.quotaLimit) * 100);
+  return Math.min(100, Math.round((t.quotaUsed / t.quotaLimit) * 100));
 }
-
-const KEY_STATUS_STYLE: Record<KeyStatus, string> = {
-  active: 'bg-emerald-50 text-emerald-600',
-  rotating: 'bg-amber-50 text-amber-600',
-  revoked: 'bg-red-50 text-red-600',
-};
 
 const PLANS: Plan[] = ['Starter', 'Pro', 'Enterprise'];
 const REGIONS = ['Hà Nội', 'TP.HCM', 'Đà Nẵng', 'Cần Thơ', 'Hải Phòng'];
@@ -250,76 +188,68 @@ function Modal({
 
 /* ──────────────────────────────────────────────
    EXPANDABLE TABLE DETAIL
+   Backend list endpoint only returns aggregate fields per tenant
+   (usage, user_count). Per-tenant API keys / users / traffic are
+   not available yet → show what we have and flag the rest "sắp có".
    ────────────────────────────────────────────── */
+function ComingSoon({ icon, title }: { icon: string; title: string }) {
+  return (
+    <div>
+      <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <Icon name={icon} className="text-[14px]" /> {title}
+      </h4>
+      <div className="bg-white/70 rounded-lg border border-dashed border-slate-200 p-4 flex flex-col items-center justify-center text-center gap-1.5 min-h-[96px]">
+        <Icon name="hourglass_empty" className="text-[22px] text-slate-300" />
+        <span className="text-[11px] font-semibold text-slate-400">chi tiết theo tenant — sắp có</span>
+      </div>
+    </div>
+  );
+}
+
 function TenantDetail({ tenant }: { tenant: Tenant }) {
   const pct = quotaPct(tenant);
   return (
     <div className="px-6 py-5 bg-slate-50/60 border-t border-slate-100">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* API Keys */}
+        {/* Overview — real aggregates */}
         <div>
           <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Icon name="key" className="text-[14px]" /> API Keys ({tenant.apiKeys.length})
+            <Icon name="insights" className="text-[14px]" /> Tổng quan
           </h4>
-          <div className="space-y-2">
-            {tenant.apiKeys.map((k) => (
-              <div key={k.prefix} className="flex items-center gap-2 px-3 py-2 bg-white/70 rounded-lg border border-slate-100">
-                <span className="text-[12px] font-semibold text-slate-700">{k.name}</span>
-                <code className="text-[10px] font-mono text-slate-400 ml-auto">{k.prefix}</code>
-                <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${KEY_STATUS_STYLE[k.status]}`}>
-                  {k.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Users */}
-        <div>
-          <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Icon name="group" className="text-[14px]" /> Users ({tenant.userList.length})
-          </h4>
-          <div className="space-y-2">
-            {tenant.userList.map((u) => (
-              <div key={u.email} className="px-3 py-2 bg-white/70 rounded-lg border border-slate-100">
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-slate-700">{u.name}</span>
-                  <span className="text-[9px] font-bold text-dgblue bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
-                    {u.role}
-                  </span>
-                </div>
-                <span className="text-[10px] text-slate-400">{u.email}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 7-day traffic */}
-        <div>
-          <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Icon name="monitoring" className="text-[14px]" /> Lưu lượng 7 ngày
-          </h4>
-          <div className="bg-white/70 rounded-lg border border-slate-100 p-4">
-            <div className="flex items-end justify-between mb-2">
-              <span className="text-2xl font-black text-slate-900 tabular-nums">{fmtInt(tenant.reqMonth)}</span>
-              <Sparkline data={tenant.trend} color={DG.primary} w={120} h={36} />
+          <div className="bg-white/70 rounded-lg border border-slate-100 p-4 space-y-2.5">
+            <div className="flex items-baseline justify-between">
+              <span className="text-[11px] text-slate-500 font-medium">Quota tháng</span>
+              <span className="text-[12px] font-black text-slate-800 tabular-nums">
+                {fmtInt(tenant.quotaUsed)}{' '}
+                <span className="text-slate-300 font-bold">/ {fmtInt(tenant.quotaLimit)}</span>
+              </span>
             </div>
-            <div className="space-y-1.5 mt-3">
-              <div className="flex justify-between text-[11px]">
-                <span className="text-slate-500 font-medium">Fake rate</span>
-                <span className="font-bold text-dgfake">{tenant.fakeRate}%</span>
-              </div>
-              <div className="flex justify-between text-[11px]">
-                <span className="text-slate-500 font-medium">Quota</span>
-                <span className="font-bold" style={{ color: quotaColor(pct) }}>{pct}%</span>
-              </div>
-              <div className="flex justify-between text-[11px]">
-                <span className="text-slate-500 font-medium">Khu vực</span>
-                <span className="font-bold text-slate-700">{tenant.region}</span>
-              </div>
+            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${pct}%`, background: quotaColor(pct), boxShadow: `0 0 8px ${quotaColor(pct)}30` }}
+              />
+            </div>
+            <div className="flex justify-between text-[11px] pt-1">
+              <span className="text-slate-500 font-medium">Mức sử dụng</span>
+              <span className="font-bold" style={{ color: quotaColor(pct) }}>{pct}%</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-slate-500 font-medium">Người dùng</span>
+              <span className="font-bold text-slate-700 tabular-nums">{fmtInt(tenant.users)}</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-slate-500 font-medium">Trạng thái</span>
+              <span className="font-bold text-slate-700">{tenant.status === 'active' ? 'Active' : 'Suspended'}</span>
             </div>
           </div>
         </div>
+
+        {/* API Keys — not available per-tenant yet */}
+        <ComingSoon icon="key" title="API Keys" />
+
+        {/* Lưu lượng — not available per-tenant yet */}
+        <ComingSoon icon="monitoring" title="Lưu lượng 7 ngày" />
       </div>
     </div>
   );
@@ -348,7 +278,7 @@ function TenantCard({
           </div>
           <div className="min-w-0">
             <p className="text-sm font-black text-slate-800 truncate">{tenant.name}</p>
-            <p className="text-[10px] text-slate-400">{tenant.region} · {tenant.created}</p>
+            <p className="text-[10px] text-slate-400">{tenant.created}</p>
           </div>
         </div>
         <PlanBadge plan={tenant.plan} />
@@ -370,7 +300,12 @@ function TenantCard({
           <p className="text-sm font-black text-slate-800 tabular-nums">
             {fmtInt(tenant.quotaUsed)} <span className="text-slate-300 font-bold">/ {fmtInt(tenant.quotaLimit)}</span>
           </p>
-          <Sparkline data={tenant.trend} color={DG.primary} w={110} h={26} />
+          <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden mt-2">
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${pct}%`, background: qc, boxShadow: `0 0 8px ${qc}30` }}
+            />
+          </div>
         </div>
       </div>
 
@@ -422,16 +357,33 @@ const emptyForm: CreateForm = {
 };
 
 export default function TenantsPage() {
-  const [tenants, setTenants] = useState<Tenant[]>(TENANTS);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [view, setView] = useState<ViewMode>('table');
   const [plan, setPlan] = useState<'ALL' | Plan>('ALL');
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [suspendTarget, setSuspendTarget] = useState<Tenant | null>(null);
-  const [emptyDemo, setEmptyDemo] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [createNotice, setCreateNotice] = useState(false);
   const [form, setForm] = useState<CreateForm>(emptyForm);
   const [wizStep, setWizStep] = useState(0);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError('');
+    tenantsList()
+      .then((res) => setTenants(res.items.map(mapTenant)))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải danh sách tenants'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const counts = useMemo(
     () => ({
@@ -452,13 +404,12 @@ export default function TenantsPage() {
       ),
     [tenants, plan, query],
   );
-  const display = emptyDemo ? [] : filtered;
 
   const kpis = useMemo(() => {
     const active = tenants.filter((x) => x.status === 'active').length;
-    const totalReq = tenants.reduce((s, x) => s + x.reqMonth, 0);
-    const avgFake = tenants.length ? tenants.reduce((s, x) => s + x.fakeRate, 0) / tenants.length : 0;
-    return { total: tenants.length, active, totalReq, avgFake };
+    const totalUsage = tenants.reduce((s, x) => s + x.quotaUsed, 0);
+    const totalUsers = tenants.reduce((s, x) => s + x.users, 0);
+    return { total: tenants.length, active, totalUsage, totalUsers };
   }, [tenants]);
 
   const wizSteps = ['Tổ chức', 'Gói & quota', 'Quản trị viên'];
@@ -467,44 +418,52 @@ export default function TenantsPage() {
   const openCreate = () => {
     setForm(emptyForm);
     setWizStep(0);
+    setCreateNotice(false);
     setShowCreate(true);
   };
 
-  const create = () => {
+  /** No backend create endpoint yet → surface a notice instead of faking. */
+  const submitCreate = () => {
     if (!form.name.trim() || !form.email.trim()) return;
-    const newTenant: Tenant = {
-      id: String(Date.now()),
-      name: form.name.trim(),
-      plan: form.plan,
-      quotaUsed: 0,
-      quotaLimit: form.quota,
-      users: 1,
-      status: 'active',
-      created: new Date().toLocaleDateString('vi-VN'),
-      region: form.region,
-      fakeRate: 0,
-      trend: [0, 0, 0, 0, 0, 0, 0],
-      reqMonth: 0,
-      apiKeys: [],
-      userList: [
-        {
-          name: form.adminName.trim() || `${form.name.trim()} Admin`,
-          email: form.email.trim(),
-          role: 'Admin',
-        },
-      ],
-    };
-    setTenants((p) => [newTenant, ...p]);
-    setShowCreate(false);
+    setCreateNotice(true);
   };
 
-  const doSuspend = (id: string) => {
-    setTenants((p) =>
-      p.map((x) =>
-        x.id === id ? { ...x, status: x.status === 'active' ? 'suspended' : 'active' } : x,
-      ),
-    );
+  const applyUpdate = async (
+    id: string,
+    data: { status?: TenantStatus; plan?: string; monthly_quota?: number },
+  ) => {
+    setBusyId(id);
+    setActionError('');
+    try {
+      await tenantUpdateById(id, data);
+      load();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Cập nhật tenant thất bại');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const doSuspend = async (t: Tenant) => {
+    const next: TenantStatus = t.status === 'active' ? 'suspended' : 'active';
+    await applyUpdate(t.id, { status: next });
     setSuspendTarget(null);
+  };
+
+  const changePlan = (t: Tenant, next: Plan) => {
+    if (next === t.plan) return;
+    void applyUpdate(t.id, { plan: next.toLowerCase() });
+  };
+
+  const adjustQuota = (t: Tenant) => {
+    const input = window.prompt(`Quota hàng tháng cho ${t.name} (requests):`, String(t.quotaLimit));
+    if (input == null) return;
+    const value = parseInt(input, 10);
+    if (Number.isNaN(value) || value < 0) {
+      setActionError('Quota không hợp lệ');
+      return;
+    }
+    void applyUpdate(t.id, { monthly_quota: value });
   };
 
   const planChips: { id: 'ALL' | Plan; label: string }[] = [
@@ -529,10 +488,12 @@ export default function TenantsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setEmptyDemo((v) => !v)}
-            className="px-3 h-9 text-[10px] font-bold text-slate-400 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors uppercase tracking-wider"
+            onClick={load}
+            disabled={loading}
+            className="px-3 h-9 text-[10px] font-bold text-slate-400 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors uppercase tracking-wider disabled:opacity-50 inline-flex items-center gap-1.5"
           >
-            {emptyDemo ? 'Show data' : 'Empty demo'}
+            <Icon name="refresh" className={`text-[14px] ${loading ? 'animate-spin' : ''}`} />
+            Tải lại
           </button>
           <div className="inline-flex p-0.5 rounded-xl bg-slate-100 border border-white">
             {([['table', 'table_rows'], ['grid', 'grid_view']] as [ViewMode, string][]).map(([m, ic]) => (
@@ -556,13 +517,21 @@ export default function TenantsPage() {
         </div>
       </div>
 
-      {/* KPI summary */}
+      {/* KPI summary — derived from real list */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-fade">
         <StatPill label="Tổng tenants" value={kpis.total} color={DG.primary} icon="apartment" />
         <StatPill label="Đang hoạt động" value={kpis.active} color={DG.real} icon="check_circle" />
-        <StatPill label="Requests / tháng" value={fmtInt(kpis.totalReq)} color={DG.primary} icon="data_usage" />
-        <StatPill label="Fake rate TB" value={`${kpis.avgFake.toFixed(1)}%`} color={DG.fake} icon="gpp_maybe" />
+        <StatPill label="Tổng usage" value={fmtInt(kpis.totalUsage)} color={DG.primary} icon="data_usage" />
+        <StatPill label="Tổng người dùng" value={fmtInt(kpis.totalUsers)} color={DG.uncertain} icon="group" />
       </div>
+
+      {/* action error */}
+      {actionError && (
+        <div className="glass-panel rounded-xl px-4 py-3 border border-red-200 bg-red-50/60 dg-fade flex items-center gap-2 text-[12px] font-semibold text-dgfake">
+          <Icon name="error" className="text-[16px]" />
+          {actionError}
+        </div>
+      )}
 
       {/* filter bar */}
       <div className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-fade flex flex-wrap items-center gap-3">
@@ -596,17 +565,32 @@ export default function TenantsPage() {
       </div>
 
       {/* content */}
-      {display.length === 0 ? (
+      {loading ? (
+        <div className="glass-panel rounded-2xl p-12 shadow-sm border border-white/60 text-center dg-fade">
+          <Icon name="progress_activity" className="text-[40px] text-dgblue/40 animate-spin mx-auto mb-4" />
+          <p className="text-sm font-semibold text-slate-400">Đang tải danh sách tenants…</p>
+        </div>
+      ) : error ? (
+        <StateBlock
+          icon="error"
+          title="Không tải được dữ liệu"
+          desc={error}
+          action="Thử lại"
+          onAction={load}
+        />
+      ) : filtered.length === 0 ? (
         <StateBlock
           icon="apartment"
-          title="Chưa có tenant nào"
-          desc="Tạo tenant đầu tiên để quản lý workspace và phân quyền cho tổ chức."
-          action="Tạo tenant đầu tiên"
-          onAction={openCreate}
+          title={tenants.length === 0 ? 'Chưa có tenant nào' : 'Không tìm thấy tenant'}
+          desc={
+            tenants.length === 0
+              ? 'Chưa có tổ chức nào trong hệ thống.'
+              : 'Không có tenant nào khớp với bộ lọc hiện tại.'
+          }
         />
       ) : view === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {display.map((t2) => (
+          {filtered.map((t2) => (
             <TenantCard
               key={t2.id}
               tenant={t2}
@@ -627,17 +611,18 @@ export default function TenantsPage() {
                   <th className="px-6 py-3.5">Tổ chức</th>
                   <th className="px-4 py-3.5">Plan</th>
                   <th className="px-4 py-3.5">Quota</th>
-                  <th className="px-4 py-3.5">7 ngày</th>
+                  <th className="px-4 py-3.5">Tạo lúc</th>
                   <th className="px-4 py-3.5">Users</th>
                   <th className="px-4 py-3.5">Trạng thái</th>
                   <th className="px-6 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {display.map((tn) => {
+                {filtered.map((tn) => {
                   const pct = quotaPct(tn);
                   const qc = quotaColor(pct);
                   const open = expanded === tn.id;
+                  const busy = busyId === tn.id;
                   return (
                     <Fragment key={tn.id}>
                       <tr
@@ -651,7 +636,7 @@ export default function TenantsPage() {
                             </div>
                             <div>
                               <p className="text-[13px] font-bold text-slate-800">{tn.name}</p>
-                              <p className="text-[10px] text-slate-400">{tn.region}</p>
+                              <p className="text-[10px] text-slate-400 font-mono">{tn.id.slice(0, 8)}</p>
                             </div>
                             <Icon
                               name={open ? 'expand_less' : 'expand_more'}
@@ -675,7 +660,7 @@ export default function TenantsPage() {
                           </div>
                         </td>
                         <td className="px-4 py-4">
-                          <Sparkline data={tn.trend} color={DG.primary} w={84} h={28} />
+                          <span className="text-[12px] font-semibold text-slate-600 tabular-nums">{tn.created}</span>
                         </td>
                         <td className="px-4 py-4">
                           <span className="flex items-center gap-1.5 text-[12px] font-bold text-slate-700">
@@ -695,7 +680,8 @@ export default function TenantsPage() {
                             </button>
                             <button
                               onClick={() => setSuspendTarget(tn)}
-                              className="px-2.5 py-1.5 text-[10px] font-bold text-dgwarn bg-orange-50 border border-orange-100 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-1"
+                              disabled={busy}
+                              className="px-2.5 py-1.5 text-[10px] font-bold text-dgwarn bg-orange-50 border border-orange-100 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-1 disabled:opacity-50"
                             >
                               <Icon name="block" className="text-[13px]" />
                               {tn.status === 'active' ? 'Suspend' : 'Activate'}
@@ -706,6 +692,34 @@ export default function TenantsPage() {
                       {open && (
                         <tr>
                           <td colSpan={7} className="p-0 dg-fade">
+                            <div className="px-6 pt-4 bg-slate-50/60 border-t border-slate-100 flex flex-wrap items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">Đổi gói</span>
+                                <div className="inline-flex gap-1">
+                                  {PLANS.map((pl) => (
+                                    <button
+                                      key={pl}
+                                      onClick={() => changePlan(tn, pl)}
+                                      disabled={busy || pl === tn.plan}
+                                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black tracking-wider border transition-all disabled:cursor-default ${
+                                        pl === tn.plan
+                                          ? 'bg-dgblue text-white border-transparent'
+                                          : 'bg-white border-slate-200 text-slate-500 hover:border-dgblue/40 disabled:opacity-50'
+                                      }`}
+                                    >
+                                      {pl}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => adjustQuota(tn)}
+                                disabled={busy}
+                                className="ml-auto px-3 py-1.5 rounded-lg text-[10px] font-bold text-dgblue bg-blue-50 border border-blue-100 hover:bg-blue-100 transition-colors flex items-center gap-1 disabled:opacity-50"
+                              >
+                                <Icon name="tune" className="text-[13px]" /> Chỉnh quota
+                              </button>
+                            </div>
                             <TenantDetail tenant={tn} />
                           </td>
                         </tr>
@@ -718,7 +732,7 @@ export default function TenantsPage() {
           </div>
           <div className="px-6 py-3 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
             <span className="text-[11px] text-slate-400 font-medium">
-              {display.length} tenant{display.length !== 1 ? 's' : ''}
+              {filtered.length} tenant{filtered.length !== 1 ? 's' : ''}
             </span>
             <span className="flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-dgreal animate-pulse" />
@@ -728,7 +742,7 @@ export default function TenantsPage() {
         </div>
       )}
 
-      {/* Create modal — 3-step wizard */}
+      {/* Create modal — 3-step wizard (no backend endpoint yet) */}
       {showCreate && (
         <Modal onClose={() => setShowCreate(false)} max="max-w-lg">
           <div className="px-6 pt-6 pb-5">
@@ -785,6 +799,14 @@ export default function TenantsPage() {
           </div>
 
           <div className="px-6 py-5 space-y-4 min-h-[220px] border-t border-slate-100">
+            {createNotice && (
+              <div className="rounded-xl px-4 py-3 border border-amber-200 bg-amber-50 flex items-start gap-2.5 dg-fade">
+                <Icon name="info" className="text-[18px] text-dgwarn shrink-0 mt-0.5" />
+                <p className="text-[12px] font-semibold text-amber-700 leading-relaxed">
+                  Chức năng tạo tenant chưa khả dụng (cần POST /tenants).
+                </p>
+              </div>
+            )}
             {wizStep === 0 && (
               <div className="space-y-4 dg-fade">
                 <Field label="Tên tổ chức" req>
@@ -926,7 +948,7 @@ export default function TenantsPage() {
               </button>
             ) : (
               <button
-                onClick={create}
+                onClick={submitCreate}
                 disabled={!form.email.trim()}
                 className="px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 transition-all bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
@@ -969,8 +991,9 @@ export default function TenantsPage() {
               Hủy
             </button>
             <button
-              onClick={() => doSuspend(suspendTarget.id)}
-              className={`px-6 py-2.5 text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 ${
+              onClick={() => doSuspend(suspendTarget)}
+              disabled={busyId === suspendTarget.id}
+              className={`px-6 py-2.5 text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-50 disabled:hover:scale-100 ${
                 suspendTarget.status === 'active' ? 'bg-dgfake shadow-dgfake/25' : 'bg-dgreal shadow-dgreal/25'
               }`}
             >
