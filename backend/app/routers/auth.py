@@ -48,6 +48,10 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise unauthorized("Account is disabled")
 
+    tenant = await crud.get_tenant(db, user.tenant_id)
+    if not tenant or tenant.status.value != "active":
+        raise unauthorized("Tổ chức đã bị tạm ngưng. Liên hệ quản trị nền tảng.")
+
     await crud.update_last_login(db, user.id)
     await db.commit()
 
