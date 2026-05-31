@@ -1,14 +1,20 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class RegisterRequest(BaseModel):
-    tenant_name: str
+    tenant_name: str = Field(..., min_length=2, max_length=200)
     email: EmailStr
-    password: str
-    name: str
+    password: str = Field(..., min_length=8, max_length=128)
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+class RegisterPendingResponse(BaseModel):
+    status: str = "pending_activation"
+    message: str
+    tenant_id: uuid.UUID
 
 
 class LoginRequest(BaseModel):
