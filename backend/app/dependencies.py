@@ -54,6 +54,11 @@ async def get_current_user(
     if not user or not user.is_active or user.deleted_at is not None:
         raise unauthorized("User not found or inactive")
 
+    # Tổ chức bị tạm ngưng/khóa → chặn toàn bộ truy cập
+    tenant = await crud.get_tenant(db, user.tenant_id)
+    if not tenant or tenant.status.value != "active":
+        raise forbidden("Tổ chức đã bị tạm ngưng. Liên hệ quản trị nền tảng.")
+
     # Buộc đổi mật khẩu: chặn mọi route trừ đổi mật khẩu / xem hồ sơ / logout
     if user.must_change_password and request.url.path not in _MUST_CHANGE_ALLOWED:
         raise forbidden("Bạn phải đổi mật khẩu trước khi tiếp tục (must_change_password)")
@@ -70,6 +75,10 @@ async def get_api_key_auth(
 
     if not api_key:
         raise unauthorized("Invalid API key")
+
+    # Tổ chức bị tạm ngưng → key ngừng hoạt động (validate_api_key đã selectinload tenant)
+    if api_key.tenant is None or api_key.tenant.status.value != "active":
+        raise forbidden("Tổ chức đã bị tạm ngưng.")
 
     if api_key.quota_limit > 0 and api_key.quota_used >= api_key.quota_limit:
         from app.core.exceptions import quota_exceeded
