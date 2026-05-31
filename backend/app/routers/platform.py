@@ -10,11 +10,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
 from deepguard_db.app.db import crud
-from deepguard_db.app.db.models import User, TenantPlan, TenantStatus
+from deepguard_db.app.db.models import User, ApiKey, TenantPlan, TenantStatus
 
 from app.core.exceptions import bad_request, not_found
 from app.dependencies import require_sysadmin
@@ -103,6 +104,63 @@ async def update_tenant_admin(
         user_count=user_count,
         created_at=tenant.created_at,
     )
+
+
+class TenantUserItem(BaseModel):
+    id: uuid.UUID
+    email: str
+    name: str
+    role: str
+    is_active: bool
+    last_login_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TenantApiKeyItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    prefix: str
+    status: str
+    quota_limit: int
+    quota_used: int
+    rate_limit_rpm: int
+    last_used_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/tenants/{tenant_id}/users", response_model=list[TenantUserItem])
+async def tenant_users(
+    tenant_id: uuid.UUID,
+    current_user: User = Depends(require_sysadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """List users of ANY tenant (sysadmin cross-tenant visibility)."""
+    tenant = await crud.get_tenant(db, tenant_id)
+    if not tenant:
+        raise not_found("Tenant")
+    rows = (await db.execute(
+        select(User).where(User.tenant_id == tenant_id, User.deleted_at.is_(None))
+        .order_by(desc(User.created_at))
+    )).scalars().all()
+    return [TenantUserItem.model_validate(u) for u in rows]
+
+
+@router.get("/tenants/{tenant_id}/api-keys", response_model=list[TenantApiKeyItem])
+async def tenant_api_keys(
+    tenant_id: uuid.UUID,
+    current_user: User = Depends(require_sysadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """List API keys of ANY tenant (sysadmin cross-tenant visibility)."""
+    tenant = await crud.get_tenant(db, tenant_id)
+    if not tenant:
+        raise not_found("Tenant")
+    keys = await crud.list_api_keys(db, tenant_id)
+    return [TenantApiKeyItem.model_validate(k) for k in keys]
 
 
 @router.get("/platform/overview", response_model=PlatformOverview)

@@ -343,6 +343,19 @@ export const tenantUpdateById = (id: string, data: { status?: string; plan?: str
 export const platformOverview = (days = 30) =>
   req<PlatformOverview>(`/platform/overview?days=${days}`);
 
+// sysadmin cross-tenant drill-down: users + api keys of a specific tenant
+export interface TenantUserItem {
+  id: string; email: string; name: string; role: string;
+  is_active: boolean; last_login_at: string | null; created_at: string;
+}
+export interface TenantApiKeyItem {
+  id: string; name: string; prefix: string; status: string;
+  quota_limit: number; quota_used: number; rate_limit_rpm: number;
+  last_used_at: string | null; created_at: string;
+}
+export const tenantUsers = (id: string) => req<TenantUserItem[]>(`/tenants/${id}/users`);
+export const tenantApiKeys = (id: string) => req<TenantApiKeyItem[]>(`/tenants/${id}/api-keys`);
+
 // ── Models & Thresholds (backed by model_versions table) ──────────────────────
 export interface ModelOut {
   id: string; version: string; architecture: string;

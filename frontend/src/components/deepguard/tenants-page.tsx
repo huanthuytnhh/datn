@@ -2,8 +2,17 @@
 
 import { useState, useMemo, useEffect, useCallback, Fragment, type ReactNode } from 'react';
 import { Icon, StatPill, Donut } from '@/components/deepguard/shared';
-import { DG, fmtInt } from '@/lib/dg';
-import { tenantsList, tenantUpdateById, type TenantListItem } from '@/lib/api';
+import { DG, fmtInt, timeAgo } from '@/lib/dg';
+import {
+  tenantsList,
+  tenantUpdateById,
+  tenantUsers,
+  tenantApiKeys,
+  type TenantListItem,
+  type TenantUserItem,
+  type TenantApiKeyItem,
+} from '@/lib/api';
+import { ROLE_LABEL, type Role } from '@/lib/rbac';
 
 /* ──────────────────────────────────────────────
    TYPES
@@ -67,6 +76,39 @@ function quotaColor(p: number): string {
 function quotaPct(t: Tenant): number {
   if (t.quotaLimit === 0) return 0;
   return Math.min(100, Math.round((t.quotaUsed / t.quotaLimit) * 100));
+}
+/** Relative time guarded against null timestamps. */
+function relTime(iso: string | null | undefined): string {
+  return iso ? timeAgo(iso) : 'chưa có';
+}
+/** quota usage % for an API key (0 limit ⇒ 0). */
+function keyPct(used: number, limit: number): number {
+  if (!limit || limit <= 0) return 0;
+  return Math.min(100, Math.round((used / limit) * 100));
+}
+
+/** Role → badge color. Falls back to neutral slate for unknown roles. */
+const ROLE_STYLE: Record<string, { color: string; bg: string; border: string }> = {
+  sysadmin: { color: DG.fake, bg: '#fef2f2', border: '#fecaca' },
+  admin: { color: DG.primary, bg: '#eff6ff', border: '#bfdbfe' },
+  developer: { color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+  compliance: { color: DG.uncertain, bg: '#fff7ed', border: '#fed7aa' },
+  viewer: { color: '#475569', bg: '#f1f5f9', border: '#e2e8f0' },
+};
+function roleStyle(role: string) {
+  return ROLE_STYLE[role] ?? ROLE_STYLE.viewer;
+}
+function roleLabel(role: string): string {
+  return role in ROLE_LABEL ? ROLE_LABEL[role as Role] : role;
+}
+
+/** Map an API-key status string → badge palette. */
+function keyStatusStyle(status: string): { label: string; color: string; bg: string; border: string } {
+  const s = (status || '').toLowerCase();
+  if (s === 'active') return { label: 'Active', color: DG.real, bg: '#f0fdf4', border: '#bbf7d0' };
+  if (s === 'revoked') return { label: 'Revoked', color: DG.fake, bg: '#fef2f2', border: '#fecaca' };
+  if (s === 'expired') return { label: 'Expired', color: DG.uncertain, bg: '#fff7ed', border: '#fed7aa' };
+  return { label: status || '—', color: '#475569', bg: '#f1f5f9', border: '#e2e8f0' };
 }
 
 const PLANS: Plan[] = ['Starter', 'Pro', 'Enterprise'];
@@ -188,10 +230,19 @@ function Modal({
 
 /* ──────────────────────────────────────────────
    EXPANDABLE TABLE DETAIL
-   Backend list endpoint only returns aggregate fields per tenant
-   (usage, user_count). Per-tenant API keys / users / traffic are
-   not available yet → show what we have and flag the rest "sắp có".
+   Backend list endpoint returns aggregates per tenant; the drill-down
+   lazy-loads the tenant's users + api keys (sysadmin cross-tenant).
+   Time-series traffic has no endpoint yet → kept as "sắp có".
    ────────────────────────────────────────────── */
+
+/** Lazily-loaded, per-tenant drill-down payload (cached by tenant id). */
+interface TenantDrill {
+  loading: boolean;
+  error: string;
+  users: TenantUserItem[] | null;
+  keys: TenantApiKeyItem[] | null;
+}
+
 function ComingSoon({ icon, title }: { icon: string; title: string }) {
   return (
     <div>
@@ -206,16 +257,140 @@ function ComingSoon({ icon, title }: { icon: string; title: string }) {
   );
 }
 
-function TenantDetail({ tenant }: { tenant: Tenant }) {
+/** Section header reused across the drill-down panels. */
+function PanelHead({ icon, title, count }: { icon: string; title: string; count?: number }) {
+  return (
+    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+      <Icon name={icon} className="text-[14px]" /> {title}
+      {count != null && (
+        <span className="ml-0.5 px-1.5 rounded bg-slate-100 text-slate-500 text-[9px] tabular-nums font-black">
+          {count}
+        </span>
+      )}
+    </h4>
+  );
+}
+
+/** Small loading / error / empty fallback shared by both panels. */
+function PanelState({ kind, text }: { kind: 'loading' | 'error' | 'empty'; text: string }) {
+  const icon = kind === 'loading' ? 'progress_activity' : kind === 'error' ? 'error' : 'inbox';
+  const tone = kind === 'error' ? 'text-dgfake' : 'text-slate-400';
+  return (
+    <div className="bg-white/70 rounded-lg border border-slate-100 p-4 flex flex-col items-center justify-center text-center gap-1.5 min-h-[96px]">
+      <Icon name={icon} className={`text-[22px] ${kind === 'loading' ? 'animate-spin text-dgblue/40' : 'text-slate-300'}`} />
+      <span className={`text-[11px] font-semibold ${tone}`}>{text}</span>
+    </div>
+  );
+}
+
+/** READ-ONLY list of a tenant's users. */
+function UsersPanel({ drill }: { drill: TenantDrill }) {
+  const { loading, error, users } = drill;
+  return (
+    <div>
+      <PanelHead icon="group" title="Người dùng" count={users?.length} />
+      {loading && !users ? (
+        <PanelState kind="loading" text="Đang tải người dùng…" />
+      ) : error ? (
+        <PanelState kind="error" text={error} />
+      ) : !users || users.length === 0 ? (
+        <PanelState kind="empty" text="Chưa có người dùng" />
+      ) : (
+        <div className="bg-white/70 rounded-lg border border-slate-100 divide-y divide-slate-50 max-h-[260px] overflow-y-auto custom-scrollbar">
+          {users.map((u) => {
+            const rs = roleStyle(u.role);
+            return (
+              <div key={u.id} className="px-3.5 py-2.5 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] font-bold text-slate-800 truncate">{u.name || u.email}</p>
+                  <p className="text-[10.5px] text-slate-400 truncate">{u.email}</p>
+                </div>
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded text-[9.5px] font-black tracking-wider border shrink-0"
+                  style={{ color: rs.color, background: rs.bg, borderColor: rs.border }}
+                >
+                  {roleLabel(u.role)}
+                </span>
+                <div className="text-right shrink-0 w-[88px]">
+                  <span
+                    className={`block text-[10px] font-black ${u.is_active ? 'text-dgreal' : 'text-dgwarn'}`}
+                  >
+                    {u.is_active ? 'Active' : 'Tạm ngưng'}
+                  </span>
+                  <span className="block text-[9.5px] text-slate-400">{relTime(u.last_login_at)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** READ-ONLY list of a tenant's API keys. */
+function ApiKeysPanel({ drill }: { drill: TenantDrill }) {
+  const { loading, error, keys } = drill;
+  return (
+    <div>
+      <PanelHead icon="key" title="API Keys" count={keys?.length} />
+      {loading && !keys ? (
+        <PanelState kind="loading" text="Đang tải API keys…" />
+      ) : error ? (
+        <PanelState kind="error" text={error} />
+      ) : !keys || keys.length === 0 ? (
+        <PanelState kind="empty" text="Chưa có API key" />
+      ) : (
+        <div className="bg-white/70 rounded-lg border border-slate-100 divide-y divide-slate-50 max-h-[260px] overflow-y-auto custom-scrollbar">
+          {keys.map((k) => {
+            const ks = keyStatusStyle(k.status);
+            const pct = keyPct(k.quota_used, k.quota_limit);
+            const qc = quotaColor(pct);
+            return (
+              <div key={k.id} className="px-3.5 py-2.5 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] font-bold text-slate-800 truncate">{k.name}</p>
+                    <p className="text-[10px] text-slate-400 font-mono truncate">{k.prefix}••••••</p>
+                  </div>
+                  <span
+                    className="inline-flex items-center px-2 py-0.5 rounded text-[9.5px] font-black tracking-wider border shrink-0"
+                    style={{ color: ks.color, background: ks.bg, borderColor: ks.border }}
+                  >
+                    {ks.label}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between text-[10px]">
+                  <span className="text-slate-500 font-medium">
+                    Quota{' '}
+                    <span className="font-black text-slate-700 tabular-nums">{fmtInt(k.quota_used)}</span>
+                    <span className="text-slate-300"> / {fmtInt(k.quota_limit)}</span>
+                  </span>
+                  <span className="text-slate-400">{relTime(k.last_used_at)}</span>
+                </div>
+                <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${pct}%`, background: qc, boxShadow: `0 0 8px ${qc}30` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TenantDetail({ tenant, drill }: { tenant: Tenant; drill: TenantDrill }) {
   const pct = quotaPct(tenant);
   return (
     <div className="px-6 py-5 bg-slate-50/60 border-t border-slate-100">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
         {/* Overview — real aggregates */}
         <div>
-          <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Icon name="insights" className="text-[14px]" /> Tổng quan
-          </h4>
+          <PanelHead icon="insights" title="Tổng quan" />
           <div className="bg-white/70 rounded-lg border border-slate-100 p-4 space-y-2.5">
             <div className="flex items-baseline justify-between">
               <span className="text-[11px] text-slate-500 font-medium">Quota tháng</span>
@@ -245,10 +420,13 @@ function TenantDetail({ tenant }: { tenant: Tenant }) {
           </div>
         </div>
 
-        {/* API Keys — not available per-tenant yet */}
-        <ComingSoon icon="key" title="API Keys" />
+        {/* Users — real, lazy-loaded, read-only */}
+        <UsersPanel drill={drill} />
 
-        {/* Lưu lượng — not available per-tenant yet */}
+        {/* API Keys — real, lazy-loaded, read-only */}
+        <ApiKeysPanel drill={drill} />
+
+        {/* Lưu lượng — no time-series endpoint yet */}
         <ComingSoon icon="monitoring" title="Lưu lượng 7 ngày" />
       </div>
     </div>
@@ -371,6 +549,8 @@ export default function TenantsPage() {
   const [createNotice, setCreateNotice] = useState(false);
   const [form, setForm] = useState<CreateForm>(emptyForm);
   const [wizStep, setWizStep] = useState(0);
+  /** Per-tenant drill-down cache (users + api keys), keyed by tenant id. */
+  const [drilldowns, setDrilldowns] = useState<Record<string, TenantDrill>>({});
 
   const load = useCallback(() => {
     setLoading(true);
@@ -384,6 +564,38 @@ export default function TenantsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** Lazy-load a tenant's users + api keys on first expand; cached afterwards. */
+  const loadDrill = useCallback((id: string) => {
+    setDrilldowns((prev) => {
+      if (prev[id] && (prev[id].loading || prev[id].users || prev[id].keys || prev[id].error)) {
+        return prev; // already loaded / loading / errored → reuse cache
+      }
+      return { ...prev, [id]: { loading: true, error: '', users: null, keys: null } };
+    });
+    void Promise.all([tenantUsers(id), tenantApiKeys(id)])
+      .then(([users, keys]) =>
+        setDrilldowns((prev) => ({ ...prev, [id]: { loading: false, error: '', users, keys } })),
+      )
+      .catch((e: unknown) =>
+        setDrilldowns((prev) => ({
+          ...prev,
+          [id]: {
+            loading: false,
+            error: e instanceof Error ? e.message : 'Lỗi tải chi tiết tenant',
+            users: prev[id]?.users ?? null,
+            keys: prev[id]?.keys ?? null,
+          },
+        })),
+      );
+  }, []);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const cached = drilldowns[expanded];
+    if (cached && (cached.loading || cached.users || cached.keys || cached.error)) return;
+    loadDrill(expanded);
+  }, [expanded, drilldowns, loadDrill]);
 
   const counts = useMemo(
     () => ({
@@ -720,7 +932,10 @@ export default function TenantsPage() {
                                 <Icon name="tune" className="text-[13px]" /> Chỉnh quota
                               </button>
                             </div>
-                            <TenantDetail tenant={tn} />
+                            <TenantDetail
+                              tenant={tn}
+                              drill={drilldowns[tn.id] ?? { loading: true, error: '', users: null, keys: null }}
+                            />
                           </td>
                         </tr>
                       )}
