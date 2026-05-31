@@ -7,11 +7,14 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
+from deepguard_db.app.db import crud
 from deepguard_db.app.db.models import Invitation, User, UserRole
 
 from app.core.exceptions import bad_request, conflict, forbidden, not_found
+from app.core.security import hash_password
 from app.dependencies import get_current_user
 from app.schemas.users import (
+    CreateUserRequest,
     InviteUserRequest,
     InviteUserResponse,
     UpdateUserRequest,
@@ -68,6 +71,48 @@ async def list_users(
             for u in rows
         ],
         total=total,
+    )
+
+
+@router.post("", response_model=UserListItem, status_code=201)
+async def create_user_direct(
+    body: CreateUserRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tạo nhân viên trực tiếp trong tenant hiện tại (active ngay). Chỉ admin/sysadmin."""
+    _require_admin(current_user)
+
+    try:
+        role_enum = UserRole(body.role)
+    except ValueError:
+        raise bad_request(f"Invalid role: {body.role}")
+    # Không tạo user có vai trò cao hơn bậc của mình
+    if _level(role_enum) > _level(current_user.role):
+        raise forbidden("Không thể tạo người dùng có vai trò cao hơn vai trò của bạn")
+
+    # Email không trùng trong tenant
+    existing_q = select(User).where(
+        User.email == body.email, User.tenant_id == current_user.tenant_id,
+        User.deleted_at.is_(None),
+    )
+    if (await db.execute(existing_q)).scalar_one_or_none():
+        raise conflict("Email đã tồn tại trong tổ chức")
+
+    user = await crud.create_user(
+        db,
+        tenant_id=current_user.tenant_id,
+        email=body.email,
+        password_hash=hash_password(body.password),
+        name=body.name,
+        role=role_enum,
+    )
+    await db.commit()
+    await db.refresh(user)
+    return UserListItem(
+        id=user.id, email=user.email, name=user.name, role=user.role.value,
+        is_active=user.is_active, last_login_at=user.last_login_at,
+        created_at=user.created_at,
     )
 
 

@@ -12,18 +12,17 @@ import {
 } from '@/lib/rbac';
 import {
   usersList,
-  usersInvite,
+  usersCreate,
   usersUpdate,
   usersDelete,
   type UserListItem,
-  type InviteUserResponse,
 } from '@/lib/api';
 
 /* ──────────────────────────────────────────────
    DeepGuard — Team & Roles (RBAC)
    Wired to the real backend /users API (admin-gated):
      • usersList()   → load members
-     • usersInvite() → invite a new member (returns invite_url/token)
+     • usersCreate() → create an ACTIVE member directly (email+name+role+password)
      • usersUpdate() → change role / activate-deactivate
      • usersDelete() → remove (soft-delete) a member
    The ROLES / PERMISSIONS matrix below is STATIC descriptive reference
@@ -339,82 +338,34 @@ function MemberDrawer({
   );
 }
 
-/* ── Invite success result (shows returned token / invite_url) ── */
-function InviteResult({ result, onClose }: { result: InviteUserResponse; onClose: () => void }) {
-  const [copied, setCopied] = useState<'url' | 'token' | null>(null);
-  const copy = (kind: 'url' | 'token', value: string) => {
-    navigator.clipboard?.writeText(value).then(() => {
-      setCopied(kind);
-      setTimeout(() => setCopied(null), 1600);
-    });
+/* ── Strong random password generator (for direct-create employee accounts) ── */
+function genPassword(len = 16): string {
+  const sets = {
+    lower: 'abcdefghijkmnpqrstuvwxyz',
+    upper: 'ABCDEFGHJKLMNPQRSTUVWXYZ',
+    digit: '23456789',
+    sym: '!@#$%^&*?-_=+',
   };
-  return (
-    <Modal onClose={onClose}>
-      <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-dgreal/[0.08] flex items-center justify-center">
-          <Icon name="mark_email_read" className="text-[20px] text-dgreal" />
-        </div>
-        <div>
-          <h2 className="text-base font-black text-slate-900">Đã tạo lời mời</h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Gửi link dưới đây cho {result.email} để hoàn tất đăng ký
-          </p>
-        </div>
-      </div>
-      <div className="px-6 py-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <RoleBadge role={result.role} />
-          <span className="text-[11px] text-slate-400">
-            Hết hạn {new Date(result.expires_at).toLocaleString('vi-VN')}
-          </span>
-        </div>
-
-        <Field label="Invite URL">
-          <div className="flex items-center gap-2">
-            <input
-              readOnly
-              value={result.invite_url}
-              onFocus={(e) => e.currentTarget.select()}
-              className="flex-1 h-10 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20"
-            />
-            <button
-              onClick={() => copy('url', result.invite_url)}
-              className="h-10 px-3 bg-dgblue text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.97] transition-all shrink-0"
-            >
-              <Icon name={copied === 'url' ? 'check' : 'content_copy'} className="text-[15px]" />
-              {copied === 'url' ? 'Đã copy' : 'Copy'}
-            </button>
-          </div>
-        </Field>
-
-        <Field label="Token">
-          <div className="flex items-center gap-2">
-            <input
-              readOnly
-              value={result.token}
-              onFocus={(e) => e.currentTarget.select()}
-              className="flex-1 h-10 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20"
-            />
-            <button
-              onClick={() => copy('token', result.token)}
-              className="h-10 px-3 bg-white border border-slate-200 text-slate-600 rounded-lg font-bold text-[11px] flex items-center gap-1.5 hover:bg-slate-50 transition-all shrink-0"
-            >
-              <Icon name={copied === 'token' ? 'check' : 'content_copy'} className="text-[15px]" />
-              {copied === 'token' ? 'Đã copy' : 'Copy'}
-            </button>
-          </div>
-        </Field>
-      </div>
-      <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-end">
-        <button
-          onClick={onClose}
-          className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all"
-        >
-          Xong
-        </button>
-      </div>
-    </Modal>
-  );
+  const all = sets.lower + sets.upper + sets.digit + sets.sym;
+  const buf = new Uint32Array(len);
+  crypto.getRandomValues(buf);
+  const pick = (pool: string, n: number) => pool[n % pool.length];
+  // Guarantee at least one char from each class, then fill the rest.
+  const chars = [
+    pick(sets.lower, buf[0]),
+    pick(sets.upper, buf[1]),
+    pick(sets.digit, buf[2]),
+    pick(sets.sym, buf[3]),
+  ];
+  for (let i = 4; i < len; i++) chars.push(pick(all, buf[i]));
+  // Shuffle (Fisher–Yates) so the mandatory chars are not always at the front.
+  const shuf = new Uint32Array(chars.length);
+  crypto.getRandomValues(shuf);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = shuf[i] % (i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
 }
 
 /* ── Page ── */
@@ -423,24 +374,27 @@ export default function TeamPage() {
   const myRole = useAuthStore((s) => s.user?.role) as Role | undefined;
   const myId = useAuthStore((s) => s.user?.id);
 
-  /* Roles this actor may invite/assign (admin → 4, sysadmin → all 5). */
-  const inviteRoles = useMemo(() => assignableRoles(myRole), [myRole]);
+  /* Roles this actor may assign when creating an employee (admin → 4, sysadmin → all 5). */
+  const assignRoles = useMemo(() => assignableRoles(myRole), [myRole]);
 
   const [members, setMembers] = useState<UserListItem[]>([]);
   const [query, setQuery] = useState('');
   const [roleF, setRoleF] = useState<'ALL' | RoleName>('ALL');
   const [tab, setTab] = useState<'members' | 'roles'>('members');
-  const [showInvite, setShowInvite] = useState(false);
-  const [form, setForm] = useState<{ email: string; name: string; role: RoleName }>({
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState<{ email: string; name: string; role: RoleName; password: string }>({
     email: '',
     name: '',
     role: 'developer',
+    password: '',
   });
+  const [showPwd, setShowPwd] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<UserListItem | null>(null);
-  const [inviteResult, setInviteResult] = useState<InviteUserResponse | null>(null);
+  const [createdName, setCreatedName] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -479,18 +433,47 @@ export default function TeamPage() {
     [members, roleF, query],
   );
 
-  const invite = async () => {
-    if (!form.email.trim() || !form.name.trim() || busy) return;
+  const openCreate = () => {
+    setForm({ email: '', name: '', role: 'developer', password: '' });
+    setFormError(null);
+    setShowPwd(false);
+    setShowCreate(true);
+  };
+
+  const fillRandomPassword = () => {
+    setForm((f) => ({ ...f, password: genPassword() }));
+    setShowPwd(true); // reveal so the admin can copy/send it to the employee
+  };
+
+  const createMember = async () => {
+    if (busy) return;
+    const name = form.name.trim();
+    const email = form.email.trim();
+    const password = form.password;
+    // Client-side validation before hitting the backend.
+    if (!name) return setFormError('Vui lòng nhập họ tên.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setFormError('Email không hợp lệ.');
+    if (password.length < 8) return setFormError('Mật khẩu phải có ít nhất 8 ký tự.');
+
     setBusy(true);
-    setError(null);
+    setFormError(null);
     try {
-      const res = await usersInvite(form.email.trim(), form.name.trim(), form.role);
-      setShowInvite(false);
-      setForm({ email: '', name: '', role: 'developer' });
-      setInviteResult(res);
+      const created = await usersCreate(email, name, form.role, password);
+      setShowCreate(false);
+      setForm({ email: '', name: '', role: 'developer', password: '' });
+      setCreatedName(created.name || created.email);
+      setTimeout(() => setCreatedName(null), 4000);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Mời thành viên thất bại');
+      // Surface backend errors inline (409 email exists, 403 role above level) without crashing.
+      const msg = e instanceof Error ? e.message : '';
+      if (/409|exist|tồn tại|đã được/i.test(msg)) {
+        setFormError('Email này đã tồn tại trong tổ chức.');
+      } else if (/403|forbidden|permission|quyền/i.test(msg)) {
+        setFormError('Bạn không thể tạo nhân viên có vai trò cao hơn vai trò của mình.');
+      } else {
+        setFormError(msg || 'Tạo nhân viên thất bại.');
+      }
     } finally {
       setBusy(false);
     }
@@ -558,10 +541,10 @@ export default function TeamPage() {
           </p>
         </div>
         <button
-          onClick={() => setShowInvite(true)}
+          onClick={openCreate}
           className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
         >
-          <Icon name="person_add" className="text-[16px]" /> Mời thành viên
+          <Icon name="person_add" className="text-[16px]" /> Thêm nhân viên
         </button>
       </div>
 
@@ -570,6 +553,18 @@ export default function TeamPage() {
           <Icon name="error" className="text-[18px] text-dgfake" />
           <span className="text-[12px] font-semibold text-dgfake flex-1">{error}</span>
           <button onClick={() => setError(null)} className="text-dgfake/60 hover:text-dgfake">
+            <Icon name="close" className="text-[16px]" />
+          </button>
+        </div>
+      )}
+
+      {createdName && (
+        <div className="glass-panel rounded-xl px-4 py-3 border border-green-200 bg-green-50/70 flex items-center gap-2 dg-rise">
+          <Icon name="check_circle" className="text-[18px] text-dgreal" fill />
+          <span className="text-[12px] font-semibold text-dgreal flex-1">
+            Đã thêm nhân viên {createdName} vào workspace.
+          </span>
+          <button onClick={() => setCreatedName(null)} className="text-dgreal/60 hover:text-dgreal">
             <Icon name="close" className="text-[16px]" />
           </button>
         </div>
@@ -658,11 +653,11 @@ export default function TeamPage() {
               title={members.length === 0 ? 'Chưa có thành viên' : 'Không tìm thấy thành viên'}
               desc={
                 members.length === 0
-                  ? 'Mời thành viên đầu tiên vào workspace của bạn.'
-                  : 'Thử đổi bộ lọc vai trò hoặc mời thành viên mới.'
+                  ? 'Thêm nhân viên đầu tiên vào workspace của bạn.'
+                  : 'Thử đổi bộ lọc vai trò hoặc thêm nhân viên mới.'
               }
-              action="Mời thành viên"
-              onAction={() => setShowInvite(true)}
+              action="Thêm nhân viên"
+              onAction={openCreate}
             />
           ) : (
             <div className="glass-panel rounded-2xl shadow-sm border border-white/60 overflow-hidden dg-rise">
@@ -834,18 +829,24 @@ export default function TeamPage() {
         onRemove={removeMember}
       />
 
-      {showInvite && (
-        <Modal onClose={() => setShowInvite(false)}>
+      {showCreate && (
+        <Modal onClose={() => setShowCreate(false)}>
           <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-dgblue/[0.06] flex items-center justify-center">
               <Icon name="person_add" className="text-[20px] text-dgblue" />
             </div>
             <div>
-              <h2 className="text-base font-black text-slate-900">Mời thành viên</h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">Tạo lời mời vào workspace</p>
+              <h2 className="text-base font-black text-slate-900">Thêm nhân viên</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">Tạo tài khoản và cấp quyền truy cập ngay</p>
             </div>
           </div>
           <div className="px-6 py-5 space-y-4">
+            {formError && (
+              <div className="rounded-xl px-3 py-2.5 border border-red-200 bg-red-50/70 flex items-center gap-2">
+                <Icon name="error" className="text-[16px] text-dgfake" />
+                <span className="text-[11px] font-semibold text-dgfake">{formError}</span>
+              </div>
+            )}
             <Field label="Họ tên" req>
               <input
                 value={form.name}
@@ -857,6 +858,7 @@ export default function TeamPage() {
             </Field>
             <Field label="Email" req>
               <input
+                type="email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 placeholder="ten@vietbank.vn"
@@ -869,38 +871,70 @@ export default function TeamPage() {
                 onChange={(e) => setForm({ ...form, role: e.target.value as RoleName })}
                 className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
               >
-                {/* Actor can never invite a role above their own level (admin can't invite sysadmin). */}
-                {inviteRoles.map((r) => (
+                {/* Actor can never assign a role above their own level (admin can't create sysadmin). */}
+                {assignRoles.map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABEL[r]}
                   </option>
                 ))}
               </select>
             </Field>
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+            <Field label="Mật khẩu" req>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showPwd ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    placeholder="Tối thiểu 8 ký tự"
+                    autoComplete="new-password"
+                    className="w-full h-10 pl-3 pr-10 bg-white border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwd((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    aria-label={showPwd ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  >
+                    <Icon name={showPwd ? 'visibility_off' : 'visibility'} className="text-[18px]" />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={fillRandomPassword}
+                  className="h-10 px-3 bg-white border border-slate-200 text-slate-600 rounded-lg font-bold text-[11px] flex items-center gap-1.5 hover:bg-slate-50 transition-all shrink-0"
+                >
+                  <Icon name="casino" className="text-[15px]" />
+                  Tạo ngẫu nhiên
+                </button>
+              </div>
+            </Field>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1.5">
               <p className="text-[11px] text-slate-500 leading-relaxed">{roleMeta(form.role).desc}</p>
+              <p className="text-[11px] text-slate-400 leading-relaxed flex items-start gap-1.5">
+                <Icon name="info" className="text-[14px] text-slate-300 mt-0.5 shrink-0" />
+                Mật khẩu sẽ được cấp cho nhân viên; họ nên đổi sau khi đăng nhập.
+              </p>
             </div>
           </div>
           <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-end gap-3">
             <button
-              onClick={() => setShowInvite(false)}
+              onClick={() => setShowCreate(false)}
               className="px-5 py-2.5 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all"
             >
               Hủy
             </button>
             <button
-              onClick={invite}
-              disabled={!form.email.trim() || !form.name.trim() || busy}
+              onClick={createMember}
+              disabled={!form.name.trim() || !form.email.trim() || form.password.length < 8 || busy}
               className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              <Icon name={busy ? 'progress_activity' : 'send'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
-              {busy ? 'Đang gửi…' : 'Gửi lời mời'}
+              <Icon name={busy ? 'progress_activity' : 'person_add'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
+              {busy ? 'Đang tạo…' : 'Tạo nhân viên'}
             </button>
           </div>
         </Modal>
       )}
-
-      {inviteResult && <InviteResult result={inviteResult} onClose={() => setInviteResult(null)} />}
     </div>
   );
 }
