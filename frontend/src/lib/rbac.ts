@@ -65,10 +65,10 @@ export function canEdit(role: Role | undefined | null, page: Page): boolean {
   if (role === 'viewer') return false; // viewer never edits
   // Models & thresholds are PLATFORM-GLOBAL config → only sysadmin may mutate.
   if (page === 'models') return role === 'sysadmin';
-  if (role === 'compliance') {
-    // compliance may add review notes but not mutate config/data
-    return page === 'detail';
-  }
+  // Audit/review notes on a detection → admin + compliance only (SoD: not developer).
+  if (page === 'detail') return role === 'admin' || role === 'compliance';
+  // compliance is read-only everywhere else.
+  if (role === 'compliance') return false;
   return canAccess(role, page);
 }
 

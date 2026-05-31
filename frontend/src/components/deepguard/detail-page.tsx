@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigation } from '@/store/navigation';
+import { useAuthStore } from '@/store/auth';
+import { canEdit, type Role } from '@/lib/rbac';
 import { Icon, VerdictBadge, Gauge, ScoreBar } from '@/components/deepguard/shared';
 import { verdictStyle, timeAgo } from '@/lib/dg';
 import {
@@ -32,6 +34,8 @@ export default function DetailPage() {
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  const role = useAuthStore((s) => s.user?.role) as Role | undefined;
+  const canNote = canEdit(role, 'detail'); // admin + compliance only
 
   useEffect(() => {
     if (!selectedRequestId) {
@@ -346,23 +350,31 @@ export default function DetailPage() {
               <p className="text-[11px] text-slate-400 mt-1">Chưa có ghi chú review</p>
             </div>
           )}
-          <textarea
-            maxLength={500}
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="Ghi chú kết quả review (VD: Ảnh có dấu hiệu face-swap quanh vùng mắt)…"
-            className="flex-1 w-full bg-slate-50/60 border border-slate-100 rounded-xl p-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all resize-none custom-scrollbar min-h-[90px]"
-          />
-          <div className="mt-3 flex justify-between items-center">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tabular-nums">{noteText.length}/500</span>
-            <button
-              onClick={handleSaveNote}
-              disabled={savingNote || !noteText.trim()}
-              className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {savingNote ? 'Đang lưu…' : 'Lưu ghi chú'}
-            </button>
-          </div>
+          {canNote ? (
+            <>
+              <textarea
+                maxLength={500}
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Ghi chú kết quả review (VD: Ảnh có dấu hiệu face-swap quanh vùng mắt)…"
+                className="flex-1 w-full bg-slate-50/60 border border-slate-100 rounded-xl p-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all resize-none custom-scrollbar min-h-[90px]"
+              />
+              <div className="mt-3 flex justify-between items-center">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tabular-nums">{noteText.length}/500</span>
+                <button
+                  onClick={handleSaveNote}
+                  disabled={savingNote || !noteText.trim()}
+                  className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {savingNote ? 'Đang lưu…' : 'Lưu ghi chú'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-1">
+              <Icon name="lock" className="text-[14px]" /> Chỉ admin/compliance được thêm ghi chú review.
+            </p>
+          )}
         </div>
       </div>
 
