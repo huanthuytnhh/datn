@@ -5,7 +5,7 @@ FastAPI dependency injection — auth guards, db session, tenant context.
 import sys
 import os
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,8 +22,12 @@ from app.core.exceptions import unauthorized, forbidden
 _jwt_scheme     = HTTPBearer(scheme_name="JWT Token",     description="Dashboard JWT — from POST /auth/login")
 _api_key_scheme = HTTPBearer(scheme_name="API Key",       description="Detect API key — plain key from POST /api-keys")
 
+# Khi must_change_password=True, chỉ cho phép các route này (để user đổi mật khẩu)
+_MUST_CHANGE_ALLOWED = {"/auth/change-password", "/auth/me", "/auth/logout"}
+
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_jwt_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -49,6 +53,10 @@ async def get_current_user(
 
     if not user or not user.is_active or user.deleted_at is not None:
         raise unauthorized("User not found or inactive")
+
+    # Buộc đổi mật khẩu: chặn mọi route trừ đổi mật khẩu / xem hồ sơ / logout
+    if user.must_change_password and request.url.path not in _MUST_CHANGE_ALLOWED:
+        raise forbidden("Bạn phải đổi mật khẩu trước khi tiếp tục (must_change_password)")
 
     return user
 
