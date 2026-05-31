@@ -306,6 +306,8 @@ export interface InviteUserResponse {
 }
 
 export const usersList = () => req<UserListResponse>("/users");
+export const usersCreate = (email: string, name: string, role: string, password: string) =>
+  req<UserListItem>("/users", { method: "POST", body: JSON.stringify({ email, name, role, password }) });
 export const usersInvite = (email: string, name: string, role: string) =>
   req<InviteUserResponse>("/users/invite", { method: "POST", body: JSON.stringify({ email, name, role }) });
 export const usersUpdate = (id: string, data: { name?: string; role?: string; is_active?: boolean }) =>

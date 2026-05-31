@@ -37,6 +37,13 @@ class InviteUserResponse(BaseModel):
     invite_url: str  # frontend phải build URL từ token
 
 
+class CreateUserRequest(BaseModel):
+    email: EmailStr
+    name: str = Field(..., min_length=1, max_length=200)
+    role: str = Field(default="developer")  # viewer | developer | compliance | admin
+    password: str = Field(..., min_length=8, max_length=128)
+
+
 class UpdateUserRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     role: Optional[str] = None       # developer | compliance | admin
