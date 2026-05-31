@@ -493,3 +493,28 @@ class LivenessCheck(Base, TimestampMixin):
         CheckConstraint("liveness_score >= 0 AND liveness_score <= 1", name="ck_liveness_score_range"),
         CheckConstraint("confidence >= 0 AND confidence <= 100", name="ck_liveness_confidence_range"),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTIFICATION
+# ─────────────────────────────────────────────────────────────────────────────
+class Notification(Base, TimestampMixin):
+    """In-app notification. user_id NULL = gửi toàn tenant."""
+    __tablename__ = "notifications"
+
+    id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id:   Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    user_id:     Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    type:        Mapped[str]       = mapped_column(String(20), default="info", nullable=False)  # info|success|warning|critical
+    title:       Mapped[str]       = mapped_column(String(255), nullable=False)
+    body:        Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    link:        Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    read:        Mapped[bool]      = mapped_column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        Index("idx_notif_tenant_created", "tenant_id", "created_at"),
+        Index("idx_notif_user_read", "user_id", "read"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Notification {self.type}:{self.title[:20]}>"
