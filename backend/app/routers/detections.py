@@ -31,7 +31,7 @@ async def list_detections(
     api_key_id: Optional[uuid.UUID] = Query(default=None),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
-    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer")),
+    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer", "sysadmin")),
     db: AsyncSession = Depends(get_db),
 ):
     verdict_enum = DetectionVerdict(verdict) if verdict else None
@@ -95,7 +95,7 @@ def _to_detail(d: Detection) -> DetectionDetail:
 @router.get("/{request_id}", response_model=DetectionDetail)
 async def get_detection_detail(
     request_id: uuid.UUID,
-    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer")),
+    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer", "sysadmin")),
     db: AsyncSession = Depends(get_db),
 ):
     d = await _load_detection_with_relations(db, request_id, current_user.tenant_id)
