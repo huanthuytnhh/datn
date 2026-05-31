@@ -198,7 +198,7 @@ async def list_liveness_checks(
     mode: Optional[str] = Query(default=None),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
-    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer")),
+    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer", "sysadmin")),
     db: AsyncSession = Depends(get_db),
 ):
     base = select(LivenessCheck).where(LivenessCheck.tenant_id == current_user.tenant_id)
@@ -225,7 +225,7 @@ async def list_liveness_checks(
 @dashboard_router.get("/{check_id}", response_model=LivenessDetail)
 async def get_liveness_detail(
     check_id: uuid.UUID,
-    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer")),
+    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer", "sysadmin")),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(LivenessCheck).where(

@@ -36,8 +36,8 @@ export const PAGE_ACCESS: Record<Page, Role[]> = {
   analytics: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
   status: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
 
-  playground: ['admin', 'developer', 'compliance'], // compliance = read/replay
-  liveness: ['admin', 'developer', 'compliance'],
+  playground: ['admin', 'developer'], // cần API key để chạy detect → chỉ vai trò tích hợp
+  liveness: ['admin', 'developer'],
   apikeys: ['admin', 'developer'],
   webhooks: ['admin', 'developer'],
   models: ['sysadmin', 'admin', 'developer', 'compliance'], // edit gated separately by canEdit
