@@ -180,6 +180,7 @@ class User(Base, TimestampMixin):
     timezone:       Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     role:           Mapped[UserRole]    = mapped_column(PGEnum(UserRole, name="user_role"), default=UserRole.DEVELOPER, nullable=False)
     is_active:      Mapped[bool]        = mapped_column(Boolean, default=True, nullable=False)
+    must_change_password: Mapped[bool]  = mapped_column(Boolean, default=False, nullable=False)
     last_login_at:  Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at:     Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

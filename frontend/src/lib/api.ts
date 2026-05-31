@@ -30,6 +30,7 @@ export interface UserOut {
   id: string; email: string; name: string; role: string;
   tenant_id: string; is_active: boolean; last_login_at: string | null;
   phone?: string | null; timezone?: string | null;
+  must_change_password?: boolean;
 }
 export interface TenantOut {
   id: string; name: string; plan: string; status: string;
@@ -310,6 +311,8 @@ export const usersCreate = (email: string, name: string, role: string, password:
   req<UserListItem>("/users", { method: "POST", body: JSON.stringify({ email, name, role, password }) });
 export const usersInvite = (email: string, name: string, role: string) =>
   req<InviteUserResponse>("/users/invite", { method: "POST", body: JSON.stringify({ email, name, role }) });
+export const usersResetPassword = (id: string) =>
+  req<{ temp_password: string; must_change_password: boolean }>(`/users/${id}/reset-password`, { method: "POST" });
 export const usersUpdate = (id: string, data: { name?: string; role?: string; is_active?: boolean }) =>
   req<UserListItem>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 export const usersDelete = (id: string) => req<void>(`/users/${id}`, { method: "DELETE" });

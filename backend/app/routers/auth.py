@@ -97,6 +97,7 @@ async def change_password(
     if len(body.new_password) < 8:
         raise bad_request("Mật khẩu mới phải có ít nhất 8 ký tự")
     current_user.password_hash = hash_password(body.new_password)
+    current_user.must_change_password = False
     await db.commit()
     await crud.write_audit_log(
         db,
