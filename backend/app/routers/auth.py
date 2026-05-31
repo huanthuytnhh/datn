@@ -8,16 +8,18 @@ from app.core.security import hash_password, verify_password, create_access_toke
 from app.core.exceptions import conflict, unauthorized, not_found, bad_request
 from app.dependencies import get_current_user
 from app.schemas.auth import (
-    RegisterRequest, LoginRequest, TokenResponse, MeResponse, UserOut, TenantOut,
-    UpdateMeRequest, ChangePasswordRequest,
+    RegisterRequest, RegisterPendingResponse, LoginRequest, TokenResponse,
+    MeResponse, UserOut, TenantOut, UpdateMeRequest, ChangePasswordRequest,
 )
-from deepguard_db.app.db.models import User
+from deepguard_db.app.db.models import User, TenantStatus
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=201)
+@router.post("/register", response_model=RegisterPendingResponse, status_code=201)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """Đăng ký B2B: tạo tổ chức ở trạng thái SUSPENDED, CHỜ quản trị nền tảng (sysadmin)
+    kích hoạt. Không tự đăng nhập ngay (tránh tự cấp quyền admin không kiểm soát)."""
     existing = await crud.get_user_by_email(db, body.email)
     if existing:
         raise conflict("Email already registered")
@@ -25,7 +27,8 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     tenant = await crud.create_tenant(
         db, name=body.tenant_name, admin_email=body.email
     )
-    user = await crud.create_user(
+    tenant.status = TenantStatus.SUSPENDED  # chờ sysadmin duyệt
+    await crud.create_user(
         db,
         tenant_id=tenant.id,
         email=body.email,
@@ -35,8 +38,10 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     )
     await db.commit()
 
-    token = create_access_token({"sub": str(user.id)})
-    return TokenResponse(access_token=token)
+    return RegisterPendingResponse(
+        message="Đã tạo tổ chức. Tài khoản sẽ hoạt động sau khi quản trị nền tảng phê duyệt.",
+        tenant_id=tenant.id,
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
