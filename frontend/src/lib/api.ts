@@ -355,6 +355,8 @@ export interface TenantApiKeyItem {
 }
 export const tenantUsers = (id: string) => req<TenantUserItem[]>(`/tenants/${id}/users`);
 export const tenantApiKeys = (id: string) => req<TenantApiKeyItem[]>(`/tenants/${id}/api-keys`);
+export const tenantUserUpdate = (tenantId: string, userId: string, data: { role?: string; is_active?: boolean }) =>
+  req<TenantUserItem>(`/tenants/${tenantId}/users/${userId}`, { method: "PATCH", body: JSON.stringify(data) });
 
 // ── Models & Thresholds (backed by model_versions table) ──────────────────────
 export interface ModelOut {

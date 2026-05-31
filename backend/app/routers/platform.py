@@ -149,6 +149,51 @@ async def tenant_users(
     return [TenantUserItem.model_validate(u) for u in rows]
 
 
+class UpdateTenantUserRequest(BaseModel):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.patch("/tenants/{tenant_id}/users/{user_id}", response_model=TenantUserItem)
+async def update_tenant_user(
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    body: UpdateTenantUserRequest,
+    current_user: User = Depends(require_sysadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sysadmin sửa vai trò/trạng thái 1 thành viên của BẤT KỲ tenant (cross-tenant console)."""
+    from deepguard_db.app.db.models import UserRole
+    user = (await db.execute(
+        select(User).where(
+            User.id == user_id, User.tenant_id == tenant_id, User.deleted_at.is_(None)
+        )
+    )).scalar_one_or_none()
+    if not user:
+        raise not_found("User")
+    if user.id == current_user.id:
+        raise bad_request("Dùng trang Tài khoản để tự đổi thông tin của mình")
+
+    if body.role is not None:
+        if body.role not in {r.value for r in UserRole}:
+            raise bad_request(f"Invalid role: {body.role}")
+        # Vai trò sysadmin (platform) không gán cho thành viên tenant qua console này
+        if body.role == "sysadmin":
+            raise bad_request("Không thể gán vai trò sysadmin cho thành viên tenant")
+        user.role = UserRole(body.role)
+    if body.is_active is not None:
+        user.is_active = body.is_active
+
+    await db.commit()
+    await crud.write_audit_log(
+        db, action="platform.update_tenant_user", resource_type="user",
+        tenant_id=tenant_id, user_id=current_user.id, resource_id=user.id,
+    )
+    await db.commit()
+    await db.refresh(user)
+    return TenantUserItem.model_validate(user)
+
+
 @router.get("/tenants/{tenant_id}/api-keys", response_model=list[TenantApiKeyItem])
 async def tenant_api_keys(
     tenant_id: uuid.UUID,
