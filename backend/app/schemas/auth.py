@@ -31,6 +31,7 @@ class UserOut(BaseModel):
     last_login_at: Optional[datetime] = None
     phone: Optional[str] = None
     timezone: Optional[str] = None
+    must_change_password: bool = False
 
     model_config = {"from_attributes": True}
 

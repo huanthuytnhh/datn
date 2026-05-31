@@ -107,6 +107,8 @@ async def create_user_direct(
         name=body.name,
         role=role_enum,
     )
+    # Mật khẩu admin cấp là TẠM THỜI → buộc nhân viên đổi khi đăng nhập lần đầu
+    user.must_change_password = True
     await db.commit()
     await db.refresh(user)
     return UserListItem(
@@ -212,6 +214,55 @@ async def update_user(
         is_active=user.is_active, last_login_at=user.last_login_at,
         created_at=user.created_at,
     )
+
+
+def _gen_temp_password(n: int = 12) -> str:
+    """Mật khẩu tạm mạnh, dễ copy (có đủ chữ thường/HOA/số)."""
+    import string
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        pw = "".join(secrets.choice(alphabet) for _ in range(n))
+        if any(c.islower() for c in pw) and any(c.isupper() for c in pw) and any(c.isdigit() for c in pw):
+            return pw
+
+
+@router.post("/{user_id}/reset-password", status_code=200)
+async def reset_member_password(
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin đặt lại mật khẩu cho member: cấp mật khẩu TẠM (hiện 1 lần) + buộc đổi lần đầu.
+    Admin KHÔNG đặt/biết mật khẩu cố định của member."""
+    _require_admin(current_user)
+
+    q = select(User).where(
+        User.id == user_id,
+        User.tenant_id == current_user.tenant_id,
+        User.deleted_at.is_(None),
+    )
+    user = (await db.execute(q)).scalar_one_or_none()
+    if not user:
+        raise not_found("User")
+    if _level(user.role) > _level(current_user.role):
+        raise forbidden("Không thể đặt lại mật khẩu cho người dùng có vai trò cao hơn bạn")
+    if user.id == current_user.id:
+        raise bad_request("Dùng trang Tài khoản để tự đổi mật khẩu")
+
+    temp = _gen_temp_password()
+    user.password_hash = hash_password(temp)
+    user.must_change_password = True
+    await db.commit()
+    await crud.write_audit_log(
+        db,
+        action="user.reset_password",
+        resource_type="user",
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.id,
+        resource_id=user.id,
+    )
+    await db.commit()
+    return {"temp_password": temp, "must_change_password": True}
 
 
 @router.delete("/{user_id}", status_code=204)

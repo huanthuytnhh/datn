@@ -6,6 +6,7 @@ import { canAccess, type Role } from '@/lib/rbac';
 import { Icon } from '@/components/deepguard/shared';
 import LandingPage from '@/components/deepguard/landing-page';
 import LoginPage from '@/components/deepguard/login-page';
+import ForceChangePassword from '@/components/deepguard/force-change-password';
 import Sidebar from '@/components/deepguard/sidebar';
 import TopHeader from '@/components/deepguard/top-header';
 import DashboardPage from '@/components/deepguard/dashboard-page';
@@ -65,7 +66,8 @@ const pageComponents: Record<string, React.ComponentType> = {
 
 export default function Home() {
   const { currentPage, navigate } = useNavigation();
-  const role = useAuthStore((s) => s.user?.role) as Role | undefined;
+  const user = useAuthStore((s) => s.user);
+  const role = user?.role as Role | undefined;
 
   // Standalone pages (landing, login) — no sidebar/header
   if (standalonePages.includes(currentPage)) {
@@ -84,6 +86,12 @@ export default function Home() {
         </motion.div>
       </AnimatePresence>
     );
+  }
+
+  // Force-change-password gate: authenticated user with a temp password must
+  // change it before reaching any workspace page (block the whole layout).
+  if (user && user.must_change_password) {
+    return <ForceChangePassword />;
   }
 
   // All workspace pages share sidebar + header layout

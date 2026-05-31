@@ -15,6 +15,7 @@ import {
   usersCreate,
   usersUpdate,
   usersDelete,
+  usersResetPassword,
   type UserListItem,
 } from '@/lib/api';
 
@@ -177,24 +178,104 @@ function Field({ label, req, children }: { label: string; req?: boolean; childre
   );
 }
 
+/* ── Copy-to-clipboard button (used by the temp-password panel) ── */
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — ignore */
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className={`h-9 px-3 rounded-lg font-bold text-[11px] flex items-center gap-1.5 shrink-0 border transition-all ${
+        copied
+          ? 'bg-green-50 border-green-200 text-dgreal'
+          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+      }`}
+      aria-label="Sao chép mật khẩu tạm"
+    >
+      <Icon name={copied ? 'check' : 'content_copy'} className="text-[15px]" />
+      {copied ? 'Đã chép' : 'Sao chép'}
+    </button>
+  );
+}
+
+/* ── One-time temp-password reveal panel (shown after a successful reset) ── */
+function TempPasswordPanel({
+  memberName,
+  tempPassword,
+  onClose,
+}: {
+  memberName: string;
+  tempPassword: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-dgblue/20 bg-dgblue/[0.04] p-4 space-y-3 dg-rise">
+      <div className="flex items-start gap-2">
+        <Icon name="lock_reset" className="text-[18px] text-dgblue mt-0.5 shrink-0" fill />
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-black text-slate-800">
+            Mật khẩu tạm cho {memberName}
+          </p>
+          <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
+            Cấp mật khẩu tạm này cho nhân viên. Họ sẽ buộc đổi khi đăng nhập.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+          aria-label="Đóng"
+        >
+          <Icon name="close" className="text-[16px]" />
+        </button>
+      </div>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 h-9 px-3 bg-white border border-slate-200 rounded-lg text-[13px] font-mono font-bold text-slate-800 tracking-wide flex items-center overflow-x-auto custom-scrollbar select-all">
+          {tempPassword}
+        </code>
+        <CopyButton value={tempPassword} />
+      </div>
+      <p className="text-[10px] text-dgwarn font-semibold flex items-center gap-1.5">
+        <Icon name="visibility_off" className="text-[13px]" />
+        Mật khẩu này chỉ hiển thị một lần. Hãy lưu lại trước khi đóng.
+      </p>
+    </div>
+  );
+}
+
 function MemberDrawer({
   member,
   isSelf,
   myRole,
   busy,
+  resetInfo,
   onClose,
   onChangeRole,
   onToggleActive,
   onRemove,
+  onResetPassword,
+  onClearReset,
 }: {
   member: UserListItem | null;
   isSelf: boolean;
   myRole: Role | undefined;
   busy: boolean;
+  resetInfo: { id: string; name: string; tempPassword: string } | null;
   onClose: () => void;
   onChangeRole: (id: string, role: string) => void;
   onToggleActive: (id: string, next: boolean) => void;
   onRemove: (id: string) => void;
+  onResetPassword: (member: UserListItem) => void;
+  onClearReset: () => void;
 }) {
   if (!member) return null;
   const meta = roleMeta(member.role);
@@ -307,8 +388,24 @@ function MemberDrawer({
             </div>
           </div>
 
+          {manageable && resetInfo && resetInfo.id === member.id && (
+            <TempPasswordPanel
+              memberName={resetInfo.name}
+              tempPassword={resetInfo.tempPassword}
+              onClose={onClearReset}
+            />
+          )}
+
           {manageable && (
             <div className="pt-2 space-y-2">
+              <button
+                onClick={() => onResetPassword(member)}
+                disabled={controlsDisabled}
+                className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgblue bg-dgblue/[0.05] border-dgblue/20 hover:bg-dgblue/[0.09] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-dgblue/[0.05]"
+              >
+                <Icon name="lock_reset" className="text-[16px]" />
+                Đặt lại mật khẩu
+              </button>
               <button
                 onClick={() => onToggleActive(member.id, !member.is_active)}
                 disabled={controlsDisabled}
@@ -395,6 +492,10 @@ export default function TeamPage() {
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<UserListItem | null>(null);
   const [createdName, setCreatedName] = useState<string | null>(null);
+  /* One-time temp password revealed after a successful reset (kept until dismissed). */
+  const [resetInfo, setResetInfo] = useState<{ id: string; name: string; tempPassword: string } | null>(null);
+  /* Member pending a reset confirmation, if any. */
+  const [resetConfirm, setResetConfirm] = useState<UserListItem | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -519,6 +620,37 @@ export default function TeamPage() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Gỡ thành viên thất bại');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* Open the confirm dialog; gating mirrors edit/delete (manageable + not self). */
+  const requestReset = (member: UserListItem) => {
+    if (isSelf(member.id) || !canManageUser(myRole, member.role)) return;
+    setResetInfo(null);
+    setResetConfirm(member);
+  };
+
+  /* Perform the reset → reveal the one-time temp password in the drawer panel. */
+  const confirmReset = async () => {
+    const member = resetConfirm;
+    if (!member || busy) return;
+    if (isSelf(member.id) || !canManageUser(myRole, member.role)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { temp_password } = await usersResetPassword(member.id);
+      setResetConfirm(null);
+      setResetInfo({ id: member.id, name: member.name || member.email, tempPassword: temp_password });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      setResetConfirm(null);
+      if (/403|forbidden|permission|quyền/i.test(msg)) {
+        setError('Bạn không có quyền đặt lại mật khẩu cho thành viên này.');
+      } else {
+        setError(msg || 'Đặt lại mật khẩu thất bại.');
+      }
     } finally {
       setBusy(false);
     }
@@ -738,7 +870,24 @@ export default function TeamPage() {
                             {new Date(m.created_at).toLocaleDateString('vi-VN')}
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <Icon name="chevron_right" className="text-[18px] text-slate-300 group-hover:text-dgblue transition-colors" />
+                            <div className="flex items-center justify-end gap-1">
+                              {manageable && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDetail(m);
+                                    requestReset(m);
+                                  }}
+                                  disabled={busy}
+                                  title="Đặt lại mật khẩu"
+                                  aria-label={`Đặt lại mật khẩu cho ${m.name || m.email}`}
+                                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-dgblue hover:bg-dgblue/[0.06] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  <Icon name="lock_reset" className="text-[18px]" />
+                                </button>
+                              )}
+                              <Icon name="chevron_right" className="text-[18px] text-slate-300 group-hover:text-dgblue transition-colors" />
+                            </div>
                           </td>
                         </tr>
                       );
@@ -823,10 +972,16 @@ export default function TeamPage() {
         isSelf={detail ? isSelf(detail.id) : false}
         myRole={myRole}
         busy={busy}
-        onClose={() => setDetail(null)}
+        resetInfo={resetInfo}
+        onClose={() => {
+          setDetail(null);
+          setResetInfo(null);
+        }}
         onChangeRole={changeRole}
         onToggleActive={toggleActive}
         onRemove={removeMember}
+        onResetPassword={requestReset}
+        onClearReset={() => setResetInfo(null)}
       />
 
       {showCreate && (
@@ -931,6 +1086,49 @@ export default function TeamPage() {
             >
               <Icon name={busy ? 'progress_activity' : 'person_add'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
               {busy ? 'Đang tạo…' : 'Tạo nhân viên'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {resetConfirm && (
+        <Modal onClose={() => !busy && setResetConfirm(null)}>
+          <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-dgblue/[0.06] flex items-center justify-center">
+              <Icon name="lock_reset" className="text-[20px] text-dgblue" />
+            </div>
+            <div>
+              <h2 className="text-base font-black text-slate-900">Đặt lại mật khẩu</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {resetConfirm.name || resetConfirm.email}
+              </p>
+            </div>
+          </div>
+          <div className="px-6 py-5 space-y-3">
+            <p className="text-[13px] text-slate-600 leading-relaxed">
+              Hệ thống sẽ tạo một <strong className="font-bold text-slate-800">mật khẩu tạm</strong> dùng một lần
+              cho thành viên này. Mật khẩu hiện tại của họ sẽ ngừng hoạt động.
+            </p>
+            <p className="text-[12px] text-slate-500 leading-relaxed flex items-start gap-1.5 p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <Icon name="info" className="text-[15px] text-slate-300 mt-0.5 shrink-0" />
+              Cấp mật khẩu tạm này cho nhân viên. Họ sẽ buộc đổi khi đăng nhập. Mật khẩu chỉ hiển thị một lần.
+            </p>
+          </div>
+          <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-end gap-3">
+            <button
+              onClick={() => setResetConfirm(null)}
+              disabled={busy}
+              className="px-5 py-2.5 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
+            >
+              Hủy
+            </button>
+            <button
+              onClick={confirmReset}
+              disabled={busy}
+              className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+            >
+              <Icon name={busy ? 'progress_activity' : 'lock_reset'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
+              {busy ? 'Đang xử lý…' : 'Đặt lại mật khẩu'}
             </button>
           </div>
         </Modal>
