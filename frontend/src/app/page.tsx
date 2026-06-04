@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useNavigation } from '@/store/navigation';
 import { useAuthStore } from '@/store/auth';
+import { useAppearanceStore } from '@/store/appearance';
 import { canAccess, type Role } from '@/lib/rbac';
 import { Icon } from '@/components/deepguard/shared';
 import LandingPage from '@/components/deepguard/landing-page';
@@ -68,6 +70,12 @@ export default function Home() {
   const { currentPage, navigate } = useNavigation();
   const user = useAuthStore((s) => s.user);
   const role = user?.role as Role | undefined;
+
+  // Sync the radius mode store + <html data-radius> from localStorage on mount
+  // (the no-FOUC script in layout.tsx already set the attribute before paint).
+  useEffect(() => {
+    useAppearanceStore.getState().hydrate();
+  }, []);
 
   // Standalone pages (landing, login) — no sidebar/header
   if (standalonePages.includes(currentPage)) {
