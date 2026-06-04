@@ -44,9 +44,10 @@
 }
 
 :root {
-  /* Tightened from 0.625rem for a more professional/premium button + input radius.
-     Cards (rounded-2xl) and pills (rounded-full) are not token-based → stay soft. */
-  --radius: 0.375rem;
+  /* Base = "Sharp & Modern" (4px), the default radius mode.
+     Token-based utilities (rounded-sm/md/lg/xl) follow --radius; the radius mode
+     is switched globally via <html data-radius="…"> (see "Radius modes" below). */
+  --radius: 0.25rem;
   --background: oklch(0.97 0.005 250);
   --foreground: oklch(0.145 0.02 250);
   --card: oklch(1 0 0);
@@ -78,6 +79,38 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.45 0.2 260);
+}
+
+/* ───────────────────────────────────────────────
+   Radius modes — switched via <html data-radius="…">
+   (driven by the appearance store + no-FOUC script in layout.tsx)
+     slight    = 8px  · soft, modern-SaaS standard
+     sharp     = 4px  · crisp developer-tool feel  (default — matches base :root)
+     geometric = 0px  · flat / strictly square
+   Only --radius is overridden; token utilities (rounded-sm/md/lg/xl) follow it.
+   ─────────────────────────────────────────────── */
+:root[data-radius='slight'] {
+  --radius: 0.5rem;
+}
+:root[data-radius='sharp'] {
+  --radius: 0.25rem;
+}
+:root[data-radius='geometric'] {
+  --radius: 0px;
+}
+
+/* Geometric is "strictly square": flatten the non-token panel radii too
+   (rounded-xl/2xl/3xl cards & containers). Genuinely circular elements —
+   rounded-full avatars, status dots, spinners — intentionally stay round. */
+:root[data-radius='geometric'] :is(
+    .rounded-sm,
+    .rounded-md,
+    .rounded-lg,
+    .rounded-xl,
+    .rounded-2xl,
+    .rounded-3xl
+  ) {
+  border-radius: 0 !important;
 }
 
 @layer base {

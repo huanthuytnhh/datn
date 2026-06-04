@@ -2,6 +2,7 @@
 
 import { useNavigation, type Page } from '@/store/navigation';
 import { Icon } from '@/components/deepguard/shared';
+import { RadiusQuickToggle } from '@/components/deepguard/radius-switcher';
 
 const META: Record<string, { title: string; sub?: string }> = {
   dashboard: { title: 'Dashboard', sub: 'Tổng quan' },
@@ -61,6 +62,8 @@ export default function TopHeader() {
           </span>
           <span className="text-[10px] font-bold text-slate-600">MODEL READY</span>
         </div>
+
+        <RadiusQuickToggle />
 
         <button
           onClick={() => navigate('notifications')}

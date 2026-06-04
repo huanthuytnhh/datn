@@ -32,6 +32,13 @@ export default function RootLayout({
   return (
     <html lang="vi" className="light" suppressHydrationWarning>
       <head>
+        {/* Apply the saved radius mode before paint to avoid a flash of the
+            default radius. Mirrors the appearance store (key: dg_radius). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var r=localStorage.getItem('dg_radius');if(r!=='slight'&&r!=='sharp'&&r!=='geometric')r='sharp';document.documentElement.setAttribute('data-radius',r);}catch(e){document.documentElement.setAttribute('data-radius','sharp');}})();`,
+          }}
+        />
         <link
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700&display=swap"
           rel="stylesheet"
