@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { Icon } from '@/components/deepguard/shared';
+import { RadiusModeSelector } from '@/components/deepguard/radius-switcher';
 import { useAuthStore } from '@/store/auth';
 import { tenantGet, tenantUpdate, type TenantInfo } from '@/lib/api';
 
@@ -74,7 +75,7 @@ function Switch({ on, onToggle }: { on: boolean; onToggle: (v: boolean) => void 
   );
 }
 
-type TabId = 'org' | 'security' | 'notif';
+type TabId = 'org' | 'security' | 'notif' | 'appearance';
 
 export default function SettingsPage() {
   const seedTenant = useAuthStore((s) => s.tenant);
@@ -174,6 +175,7 @@ export default function SettingsPage() {
     ['org', 'Tổ chức', 'corporate_fare'],
     ['security', 'Bảo mật', 'security'],
     ['notif', 'Thông báo', 'notifications'],
+    ['appearance', 'Giao diện', 'rounded_corner'],
   ];
 
   return (
@@ -559,6 +561,29 @@ export default function SettingsPage() {
           <Icon name="cloud_off" className="text-[16px]" />
           Lưu cục bộ — backend sắp có
         </div>
+        </div>
+      )}
+
+      {/* ── Appearance (radius mode) ── */}
+      {tab === 'appearance' && (
+        <div className="space-y-5 dg-fade">
+          <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+            <h2 className="text-base font-black text-slate-900 mb-1">Độ bo góc giao diện</h2>
+            <p className="text-[12px] text-slate-400 mb-5">
+              Chọn phong cách bo góc áp dụng cho toàn bộ thành phần (nút, ô nhập, thẻ, hộp thoại…).
+              Thay đổi có hiệu lực tức thì.
+            </p>
+            <RadiusModeSelector />
+            <p className="text-[11px] text-slate-400 leading-snug mt-4">
+              Lưu ý: ở chế độ <span className="font-bold text-slate-500">Vuông góc</span>, các phần tử
+              tròn (ảnh đại diện, chấm trạng thái, vòng loading) vẫn giữ nguyên hình tròn.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] font-bold text-slate-500">
+            <Icon name="devices" className="text-[16px]" />
+            Tùy chọn hiển thị — lưu cục bộ trên trình duyệt này.
+          </div>
         </div>
       )}
 
