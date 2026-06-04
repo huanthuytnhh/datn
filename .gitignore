@@ -76,3 +76,9 @@ alembic/versions/*.py
 # Node (if frontend added later)
 node_modules/
 .next/
+
+# Sample/test media (large binaries, not used by the app)
+frontend/data_images/
+
+# Office lock files (LibreOffice/OnlyOffice temp lock)
+.~lock.*#
