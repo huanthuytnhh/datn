@@ -44,7 +44,9 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  /* Tightened from 0.625rem for a more professional/premium button + input radius.
+     Cards (rounded-2xl) and pills (rounded-full) are not token-based → stay soft. */
+  --radius: 0.375rem;
   --background: oklch(0.97 0.005 250);
   --foreground: oklch(0.145 0.02 250);
   --card: oklch(1 0 0);
