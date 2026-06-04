@@ -87,21 +87,37 @@
      slight    = 8px  · soft, modern-SaaS standard
      sharp     = 4px  · crisp developer-tool feel  (default — matches base :root)
      geometric = 0px  · flat / strictly square
-   Only --radius is overridden; token utilities (rounded-sm/md/lg/xl) follow it.
+
+   Token utilities (rounded-sm/md/lg/xl) follow --radius automatically.
+   The large panel/card radii (rounded-2xl/3xl) are NOT token-based, so we scale
+   them per mode too — otherwise switching wouldn't visibly change cards, which
+   dominate the UI. Genuinely circular elements (rounded-full: avatars, status
+   dots, spinners, pills) intentionally stay round in every mode.
    ─────────────────────────────────────────────── */
 :root[data-radius='slight'] {
-  --radius: 0.5rem;
+  --radius: 0.5rem; /* tokens: sm 4 · md 6 · lg 8 · xl 12 */
 }
+:root[data-radius='slight'] :is(.rounded-2xl) {
+  border-radius: 1rem;
+} /* cards 16px */
+:root[data-radius='slight'] :is(.rounded-3xl) {
+  border-radius: 1.5rem;
+}
+
 :root[data-radius='sharp'] {
-  --radius: 0.25rem;
+  --radius: 0.25rem; /* tokens: sm 0 · md 2 · lg 4 · xl 8 */
 }
+:root[data-radius='sharp'] :is(.rounded-2xl) {
+  border-radius: 0.625rem;
+} /* cards 10px */
+:root[data-radius='sharp'] :is(.rounded-3xl) {
+  border-radius: 0.875rem;
+}
+
 :root[data-radius='geometric'] {
   --radius: 0px;
 }
-
-/* Geometric is "strictly square": flatten the non-token panel radii too
-   (rounded-xl/2xl/3xl cards & containers). Genuinely circular elements —
-   rounded-full avatars, status dots, spinners — intentionally stay round. */
+/* Strictly square: flatten every corner radius (token + panel) to 0. */
 :root[data-radius='geometric'] :is(
     .rounded-sm,
     .rounded-md,
