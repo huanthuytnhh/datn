@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     MODEL_VERSION: str = "b4-baseline-v1"
     MODEL_THRESHOLD: float = 0.35
     MOCK_ML: bool = True
+    # Khi set -> backend gọi microservice SFDCT (DeepfakeBench) thay vì model nội bộ.
+    # Vd: SFDCT_INFER_URL=http://127.0.0.1:8501
+    SFDCT_INFER_URL: str = ""
 
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 

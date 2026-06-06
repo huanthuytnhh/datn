@@ -65,6 +65,7 @@ class InferenceResult:
     image_height: Optional[int]
     image_hash: str
     image_thumb: Optional[str] = None  # base64 JPEG data URL of input
+    heatmap: Optional[str] = None      # base64 Grad-CAM overlay (data URL) — từ microservice SFDCT
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -731,7 +732,44 @@ def _mock_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Public entry points
 # ─────────────────────────────────────────────────────────────────────────────
+def _sfdct_inference(image_bytes: bytes) -> InferenceResult:
+    """Gọi microservice SFDCT (DeepfakeBench) qua HTTP -> map sang InferenceResult (kèm Grad-CAM).
+    Service down -> fallback mock để không chặn API."""
+    import httpx
+    start = time.perf_counter()
+    image_hash = hashlib.sha256(image_bytes).hexdigest()
+    try:
+        width, height = Image.open(io.BytesIO(image_bytes)).convert("RGB").size
+    except Exception:
+        width = height = None
+    try:
+        r = httpx.post(settings.SFDCT_INFER_URL.rstrip("/") + "/predict",
+                       files={"file": ("upload.jpg", image_bytes, "image/jpeg")}, timeout=60.0)
+        r.raise_for_status()
+        j = r.json()
+    except Exception:
+        return _mock_inference(image_bytes)
+    prob_fake = float(j.get("prob_fake", 0.0))
+    verdict, confidence = _verdict_from_prob(prob_fake, settings.MODEL_THRESHOLD)
+    try:
+        thumb = _encode_image_thumb(image_bytes)
+    except Exception:
+        thumb = None
+    return InferenceResult(
+        verdict=verdict, confidence=confidence,
+        prob_fake=round(prob_fake, 4), prob_cnn=round(prob_fake, 4),
+        spatial_score=0.0, frequency_score=0.0,
+        threshold_used=settings.MODEL_THRESHOLD, face_detected=True,
+        processing_time_ms=int((time.perf_counter() - start) * 1000),
+        model_version=j.get("model_version", settings.MODEL_VERSION),
+        image_width=width, image_height=height, image_hash=image_hash,
+        image_thumb=thumb, heatmap=j.get("gradcam"),
+    )
+
+
 async def run_inference(image_bytes: bytes) -> InferenceResult:
+    if settings.SFDCT_INFER_URL:                     # ưu tiên microservice SFDCT (model thật của thesis)
+        return _sfdct_inference(image_bytes)
     if settings.MOCK_ML or not settings.MODEL_PATH:
         return _mock_inference(image_bytes)
     return _real_inference(image_bytes)
