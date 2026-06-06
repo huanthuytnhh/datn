@@ -89,6 +89,7 @@ async def detect_image(
         image_width=detection.image_width,
         image_height=detection.image_height,
         created_at=detection.created_at,
+        heatmap=result.heatmap,   # Grad-CAM overlay (base64) cho UI
     )
 
 

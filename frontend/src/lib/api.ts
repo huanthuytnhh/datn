@@ -247,7 +247,7 @@ export interface DetectionResponse {
   prob_cnn: number; spatial_score: number | null; frequency_score: number | null;
   threshold_used: number; face_detected: boolean; processing_time_ms: number;
   model_version: string; image_width: number | null; image_height: number | null;
-  created_at: string;
+  created_at: string; heatmap?: string | null;   // Grad-CAM overlay (base64 data URL) từ SFDCT
 }
 
 export const detectImage = (file: File, apiKey: string, threshold?: number) => {

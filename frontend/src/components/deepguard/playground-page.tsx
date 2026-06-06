@@ -578,8 +578,15 @@ console.log(data);`;
                 </div>
               )}
 
-              {/* Heatmap overlay */}
-              {result && includeHeatmap && v && v !== 'REAL' && (
+              {/* Grad-CAM THẬT từ model SFDCT; fallback gradient minh hoạ nếu response chưa có heatmap */}
+              {result && includeHeatmap && result.heatmap ? (
+                <img
+                  src={result.heatmap}
+                  alt="Grad-CAM"
+                  title="Grad-CAM (SFDCT) — vùng model tập trung"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              ) : result && includeHeatmap && v && v !== 'REAL' ? (
                 <div
                   className="heatmap-overlay absolute inset-0 pointer-events-none"
                   style={{
@@ -588,7 +595,7 @@ console.log(data);`;
                     opacity: 0.65,
                   }}
                 />
-              )}
+              ) : null}
 
               {/* Scan line while analyzing */}
               {isAnalyzing && <div className="scan-line" />}

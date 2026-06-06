@@ -19,6 +19,7 @@ class DetectionResponse(BaseModel):
     image_width: Optional[int] = None
     image_height: Optional[int] = None
     created_at: datetime
+    heatmap: Optional[str] = None   # Grad-CAM overlay (base64 data URL) — từ SFDCT microservice
 
     model_config = {"from_attributes": True}
 
