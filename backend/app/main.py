@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.routers import auth, detect, api_keys, analytics, detections, webhooks, audit, liveness, users, tenants, platform, models, notifications
+from app.routers import auth, detect, api_keys, analytics, detections, webhooks, audit, liveness, users, users_invites, tenants, platform, models, notifications
 
 settings = get_settings()
 
@@ -64,6 +64,7 @@ app.include_router(audit.router)
 app.include_router(liveness.api_router)
 app.include_router(liveness.dashboard_router)
 app.include_router(users.router)
+app.include_router(users_invites.router)
 app.include_router(tenants.router)
 app.include_router(platform.router)
 app.include_router(models.router)
