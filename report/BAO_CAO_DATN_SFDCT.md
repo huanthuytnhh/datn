@@ -387,6 +387,16 @@ Trong vài năm trở lại đây, định danh khách hàng điện tử (elect
 - **CH2.** Trong năm đòn bẩy tần số, đòn nào (hoặc tổ hợp nào) mang lại cải thiện đáng tin cậy, và đòn nào không?
 - **CH3.** Cơ chế gated cross-attention zero-init có thực sự bảo đảm "sàn" hiệu năng không thấp hơn B4 hay không?
 
+**Đóng góp chính (novelty).** Đồ án định vị đóng góp trên **năm trục**, trong đó trục phương pháp (ĐG1) là tính mới gốc và bốn trục còn lại là tính mới ở tầng đánh giá – dữ liệu – triển khai:
+
+1. **ĐG1 — Phương pháp gốc:** nhánh **block-DCT spatial–frequency** hợp nhất với EfficientNet-B4 qua **gated cross-attention zero-init** bảo đảm *floor ≥ B4*; đồng thời tổng hợp và thích nghi hoá năm đòn tần số (SPSL/SRM/FreqDebias/FcaNet/FDFL) về **một** miền block-DCT thống nhất.
+2. **ĐG2 — Khung đánh giá đa cấu hình + heatmap tổng hợp:** so sánh có hệ thống B4 → B4-DCT → Row1 → Row2 trên cross-dataset, đúc kết bằng một bản đồ nhiệt AUC (Mục 3.4).
+3. **ĐG3 — Đánh giá theo điểm vận hành eKYC:** hiệu chỉnh ngưỡng τ theo **Thông tư 17/2024/TT-NHNN (FPR ≤ 5%)**, phân rã lỗi (confusion FP/FN, phân tích hai chiều APCER/BPCER) thay vì chỉ một con số AUC.
+4. **ĐG4 — Nghiên cứu cross-dataset trung thực có thống kê:** dùng **bootstrap CI** để kiểm định ý nghĩa của ΔAUC và **báo thẳng kết quả nằm trong nhiễu** khi đúng như vậy (không tô hồng).
+5. **ĐG5 — (dữ liệu, hướng phát triển) Bộ deepfake người Việt cho eKYC:** tập kiểm thử cross-domain mặt người Việt sát kịch bản định danh, bổ sung cho CDFv2.
+
+> Toàn bộ được xây dựng **trên nền DeepfakeBench** (có ghi nguồn đầy đủ) cùng các công trình tần số được kế thừa — xem Tài liệu tham khảo.
+
 ## 3. Đối tượng & phạm vi nghiên cứu
 
 **Đối tượng nghiên cứu:** Bài toán phát hiện **deepfake** (face-forgery) trên ảnh khuôn mặt, tập trung vào sự cộng tác giữa đặc trưng miền không gian và miền tần số block-DCT, trong bối cảnh ứng dụng eKYC.
@@ -419,7 +429,7 @@ Ngoài phần Mở đầu, Kết luận và Tài liệu tham khảo, nội dung 
 
 - **Chương 1 — Tổng quan và Cơ sở lý thuyết.** Trình bày bối cảnh deepfake và eKYC, khảo sát các hướng phát hiện deepfake (miền không gian, miền tần số), nền tảng lý thuyết về DCT, cơ chế attention, và các công trình liên quan làm nền cho năm đòn bẩy của đồ án.
 - **Chương 2 — Phương pháp đề xuất SFDCT.** Mô tả chi tiết kiến trúc: backbone EfficientNet-B4, nhánh block-DCT 8×8 với 16 dải zigzag, cơ chế gated cross-attention zero-init, năm đòn bẩy tần số (S1–S5) và các hàm mất mát.
-- **Chương 3 — Thực nghiệm và Đánh giá.** Trình bày dữ liệu, giao thức DeepfakeBench, các cấu hình ablation, kết quả cross-dataset (B4 0,7497 → B4-DCT 0,7572 → Row1/Row2 = [[FILL]]), phân tích định lượng – định tính (ROC, PR, t-SNE, Grad-CAM, gate alpha) và demo eKYC.
+- **Chương 3 — Thực nghiệm và Đánh giá.** Trình bày dữ liệu, giao thức DeepfakeBench, các cấu hình ablation, kết quả cross-dataset (B4 0,7497 → B4-DCT 0,7572 → Row1 0,7333; Row2 đang huấn luyện), phân tích định lượng – định tính (ROC, PR, t-SNE, Grad-CAM, gate alpha) và demo eKYC.
 
 Cuối cùng, phần **Kết luận và Hướng phát triển** tổng kết các đóng góp, nêu thẳng các hạn chế (kết quả mới 1 seed, đòn bẩy mạnh nhất SBI nằm ngoài phạm vi block-DCT thuần) và phác thảo hướng mở rộng (multi-seed, tích hợp SBI self-blended training, mở rộng sang liveness và DFDC).
 
