@@ -179,6 +179,10 @@ async def get_liveness_detail(
     tn_q = select(Tenant).where(Tenant.id == row.tenant_id)
     tenant = (await db.execute(tn_q)).scalar_one_or_none()
 
+    # G0.2: chỉ admin/compliance/sysadmin được xem PII thô (ảnh mặt, IP, user-agent) — khớp detections._PII_ROLES
+    _role = getattr(current_user.role, "value", current_user.role)
+    mask_pii = _role not in {"admin", "compliance", "sysadmin"}
+
     return LivenessDetail(
         check_id=row.check_id,
         verdict=row.verdict.value,
@@ -194,10 +198,10 @@ async def get_liveness_detail(
         model_version=row.model_version,
         image_width=row.image_width,
         image_height=row.image_height,
-        image_thumb=row.image_thumb,
+        image_thumb=None if mask_pii else row.image_thumb,
         image_hash=row.image_hash,
-        ip_address=row.ip_address,
-        user_agent=row.user_agent,
+        ip_address=None if mask_pii else row.ip_address,
+        user_agent=None if mask_pii else row.user_agent,
         api_key_id=row.api_key_id,
         api_key_prefix=api_key.prefix if api_key else None,
         api_key_name=api_key.name if api_key else None,

@@ -837,7 +837,8 @@ Phân tách hai nhóm actor phản ánh đúng hai pha vận hành: pha *offline
 
 Kiến trúc hệ thống được tổ chức thành bốn khối tuần tự, mỗi khối đảm nhận một trách nhiệm rõ ràng. Cách phân khối này giúp tách biệt mối quan tâm (separation of concerns): có thể thay thế hay nâng cấp từng khối mà không phá vỡ phần còn lại.
 
-[[HÌNH 2.2: Kiến trúc tổng thể — Khối tiền xử lý (face detect/align/crop 256×256) → Mô hình SFDCT (spatial B4 + frequency block-DCT + gated fusion) → Hậu xử lý & ngưỡng (sigmoid → fake_prob → so với τ) → Giải thích Grad-CAM]]
+![Hình 2.2 — Kiến trúc tổng thể SFDCT](figures/fig_2_2_architecture.png)
+*Hình 2.2: Kiến trúc tổng thể — Tiền xử lý (face detect/align/crop 256×256) → SFDCT (nhánh spatial EfficientNet-B4 + nhánh frequency block-DCT, hợp nhất bằng gated cross-attention zero-init) → Hậu xử lý & ngưỡng (sigmoid → fake_prob → so τ) → Grad-CAM giải thích.*
 
 [[BẢNG 2.3: Bốn khối của kiến trúc tổng thể và trách nhiệm]]
 

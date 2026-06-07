@@ -133,6 +133,8 @@ async def validate_api_key(db: AsyncSession, plain_key: str) -> Optional[ApiKey]
         ApiKey.key_hash == key_hash,
         ApiKey.status == ApiKeyStatus.ACTIVE,
         ApiKey.deleted_at.is_(None),
+        # G0.1: key hết hạn KHÔNG được auth (NULL = không hết hạn)
+        (ApiKey.expires_at.is_(None)) | (ApiKey.expires_at > datetime.now(timezone.utc)),
     ).options(selectinload(ApiKey.tenant))
     return (await db.execute(q)).scalar_one_or_none()
 
