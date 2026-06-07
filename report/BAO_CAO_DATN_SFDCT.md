@@ -391,7 +391,7 @@ Trong vài năm trở lại đây, định danh khách hàng điện tử (elect
 
 1. **ĐG1 — Phương pháp gốc:** nhánh **block-DCT spatial–frequency** hợp nhất với EfficientNet-B4 qua **gated cross-attention zero-init** bảo đảm *floor ≥ B4*; đồng thời tổng hợp và thích nghi hoá năm đòn tần số (SPSL/SRM/FreqDebias/FcaNet/FDFL) về **một** miền block-DCT thống nhất.
 2. **ĐG2 — Khung đánh giá đa cấu hình + heatmap tổng hợp:** so sánh có hệ thống B4 → B4-DCT → Row1 → Row2 trên cross-dataset, đúc kết bằng một bản đồ nhiệt AUC (Mục 3.4).
-3. **ĐG3 — Đánh giá theo điểm vận hành eKYC:** hiệu chỉnh ngưỡng τ theo **Thông tư 17/2024/TT-NHNN (FPR ≤ 5%)**, phân rã lỗi (confusion FP/FN, phân tích hai chiều APCER/BPCER) thay vì chỉ một con số AUC.
+3. **ĐG3 — Đánh giá theo điểm vận hành eKYC:** hiệu chỉnh ngưỡng τ tại **điểm vận hành FPR ≤ 5%** (quy ước ISO/IEC 30107-3 để toán-hoá yêu cầu xác thực sinh trắc *định tính* của **Thông tư 17/2024/TT-NHNN** — TT17 không ấn định ngưỡng số), phân rã lỗi (confusion FP/FN, hai chiều APCER/BPCER) thay vì chỉ một con số AUC.
 4. **ĐG4 — Nghiên cứu cross-dataset trung thực có thống kê:** dùng **bootstrap CI** để kiểm định ý nghĩa của ΔAUC và **báo thẳng kết quả nằm trong nhiễu** khi đúng như vậy (không tô hồng).
 5. **ĐG5 — (dữ liệu, hướng phát triển) Bộ deepfake người Việt cho eKYC:** tập kiểm thử cross-domain mặt người Việt sát kịch bản định danh, bổ sung cho CDFv2.
 
@@ -765,9 +765,9 @@ Cách tổ chức này tạo nên hai cấu hình có *câu chuyện* rõ ràng:
 
 **eKYC (electronic Know Your Customer)** là quy trình định danh khách hàng *điện tử*: thay vì tới quầy, người dùng tự chụp giấy tờ và khuôn mặt qua điện thoại để mở tài khoản/giao dịch. Bước cốt lõi là **đối chiếu khuôn mặt** (face matching) giữa ảnh selfie và ảnh trên giấy tờ, cùng một bước **chống giả mạo**. Đây chính là nơi deepfake trở thành mối đe doạ trực tiếp: kẻ gian có thể dùng ảnh/video deepfake khuôn mặt nạn nhân để vượt qua bước xác thực, mở tài khoản trái phép hoặc chiếm đoạt tài khoản. Một bộ phát hiện deepfake mạnh, *generalize tốt sang các pipeline sinh chưa từng thấy*, vì thế là một lớp phòng thủ thiết yếu cho eKYC — và đây là động lực ứng dụng của toàn đồ án.
 
-### 1.8.2 Thông tư 17/2024/TT-NHNN và ràng buộc FPR ≤ 5%
+### 1.8.2 Thông tư 17/2024/TT-NHNN và điểm vận hành FPR ≤ 5% (quy ước)
 
-Tại Việt Nam, **Thông tư 17/2024/TT-NHNN** [[KIỂM TRA: số hiệu và phạm vi chính xác của Thông tư]] quy định về xác thực sinh trắc học trong giao dịch ngân hàng, đặt ra yêu cầu vận hành cho các hệ thống eKYC. Một ràng buộc cốt lõi cho bài toán phát hiện là khống chế **FPR (False Positive Rate — tỉ lệ báo động giả)**: trong ngữ cảnh đồ án, ta quy ước FPR là tỉ lệ ảnh *thật* bị phân loại nhầm thành *giả*. Yêu cầu **FPR ≤ 5%** nghĩa là hệ thống không được từ chối quá 5% người dùng hợp lệ — vì mỗi lần từ chối nhầm là một trải nghiệm tồi và một giao dịch thất bại.
+Tại Việt Nam, **Thông tư 17/2024/TT-NHNN** quy định về mở và sử dụng tài khoản thanh toán, trong đó **yêu cầu xác thực sinh trắc học bắt buộc** cho một số giao dịch ngân hàng. **Cần nói rõ (đã kiểm chứng toàn văn): Thông tư 17 đặt yêu cầu mang tính ĐỊNH TÍNH — bắt buộc đối chiếu sinh trắc — chứ KHÔNG quy định một ngưỡng định lượng cụ thể (không có con số FPR/FAR/threshold).** Vì vậy, để *toán-hoá* yêu cầu định tính này thành một tiêu chí đo được, đồ án **tự chọn** điểm vận hành **FPR ≤ 5%** theo **quy ước ISO/IEC 30107-3 (BPCER20 — BPCER tại APCER = 5%)**. Trong ngữ cảnh đồ án, ta quy ước FPR là tỉ lệ ảnh *thật* bị phân loại nhầm thành *giả*; ràng buộc **FPR ≤ 5%** nghĩa là hệ thống không được từ chối quá 5% người dùng hợp lệ. Tóm lại: ngưỡng 5% là *lựa chọn theo chuẩn quốc tế của đồ án để phục vụ tinh thần TT17*, không phải con số do TT17 ấn định.
 
 **Hệ quả kỹ thuật: calibrate ngưỡng.** AUC đo khả năng phân tách *độc lập ngưỡng*, nhưng khi *triển khai* ta buộc phải chọn một ngưỡng quyết định $\tau$ cụ thể. Để thoả FPR ≤ 5%, ta phải **calibrate** (hiệu chỉnh) $\tau$ trên *tập validation*: tìm ngưỡng sao cho tỉ lệ real-bị-báo-fake không vượt 5%, rồi báo cáo TPR (tỉ lệ bắt được fake) đạt được tại ngưỡng đó. Quy trình này tách bạch *năng lực mô hình* (AUC) khỏi *điểm vận hành* (operating point) — và là một phần bắt buộc của bất kỳ triển khai eKYC nghiêm túc nào. Các con số cụ thể (ngưỡng $\tau$, TPR@FPR≤5%) hiện chưa đo: [[FILL: ngưỡng calibrate và TPR tại FPR≤5% trên tập validation]].
 
@@ -803,7 +803,7 @@ Yêu cầu chức năng mô tả các năng lực mà hệ thống phải cung c
 | FR2 | Phát hiện deepfake | Ảnh face crop đã tiền xử lý | Logit/embedding phân biệt REAL/FAKE | Năng lực cốt lõi của hệ thống |
 | FR3 | Trả xác suất + nhãn | Logit của mô hình | `fake_prob` ∈ [0,1] + nhãn REAL/FAKE | Kết quả tiêu dùng được bởi tầng nghiệp vụ |
 | FR4 | Sinh Grad-CAM | Ảnh + mô hình đã huấn luyện | Bản đồ nhiệt overlay vùng nghi vấn | Khả năng giải thích cho người duyệt |
-| FR5 | Hiệu chỉnh ngưỡng eKYC | Phân phối điểm trên tập validation | Ngưỡng quyết định τ thỏa FPR ≤ 5% | Tuân thủ Thông tư 17/2024/TT-NHNN |
+| FR5 | Hiệu chỉnh ngưỡng eKYC | Phân phối điểm trên tập validation | Ngưỡng quyết định τ thỏa FPR ≤ 5% (quy ước ISO 30107-3) | Phục vụ yêu cầu sinh trắc TT17 |
 
 Năm yêu cầu này tạo thành một chuỗi khép kín: FR1 chuẩn bị dữ liệu, FR2–FR3 thực hiện phân loại, FR4 giải thích quyết định, và FR5 đặt ngưỡng vận hành. Đáng chú ý, FR4 và FR5 thường bị bỏ qua trong các nghiên cứu học thuật thuần túy nhưng lại là điều kiện *bắt buộc* để triển khai thực tế trong ngân hàng: người duyệt cần biết mô hình "nhìn vào đâu" để ra quyết định, và bộ phận tuân thủ cần một ngưỡng có cơ sở định lượng.
 
@@ -819,7 +819,7 @@ Yêu cầu phi chức năng quy định *chất lượng* của hệ thống. Tr
 | NFR2 | Khả năng giải thích (XAI) | Có Grad-CAM + t-SNE + frequency viz | Người duyệt hiểu được quyết định |
 | NFR3 | Độ trễ inference | Thời gian xử lý 1 khung hình | [[FILL: ms/khung hình trên RTX 3060]] |
 | NFR4 | Tái lập (reproducibility) | Chạy lại trong DeepfakeBench cho cùng kết quả | Cố định seed, config công khai |
-| NFR5 | Tuân thủ pháp lý eKYC | FPR tại ngưỡng vận hành | ≤ 5% (Thông tư 17/2024/TT-NHNN) |
+| NFR5 | Điểm vận hành eKYC | FPR tại ngưỡng vận hành | ≤ 5% (quy ước ISO 30107-3; TT17 yêu cầu định tính) |
 
 Điểm cần nhấn mạnh là **NFR1 (generalization cross-dataset) được ưu tiên cao nhất**. Lý do: trong thực tế, kẻ tấn công sẽ dùng những công cụ deepfake mới mà mô hình *chưa từng thấy lúc huấn luyện*. Một mô hình đạt AUC rất cao trên chính tập dữ liệu huấn luyện (in-dataset) nhưng sụp đổ khi gặp manipulation lạ là vô dụng trong eKYC. Vì vậy toàn bộ thiết kế phương pháp ở các mục sau đều lấy "cải thiện AUC cross-dataset mà không hy sinh độ ổn định" làm kim chỉ nam.
 
@@ -1448,7 +1448,7 @@ Công cụ `tools/infer.py` (đường dẫn: `DeepfakeBench/tools/infer.py`) hi
 
 ### Hiệu chỉnh ngưỡng cho FPR ≤ 5%
 
-Thông tư 17/2024/TT-NHNN quy định xác thực sinh trắc học trong giao dịch ngân hàng, với ràng buộc vận hành **FPR ≤ 5%**: tỉ lệ khách hàng thật bị từ chối nhầm phải đủ thấp để không cản trở trải nghiệm hợp pháp. Vì AUC bất biến ngưỡng còn vận hành thực tế cần **một ngưỡng cụ thể** τ, luận văn hiệu chỉnh τ trên **tập validation** sao cho FPR đo được ≤ 5%, rồi áp dụng τ đó (cố định) lên tập test để báo cáo TPR/recall tương ứng — tránh rò rỉ thông tin từ tập test vào việc chọn ngưỡng.
+Thông tư 17/2024/TT-NHNN yêu cầu xác thực sinh trắc học bắt buộc (định tính, **không** ấn định ngưỡng số). Để toán-hoá yêu cầu này, đồ án **chọn** điểm vận hành **FPR ≤ 5%** theo quy ước ISO/IEC 30107-3 (BPCER20): tỉ lệ khách hàng thật bị từ chối nhầm phải đủ thấp để không cản trở trải nghiệm hợp pháp. Vì AUC bất biến ngưỡng còn vận hành thực tế cần **một ngưỡng cụ thể** τ, luận văn hiệu chỉnh τ trên **tập validation** sao cho FPR đo được ≤ 5%, rồi áp dụng τ đó (cố định) lên tập test để báo cáo TPR/recall tương ứng — tránh rò rỉ thông tin từ tập test vào việc chọn ngưỡng.
 
 [[BẢNG 3.4: Hiệu chỉnh ngưỡng cho ràng buộc eKYC FPR ≤ 5%]]
 
@@ -1547,7 +1547,7 @@ Dù đạt được các kết quả khích lệ, đồ án vẫn tồn tại m�
 
 **Thứ tư, chưa hiện thực hoá phần Liveness/anti-spoofing.** Do thu hẹp scope để tập trung vào phần deepfake, đồ án **chưa triển khai phát hiện liveness** (chống tấn công trình chiếu ảnh/màn hình, mặt nạ, replay). Một hệ thống eKYC hoàn chỉnh cần cả hai lớp phòng vệ này.
 
-**Thứ năm, chưa hoàn tất calibrate ngưỡng vận hành.** Yêu cầu FPR ≤ 5% theo Thông tư 17/2024/TT-NHNN đòi hỏi calibrate ngưỡng quyết định trên tập validation và báo cáo các chỉ số vận hành (TPR tại FPR cố định, EER); các con số này hiện còn ở dạng [[FILL: chỉ số vận hành tại ngưỡng FPR ≤ 5%]].
+**Thứ năm, chưa hoàn tất calibrate ngưỡng vận hành.** Điểm vận hành FPR ≤ 5% (quy ước ISO 30107-3 để phục vụ yêu cầu sinh trắc của Thông tư 17/2024/TT-NHNN — TT17 không ấn định ngưỡng số) đòi hỏi calibrate ngưỡng quyết định trên tập validation và báo cáo các chỉ số vận hành (TPR tại FPR cố định, EER); các con số này hiện còn ở dạng [[FILL: chỉ số vận hành tại ngưỡng FPR ≤ 5%]].
 
 ## 3. Hướng phát triển
 
