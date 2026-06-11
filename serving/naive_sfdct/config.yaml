@@ -7,7 +7,9 @@
 log_dir: logs/evaluations/effnb4_sfdct
 
 # model setting
-pretrained: ./training/pretrained/efficientnet-b4-6ed6700e.pth
+# Serving KHÔNG cần ImageNet-pretrained: ckpt_best.pth chứa đủ trọng số đã train,
+# null => EfficientNet.from_name (random init) rồi load_state_dict đè toàn bộ.
+pretrained: null
 model_name: efficientnetb4_sfdct    # MUST match @DETECTOR.register_module(module_name=...)
 backbone_name: efficientnetb4
 
