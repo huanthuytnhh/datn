@@ -73,6 +73,7 @@ class TenantPlan(str, Enum):
 
 
 class TenantStatus(str, Enum):
+    PENDING   = "pending"      # tự đăng ký — CHỜ sysadmin duyệt (khác suspended)
     ACTIVE    = "active"
     SUSPENDED = "suspended"
     DELETED   = "deleted"
@@ -287,7 +288,8 @@ class Detection(Base, TimestampMixin):
 
     request_id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    api_key_id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False)
+    api_key_id:         Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
+    source:             Mapped[str]      = mapped_column(String(20), nullable=False, default="api")  # 'api' | 'playground'
 
     # Detection result
     verdict:            Mapped[DetectionVerdict] = mapped_column(PGEnum(DetectionVerdict, name="detection_verdict"), nullable=False, index=True)
@@ -463,7 +465,7 @@ class LivenessCheck(Base, TimestampMixin):
     verdict:            Mapped[LivenessVerdict] = mapped_column(PGEnum(LivenessVerdict, name="liveness_verdict"), nullable=False, index=True)
     liveness_score:     Mapped[float]    = mapped_column(Float, nullable=False)     # 0-1 (1 = chắc chắn live)
     confidence:         Mapped[float]    = mapped_column(Float, nullable=False)     # 0-100
-    spoof_type:         Mapped[Optional[SpoofType]] = mapped_column(PGEnum(SpoofType, name="spoof_type"), nullable=True)
+    spoof_type:         Mapped[Optional[SpoofType]] = mapped_column(PGEnum(SpoofType, name="spoof_type", values_callable=lambda x: [e.value for e in x]), nullable=True)
     threshold_used:     Mapped[float]    = mapped_column(Float, nullable=False)
 
     # Mode

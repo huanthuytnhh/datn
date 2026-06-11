@@ -96,6 +96,19 @@ async def update_last_login(db: AsyncSession, user_id: uuid.UUID) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# INVITATION
+# ─────────────────────────────────────────────────────────────────────────────
+async def get_invitation_by_token(db: AsyncSession, token: str) -> Optional[Invitation]:
+    """Tra invitation theo token (kèm tenant để hiển thị tên tổ chức)."""
+    q = (
+        select(Invitation)
+        .where(Invitation.token == token)
+        .options(selectinload(Invitation.tenant))
+    )
+    return (await db.execute(q)).scalar_one_or_none()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API_KEY
 # ─────────────────────────────────────────────────────────────────────────────
 def _hash_api_key(plain_key: str) -> str:
@@ -158,7 +171,8 @@ async def list_api_keys(db: AsyncSession, tenant_id: uuid.UUID) -> List[ApiKey]:
 # ─────────────────────────────────────────────────────────────────────────────
 async def create_detection(
     db: AsyncSession, *,
-    tenant_id: uuid.UUID, api_key_id: uuid.UUID,
+    tenant_id: uuid.UUID, api_key_id: Optional[uuid.UUID] = None,
+    source: str = "api",
     verdict: DetectionVerdict, confidence: float, prob_fake: float,
     prob_cnn: float, threshold_used: float, image_hash: str,
     processing_time_ms: int, model_version: str,
@@ -171,7 +185,7 @@ async def create_detection(
     user_agent: Optional[str] = None, ip_address: Optional[str] = None,
 ) -> Detection:
     det = Detection(
-        tenant_id=tenant_id, api_key_id=api_key_id,
+        tenant_id=tenant_id, api_key_id=api_key_id, source=source,
         verdict=verdict, confidence=confidence, prob_fake=prob_fake,
         prob_cnn=prob_cnn, spatial_score=spatial_score,
         frequency_score=frequency_score, threshold_used=threshold_used,
