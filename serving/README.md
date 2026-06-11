@@ -40,6 +40,27 @@ uvicorn serving.liveness_server:app --host 0.0.0.0 --port 8502
 
 Smoke nhanh: `curl localhost:8501/health` và `curl -F "file=@anh.jpg" localhost:8501/predict`.
 
+## Cập nhật / re-deploy (1 lệnh)
+
+`serving/redeploy.sh` lo trọn vòng cập nhật trên máy đã deploy (EC2 hoặc local):
+
+```bash
+serving/redeploy.sh code                              # update code: git pull + pip (nếu requirements đổi) + restart
+serving/redeploy.sh model sfdct <NGUỒN> [VERSION]     # thay model: tải ckpt mới, backup bản cũ, swap, restart
+serving/redeploy.sh rollback sfdct                    # model mới tệ → quay về ckpt cũ ngay (hoán đổi với .bak)
+serving/redeploy.sh restart                           # chỉ restart cả 2 server
+```
+
+- `<NGUỒN>` nhận file `.pth` local **hoặc** path trong HF `huanthuytnhh/deepfake`
+  (vd: `runs/<run-mới>/ckpt/efficientnetb4_sfdct/ckpt_best.pth`).
+- Trước khi swap, script **kiểm tra ckpt load được bằng torch** — file hỏng/sai không bao giờ
+  đè lên model đang chạy; bản cũ luôn còn ở `*.bak` để rollback.
+- `[VERSION]` (tuỳ chọn) cập nhật nhãn `model_version` trả về ở `/health`, ghi vào
+  `serving/serving.env` (không commit; mẫu ở `serving.env.example`). systemd nhận file env này
+  khi unit có dòng `EnvironmentFile=-/home/ubuntu/deepguard/app/serving/serving.env`.
+- Restart: tự dùng `systemctl restart deepguard-sfdct|deepguard-liveness` nếu có unit;
+  không có (chạy tay) thì in lệnh `uvicorn` để chạy lại.
+
 ## Ghi chú kỹ thuật
 
 - `serving/naive_sfdct/config.yaml` đặt `pretrained: null`: serving KHÔNG cần file

@@ -30,6 +30,7 @@ ENV/
 # Keep .env.example but not actual .env (secrets)
 backend/.env
 deepguard_db/.env
+serving/serving.env
 
 # Database
 *.db
