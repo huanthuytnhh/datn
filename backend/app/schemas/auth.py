@@ -17,6 +17,20 @@ class RegisterPendingResponse(BaseModel):
     tenant_id: uuid.UUID
 
 
+class AcceptInviteRequest(BaseModel):
+    token: str = Field(..., min_length=10)
+    password: str = Field(..., min_length=8, max_length=128)
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+class InviteInfoResponse(BaseModel):
+    valid: bool
+    email: Optional[str] = None
+    role: Optional[str] = None
+    tenant_name: Optional[str] = None
+    reason: Optional[str] = None   # lý do nếu invalid (hết hạn / đã dùng / không tồn tại)
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str

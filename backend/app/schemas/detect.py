@@ -6,6 +6,15 @@ from pydantic import BaseModel
 
 class DetectionResponse(BaseModel):
     request_id: uuid.UUID
+    # ── Tín hiệu rủi ro (định vị eKYC — khách dùng cái này) ──
+    risk_score: float                          # P(deepfake) đã calibrate ∈ [0,1]
+    risk_band: str                             # low | medium | high (theo ngưỡng per-tenant)
+    decision_hint: str                         # pass | review | reject (GỢI Ý, không phải quyết định cuối)
+    thresholds: dict = {}                      # ngưỡng band đang dùng {low, high}
+    # ── Giải thích (nhìn chuyên nghiệp) ──
+    heatmap: Optional[str] = None              # Grad-CAM overlay (base64) — vùng nghi vấn
+    frequency: Optional[str] = None            # phổ log|2D-DCT| (base64) — bằng chứng tần số
+    # ── Tương thích ngược + chi tiết ──
     verdict: str
     confidence: float
     prob_fake: float
@@ -19,7 +28,6 @@ class DetectionResponse(BaseModel):
     image_width: Optional[int] = None
     image_height: Optional[int] = None
     created_at: datetime
-    heatmap: Optional[str] = None   # Grad-CAM overlay (base64 data URL) — từ SFDCT microservice
 
     model_config = {"from_attributes": True}
 
@@ -33,6 +41,7 @@ class DetectionListItem(BaseModel):
     model_version: str
     image_hash: str
     created_at: datetime
+    source: str = "api"  # 'api' | 'playground'
 
     model_config = {"from_attributes": True}
 

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,7 @@ from deepguard_db.app.db import crud
 from deepguard_db.app.db.models import User, DetectionVerdict, Detection, ApiKey, Tenant
 
 from app.core.exceptions import not_found
+from app.core.audit import audit
 from app.dependencies import require_role
 from app.schemas.detect import (
     AuditNoteCreate,
@@ -112,6 +113,7 @@ async def get_detection_detail(
 async def add_audit_note(
     request_id: uuid.UUID,
     payload: AuditNoteCreate,
+    request: Request,
     current_user: User = Depends(require_role("admin", "compliance")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -127,6 +129,8 @@ async def add_audit_note(
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     d.audit_notes = notes
+    await audit(db, request, action="detection.note_added", resource_type="detection",
+                user=current_user, resource_id=request_id)
     await db.commit()
     await db.refresh(d)
     return _to_detail(d)

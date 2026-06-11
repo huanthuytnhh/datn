@@ -11,6 +11,8 @@ from deepguard_db.app.db.models import ApiKey, DetectionVerdict, JobType, JobSta
 from app.config import get_settings
 from app.dependencies import get_api_key_auth
 from app.services.ml_inference import run_inference, run_video_inference
+from app.services.ml_model import frequency_viz
+from app.services.risk import to_risk_score, risk_band, decision_hint, thresholds_dict
 
 settings = get_settings()
 from app.schemas.detect import DetectionResponse, DetectionListItem, VideoDetectionResponse, FrameResult
@@ -41,6 +43,11 @@ async def detect_image(
         raise bad_request("File size exceeds 10 MB limit")
 
     result = await run_inference(image_bytes)
+
+    # ── Tín hiệu rủi ro (định vị eKYC) — calibrate prob_fake → risk_score + band + gợi ý ──
+    risk = to_risk_score(result.prob_fake)
+    band = risk_band(risk)
+    freq = frequency_viz(image_bytes)   # phổ log|2D-DCT| (bằng chứng tần số, nhìn chuyên nghiệp)
 
     verdict_enum = DetectionVerdict(result.verdict)
     detection = await crud.create_detection(
@@ -76,6 +83,15 @@ async def detect_image(
 
     return DetectionResponse(
         request_id=detection.request_id,
+        # ── Tín hiệu rủi ro (khách eKYC dùng cái này) ──
+        risk_score=risk,
+        risk_band=band,
+        decision_hint=decision_hint(band),
+        thresholds=thresholds_dict(),
+        # ── Giải thích (nhìn chuyên nghiệp) ──
+        heatmap=result.heatmap,   # Grad-CAM overlay (base64) — vùng nghi vấn
+        frequency=freq,           # phổ log|2D-DCT| (base64) — bằng chứng tần số
+        # ── Tương thích ngược + chi tiết ──
         verdict=detection.verdict.value,
         confidence=detection.confidence,
         prob_fake=detection.prob_fake,
@@ -89,7 +105,6 @@ async def detect_image(
         image_width=detection.image_width,
         image_height=detection.image_height,
         created_at=detection.created_at,
-        heatmap=result.heatmap,   # Grad-CAM overlay (base64) cho UI
     )
 
 
@@ -211,8 +226,16 @@ async def get_result(
     if not detection:
         raise not_found("Detection result")
 
+    # Tái tạo tín hiệu rủi ro từ prob_fake đã lưu (frequency/heatmap không lưu DB → bỏ qua khi xem lại)
+    risk = to_risk_score(detection.prob_fake)
+    band = risk_band(risk)
+
     return DetectionResponse(
         request_id=detection.request_id,
+        risk_score=risk,
+        risk_band=band,
+        decision_hint=decision_hint(band),
+        thresholds=thresholds_dict(),
         verdict=detection.verdict.value,
         confidence=detection.confidence,
         prob_fake=detection.prob_fake,

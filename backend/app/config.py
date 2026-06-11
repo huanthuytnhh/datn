@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # Khi set -> backend gọi microservice SFDCT (DeepfakeBench) thay vì model nội bộ.
     # Vd: SFDCT_INFER_URL=http://127.0.0.1:8501
     SFDCT_INFER_URL: str = ""
+    # Liveness microservice (DeepfakeBench liveness_server.py :8502)
+    LIVENESS_INFER_URL: str = ""
+    # threshold@dev_eer từ metrics_liveness.json (B4, AUC=0.9829)
+    LIVENESS_THRESHOLD: float = 0.8743
 
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 

@@ -3,13 +3,14 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
 from deepguard_db.app.db import crud
 from deepguard_db.app.db.models import Invitation, User, UserRole
+from app.core.audit import audit
 
 from app.core.exceptions import bad_request, conflict, forbidden, not_found
 from app.core.security import hash_password
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.post("/invite", response_model=InviteUserResponse, status_code=201)
 async def invite_user(
     body: InviteUserRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -68,6 +70,10 @@ async def invite_user(
     db.add(inv)
     await db.commit()
     await db.refresh(inv)
+    await audit(db, request, action="user.invited", resource_type="invitation",
+                user=current_user, resource_id=inv.id,
+                metadata={"email": inv.email, "role": inv.role.value})
+    await db.commit()
 
     return InviteUserResponse(
         invitation_id=inv.id,
@@ -75,7 +81,7 @@ async def invite_user(
         role=inv.role.value,
         token=inv.token,
         expires_at=inv.expires_at,
-        invite_url=f"/auth/accept-invite?token={token}",
+        invite_url=f"/?invite={token}",   # SPA 1-route: FE phát hiện ?invite= → trang accept-invite
     )
 
 

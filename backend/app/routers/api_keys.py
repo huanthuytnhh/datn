@@ -1,7 +1,7 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
@@ -9,6 +9,7 @@ from deepguard_db.app.db import crud
 from deepguard_db.app.db.models import User
 
 from app.dependencies import require_role
+from app.core.audit import audit
 from app.schemas.api_keys import CreateApiKeyRequest, ApiKeyCreated, ApiKeyOut, UpdateApiKeyRequest
 from app.core.exceptions import bad_request, not_found, forbidden
 
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 @router.post("", response_model=ApiKeyCreated, status_code=201)
 async def create_api_key(
     body: CreateApiKeyRequest,
+    request: Request,
     current_user: User = Depends(require_role("admin", "developer")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -28,6 +30,9 @@ async def create_api_key(
         quota_limit=body.quota_limit,
         rate_limit_rpm=body.rate_limit_rpm,
     )
+    await audit(db, request, action="api_key.created", resource_type="api_key",
+                user=current_user, resource_id=api_key.id,
+                metadata={"name": api_key.name, "prefix": api_key.prefix})
     await db.commit()
 
     return ApiKeyCreated(
@@ -78,6 +83,7 @@ async def get_api_key(
 async def update_api_key(
     key_id: uuid.UUID,
     body: UpdateApiKeyRequest,
+    request: Request,
     current_user: User = Depends(require_role("admin", "developer")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -114,6 +120,8 @@ async def update_api_key(
             raise bad_request("Use DELETE /api-keys/{id} to revoke")
         key.status = new_status
 
+    await audit(db, request, action="api_key.updated", resource_type="api_key",
+                user=current_user, resource_id=key.id, metadata={"prefix": key.prefix})
     await db.commit()
     await db.refresh(key)
     return ApiKeyOut.model_validate(key)
@@ -122,6 +130,7 @@ async def update_api_key(
 @router.delete("/{key_id}", status_code=204)
 async def revoke_api_key(
     key_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(require_role("admin", "developer")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -139,4 +148,6 @@ async def revoke_api_key(
         raise not_found("API key")
 
     await crud.revoke_api_key(db, key_id)
+    await audit(db, request, action="api_key.revoked", resource_type="api_key",
+                user=current_user, resource_id=key_id, metadata={"prefix": key.prefix})
     await db.commit()

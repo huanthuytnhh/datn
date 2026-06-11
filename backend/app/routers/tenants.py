@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
@@ -6,6 +6,7 @@ from deepguard_db.app.db import crud
 from deepguard_db.app.db.models import User
 
 from app.core.exceptions import not_found
+from app.core.audit import audit
 from app.dependencies import require_role
 from app.schemas.users import TenantOut, UpdateTenantRequest
 
@@ -37,6 +38,7 @@ async def get_current_tenant(
 @router.patch("", response_model=TenantOut)
 async def update_tenant(
     body: UpdateTenantRequest,
+    request: Request,
     current_user: User = Depends(require_role("admin", "sysadmin")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -55,6 +57,9 @@ async def update_tenant(
         merged.update(body.metadata)
         tenant.metadata_ = merged
 
+    await audit(db, request, action="tenant.updated", resource_type="tenant",
+                user=current_user, resource_id=tenant.id,
+                metadata={"name": tenant.name, "billing_email": tenant.billing_email})
     await db.commit()
     await db.refresh(tenant)
 

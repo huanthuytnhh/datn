@@ -91,17 +91,47 @@ def _verdict_from_score(score: float, threshold: float = LIVENESS_THRESHOLD) -> 
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Real inference stub — wire vào MiniFASNet hoặc DeepPixBiS khi có checkpoint
+# Real inference — gọi liveness microservice (port 8502) qua HTTP
 # ─────────────────────────────────────────────────────────────────────────────
 def _real_liveness(image_bytes: bytes) -> LivenessResult:
-    """
-    TODO: load Silent-Face-Anti-Spoofing MiniFASNet model.
-    Hiện tại fallback sang mock vì chưa có checkpoint trong settings.
-    """
-    # Khi có checkpoint thật: load via torch.load(settings.LIVENESS_MODEL_PATH),
-    # crop face với MTCNN (share từ ml_inference._get_detector()),
-    # forward qua MiniFASNet → softmax → score = P(live).
-    return _mock_liveness(image_bytes)
+    """Gọi liveness_server.py qua HTTP. Fallback mock nếu service down."""
+    import httpx
+    start = time.perf_counter()
+    image_hash = hashlib.sha256(image_bytes).hexdigest()
+    try:
+        w, h = Image.open(io.BytesIO(image_bytes)).convert("RGB").size
+    except Exception:
+        w, h = None, None
+    try:
+        r = httpx.post(
+            settings.LIVENESS_INFER_URL.rstrip("/") + "/predict",
+            files={"file": ("upload.jpg", image_bytes, "image/jpeg")},
+            timeout=60.0,
+        )
+        r.raise_for_status()
+        j = r.json()
+    except Exception:
+        return _mock_liveness(image_bytes)
+
+    score = float(j.get("liveness_score", 0.5))
+    threshold = settings.LIVENESS_THRESHOLD
+    verdict, confidence = _verdict_from_score(score, threshold)
+    spoof_type = None if verdict == "LIVE" else "unknown"
+    elapsed = int((time.perf_counter() - start) * 1000)
+
+    return LivenessResult(
+        verdict=verdict,
+        liveness_score=round(score, 4),
+        confidence=confidence,
+        spoof_type=spoof_type,
+        threshold_used=threshold,
+        processing_time_ms=elapsed + j.get("processing_time_ms", 0),
+        model_version=j.get("model_version", "b4-liveness"),
+        image_width=w,
+        image_height=h,
+        image_hash=image_hash,
+        image_thumb=_encode_thumb(image_bytes),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -206,9 +236,9 @@ def _aggregate_frames(
 # ─────────────────────────────────────────────────────────────────────────────
 async def run_liveness_check(image_bytes: bytes) -> LivenessResult:
     """Passive liveness — 1 frame → kết quả."""
-    if settings.MOCK_ML or not settings.MODEL_PATH:
-        return _mock_liveness(image_bytes)
-    return _real_liveness(image_bytes)
+    if settings.LIVENESS_INFER_URL:
+        return _real_liveness(image_bytes)
+    return _mock_liveness(image_bytes)
 
 
 async def run_active_liveness(
@@ -219,10 +249,10 @@ async def run_active_liveness(
     """Active liveness — list of frames + đã verify challenge ở client → aggregate."""
     per_frame: list[LivenessResult] = []
     for fb in frames:
-        if settings.MOCK_ML or not settings.MODEL_PATH:
-            per_frame.append(_mock_liveness(fb))
-        else:
+        if settings.LIVENESS_INFER_URL:
             per_frame.append(_real_liveness(fb))
+        else:
+            per_frame.append(_mock_liveness(fb))
     return _aggregate_frames(per_frame, challenge_type, challenge_passed)
 
 

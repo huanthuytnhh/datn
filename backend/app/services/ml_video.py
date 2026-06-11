@@ -128,6 +128,91 @@ def _real_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
     }
 
 
+# Số frame tối đa gửi sang microservice SFDCT (chặn video dài làm nghẽn :8501).
+SFDCT_MAX_FRAMES = 60
+
+
+def _sfdct_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
+    """Video inference qua microservice SFDCT (model THẬT của thesis, :8501) — KHÔNG dùng best_model.
+    MTCNN-crop từng frame mẫu -> POST /predict -> aggregate. Service down -> fallback mock (không chặn API).
+    """
+    import cv2
+    import httpx
+    import tempfile
+    import os
+
+    url = settings.SFDCT_INFER_URL.rstrip("/") + "/predict"
+    detector = _get_detector()
+
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        f.write(video_bytes)
+        tmp_path = f.name
+
+    frame_results: list[dict] = []
+    service_errors = 0
+    truncated = False
+    try:
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            raise ValueError("Cannot open video file")
+        frame_id = 0
+        with httpx.Client(timeout=60.0) as client:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                if frame_id % sample_rate == 0:
+                    if len(frame_results) >= SFDCT_MAX_FRAMES:
+                        truncated = True
+                        break
+                    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    face = _crop_face(img_rgb, detector)
+                    if face is not None:
+                        ok, buf = cv2.imencode(".jpg", cv2.cvtColor(face, cv2.COLOR_RGB2BGR))
+                        if ok:
+                            try:
+                                r = client.post(url, files={"file": ("frame.jpg", buf.tobytes(), "image/jpeg")})
+                                r.raise_for_status()
+                                prob = float(r.json().get("prob_fake", 0.0))
+                                frame_results.append({
+                                    "frame_id":  frame_id,
+                                    "prob_fake": round(prob, 4),
+                                    "prob_cnn":  round(prob, 4),
+                                    "thumb":     _encode_thumb_bgr(frame),
+                                })
+                            except Exception:
+                                service_errors += 1
+                frame_id += 1
+        cap.release()
+    finally:
+        os.unlink(tmp_path)
+
+    if truncated:
+        print(f"[DeepGuard] video: cắt còn {SFDCT_MAX_FRAMES} frame gửi SFDCT (video dài, sample_rate={sample_rate}).")
+
+    if not frame_results:
+        if service_errors:                       # SFDCT down -> fallback mock (giống _sfdct_inference cho ảnh)
+            print(f"[DeepGuard] SFDCT :8501 lỗi {service_errors} frame -> fallback mock video.")
+            return _mock_inference_video(video_bytes, sample_rate)
+        return {                                 # mở được video nhưng không detect được mặt nào
+            "verdict": "UNCERTAIN", "confidence": 50.0, "prob_fake": 0.5,
+            "frames_analyzed": 0, "frames_fake": 0, "frame_results": [],
+        }
+
+    fake_probs = [d["prob_fake"] for d in frame_results]
+    avg_prob   = float(np.mean(fake_probs))
+    verdict, confidence = _verdict_from_prob(avg_prob, settings.MODEL_THRESHOLD)
+    n_fake = sum(1 for p in fake_probs if p >= settings.MODEL_THRESHOLD)
+    return {
+        "verdict":         verdict,
+        "confidence":      confidence,
+        "prob_fake":       round(avg_prob, 4),
+        "frames_analyzed": len(frame_results),
+        "frames_fake":     n_fake,
+        "frame_results":   frame_results,
+    }
+
+
 def _mock_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
     image_hash = hashlib.sha256(video_bytes).hexdigest()
     seed = int(image_hash[:8], 16)

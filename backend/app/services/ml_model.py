@@ -19,6 +19,10 @@ USE_FREQ       = True
 FREQ_WEIGHT    = 0.25
 UNCERTAIN_MARGIN = 0.10
 
+# Cache (model, transforms, detector) theo (model_path, device). PHẢI khởi tạo ở module level —
+# bị rơi mất khi tách file từ ml_inference.py, gây NameError ở real/video inference.
+_model_cache: dict = {}
+
 
 def _get_model_and_transforms(model_path: str, device):
     """Load model + transforms lần đầu, cache lại."""
@@ -160,5 +164,28 @@ def _encode_image_thumb(image_bytes: bytes, max_dim: int = 320, quality: int = 8
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=quality, optimize=True)
         return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return None
+
+
+def frequency_viz(image_bytes: bytes, size: int = 256) -> Optional[str]:
+    """Phổ log|2D-DCT| của ảnh (colormap JET) → base64 PNG — bằng chứng tần số 'nhìn chuyên nghiệp'.
+    Dùng cv2 (DCT + applyColorMap), không cần matplotlib. Góc trên-trái = DC (tần thấp)."""
+    import base64
+    try:
+        import cv2
+        arr = np.frombuffer(image_bytes, np.uint8)
+        gray = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+        if gray is None:
+            return None
+        g = cv2.resize(gray, (size, size)).astype(np.float32)
+        spec = np.log1p(np.abs(cv2.dct(g)))               # log-magnitude block? -> full-image DCT
+        lo, hi = np.percentile(spec, 2), np.percentile(spec, 82)   # stretch → hiện rainbow speckle
+        u8 = (np.clip((spec - lo) / max(hi - lo, 1e-6), 0, 1) * 255).astype(np.uint8)
+        cm = cv2.applyColorMap(u8, cv2.COLORMAP_JET)
+        ok, png = cv2.imencode(".png", cm)
+        if not ok:
+            return None
+        return "data:image/png;base64," + base64.b64encode(png.tobytes()).decode("ascii")
     except Exception:
         return None

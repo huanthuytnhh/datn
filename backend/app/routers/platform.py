@@ -8,17 +8,20 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
 from deepguard_db.app.db import crud
-from deepguard_db.app.db.models import User, ApiKey, TenantPlan, TenantStatus
+from deepguard_db.app.db.models import User, ApiKey, TenantPlan, TenantStatus, UserRole
 
-from app.core.exceptions import bad_request, not_found
+from app.core.exceptions import bad_request, conflict, not_found
+from app.core.security import hash_password
+from app.core.audit import audit
 from app.dependencies import require_sysadmin
+from app.routers._users_helpers import _gen_temp_password
 from app.schemas.common import Paginated
 
 router = APIRouter(tags=["platform"])
@@ -51,6 +54,20 @@ class UpdateTenantAdminRequest(BaseModel):
     monthly_quota: Optional[int] = None
 
 
+class CreateTenantRequest(BaseModel):
+    name: str
+    admin_email: str
+    admin_name: Optional[str] = None
+    plan: str = "starter"
+    monthly_quota: int = 1000
+
+
+class CreateTenantResponse(BaseModel):
+    tenant: TenantListItem
+    admin_email: str
+    temp_password: str   # hiện 1 lần — admin mới buộc đổi mật khẩu lần đầu
+
+
 @router.get("/tenants", response_model=Paginated[TenantListItem])
 async def list_all_tenants(
     page: int = Query(default=1, ge=1),
@@ -68,10 +85,59 @@ async def list_all_tenants(
     )
 
 
+@router.post("/tenants", response_model=CreateTenantResponse, status_code=201)
+async def create_tenant_admin(
+    body: CreateTenantRequest,
+    current_user: User = Depends(require_sysadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sysadmin tạo tenant MỚI + tài khoản admin đầu tiên (ACTIVE ngay, khác self-register).
+    Trả mật khẩu tạm 1 lần; admin mới buộc đổi mật khẩu lần đầu."""
+    if body.plan not in {p.value for p in TenantPlan}:
+        raise bad_request(f"Invalid plan: {body.plan}")
+    if body.monthly_quota < 0:
+        raise bad_request("monthly_quota must be >= 0")
+    if await crud.get_user_by_email(db, body.admin_email):
+        raise conflict("Email admin đã có tài khoản")
+
+    tenant = await crud.create_tenant(
+        db, name=body.name, admin_email=body.admin_email,
+        plan=body.plan, monthly_quota=body.monthly_quota,
+    )
+    tenant.status = TenantStatus.ACTIVE   # sysadmin tạo → kích hoạt ngay
+
+    temp = _gen_temp_password()
+    admin = await crud.create_user(
+        db, tenant_id=tenant.id, email=body.admin_email,
+        password_hash=hash_password(temp),
+        name=body.admin_name or body.admin_email, role=UserRole.ADMIN,
+    )
+    admin.must_change_password = True
+    await db.commit()
+    await crud.write_audit_log(
+        db, action="platform.create_tenant", resource_type="tenant",
+        tenant_id=tenant.id, user_id=current_user.id, resource_id=tenant.id,
+    )
+    await db.commit()
+    await db.refresh(tenant)
+
+    return CreateTenantResponse(
+        tenant=TenantListItem(
+            id=tenant.id, name=tenant.name, plan=tenant.plan.value,
+            status=tenant.status.value, monthly_quota=tenant.monthly_quota,
+            current_usage=tenant.current_usage, user_count=1,
+            created_at=tenant.created_at,
+        ),
+        admin_email=body.admin_email,
+        temp_password=temp,
+    )
+
+
 @router.patch("/tenants/{tenant_id}", response_model=TenantListItem)
 async def update_tenant_admin(
     tenant_id: uuid.UUID,
     body: UpdateTenantAdminRequest,
+    request: Request,
     current_user: User = Depends(require_sysadmin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -89,6 +155,13 @@ async def update_tenant_admin(
     )
     if not tenant:
         raise not_found("Tenant")
+    # Action theo verb để FE tô mức độ: suspend → warning; activate/approve → info
+    act = ("tenant.suspended" if body.status == "suspended"
+           else "tenant.activated" if body.status == "active"
+           else "platform.update_tenant")
+    await audit(db, request, action=act, resource_type="tenant",
+                user=current_user, resource_id=tenant.id,
+                metadata={"status": body.status, "plan": body.plan, "monthly_quota": body.monthly_quota})
     await db.commit()
     await db.refresh(tenant)
 

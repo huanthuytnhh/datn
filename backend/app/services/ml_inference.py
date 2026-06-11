@@ -16,7 +16,7 @@ from app.services.ml_model import (
     _get_model_and_transforms, _get_detector, _crop_face, _predict_face,
     _verdict_from_prob, _encode_image_thumb,
 )
-from app.services.ml_video import _real_inference_video, _mock_inference_video
+from app.services.ml_video import _real_inference_video, _mock_inference_video, _sfdct_inference_video
 
 settings = get_settings()
 
@@ -169,6 +169,8 @@ async def run_inference(image_bytes: bytes) -> InferenceResult:
 
 
 async def run_video_inference(video_bytes: bytes, sample_rate: int = 3) -> dict:
+    if settings.SFDCT_INFER_URL:                     # ưu tiên microservice SFDCT (model thật của thesis)
+        return _sfdct_inference_video(video_bytes, sample_rate)
     if settings.MOCK_ML or not settings.MODEL_PATH:
         return _mock_inference_video(video_bytes, sample_rate)
     return _real_inference_video(video_bytes, sample_rate)

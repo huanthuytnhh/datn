@@ -1,0 +1,141 @@
+"""playground.py — detect bằng JWT cho Playground trong dashboard (KHÔNG cần API key).
+
+Người dùng dashboard (admin/developer) test thử ngay sau khi login. Tách bạch với /v1/detect/*
+(API-key, dùng cho tích hợp ngoài). Ghi detections với source='playground' để hiện trong History
+với badge riêng — api_key_id = NULL (đã cho phép nullable ở schema).
+"""
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, UploadFile, File, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from deepguard_db.app.db.database import get_db
+from deepguard_db.app.db import crud
+from deepguard_db.app.db.models import User, DetectionVerdict
+
+from app.config import get_settings
+from app.dependencies import require_role
+from app.services.ml_inference import run_inference, run_video_inference
+from app.services.ml_model import frequency_viz
+from app.services.risk import to_risk_score, risk_band, decision_hint, thresholds_dict
+from app.schemas.detect import DetectionResponse, VideoDetectionResponse, FrameResult
+from app.core.exceptions import bad_request
+
+settings = get_settings()
+
+router = APIRouter(prefix="/playground", tags=["playground"])
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
+ALLOWED_VIDEO_TYPES = {"video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/webm"}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024    # 10 MB
+MAX_VIDEO_SIZE = 200 * 1024 * 1024   # 200 MB
+
+# Cùng tập role được xem trang Playground ở FE (rbac.ts)
+_playground_user = require_role("admin", "developer")
+
+
+@router.post("/detect/image", response_model=DetectionResponse)
+async def playground_detect_image(
+    file: UploadFile = File(...),
+    threshold: float = Query(default=None, ge=0.0, le=1.0, description="Override detection threshold"),
+    current_user: User = Depends(_playground_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise bad_request(f"Unsupported file type: {file.content_type}")
+    image_bytes = await file.read()
+    if len(image_bytes) > MAX_IMAGE_SIZE:
+        raise bad_request("File size exceeds 10 MB limit")
+
+    result = await run_inference(image_bytes)
+
+    risk = to_risk_score(result.prob_fake)
+    band = risk_band(risk)
+    freq = frequency_viz(image_bytes)
+
+    import hashlib
+    image_hash = hashlib.sha256(image_bytes).hexdigest()
+
+    # Ghi vào detections với source='playground', api_key_id=None
+    det = await crud.create_detection(
+        db,
+        tenant_id=current_user.tenant_id,
+        api_key_id=None,
+        source="playground",
+        verdict=DetectionVerdict(result.verdict),
+        confidence=result.confidence,
+        prob_fake=result.prob_fake,
+        prob_cnn=result.prob_cnn,
+        spatial_score=result.spatial_score,
+        frequency_score=result.frequency_score,
+        threshold_used=result.threshold_used,
+        image_hash=image_hash,
+        image_width=result.image_width,
+        image_height=result.image_height,
+        processing_time_ms=result.processing_time_ms,
+        model_version=result.model_version,
+        user_agent=file.filename,
+    )
+    await crud.increment_tenant_usage(db, current_user.tenant_id)
+    await db.commit()
+
+    return DetectionResponse(
+        request_id=det.request_id,
+        risk_score=risk,
+        risk_band=band,
+        decision_hint=decision_hint(band),
+        thresholds=thresholds_dict(),
+        heatmap=result.heatmap,
+        frequency=freq,
+        verdict=result.verdict,
+        confidence=result.confidence,
+        prob_fake=result.prob_fake,
+        prob_cnn=result.prob_cnn,
+        spatial_score=result.spatial_score,
+        frequency_score=result.frequency_score,
+        threshold_used=result.threshold_used,
+        face_detected=result.face_detected,
+        processing_time_ms=result.processing_time_ms,
+        model_version=result.model_version,
+        image_width=result.image_width,
+        image_height=result.image_height,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+@router.post("/detect/video", response_model=VideoDetectionResponse)
+async def playground_detect_video(
+    file: UploadFile = File(...),
+    sample_rate: int = Query(default=3, ge=1, le=30, description="Process every Nth frame"),
+    current_user: User = Depends(_playground_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if file.content_type not in ALLOWED_VIDEO_TYPES:
+        raise bad_request(f"Unsupported video type: {file.content_type}")
+    video_bytes = await file.read()
+    if len(video_bytes) > MAX_VIDEO_SIZE:
+        raise bad_request("Video size exceeds 200 MB limit")
+
+    start_ts = datetime.now(timezone.utc)
+    try:
+        result = await run_video_inference(video_bytes, sample_rate=sample_rate)
+    except Exception as exc:
+        raise bad_request(f"Video inference failed: {exc}")
+
+    processing_ms = int((datetime.now(timezone.utc) - start_ts).total_seconds() * 1000)
+    await crud.increment_tenant_usage(db, current_user.tenant_id)
+    await db.commit()
+
+    return VideoDetectionResponse(
+        job_id=uuid.uuid4(),
+        verdict=result["verdict"],
+        confidence=result["confidence"],
+        prob_fake=result["prob_fake"],
+        frames_analyzed=result["frames_analyzed"],
+        frames_fake=result["frames_fake"],
+        frame_results=[FrameResult(**f) for f in result["frame_results"]],
+        model_version=settings.MODEL_VERSION,
+        processing_time_ms=processing_ms,
+        created_at=start_ts,
+    )

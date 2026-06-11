@@ -2,7 +2,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +12,7 @@ from deepguard_db.app.db.models import Invitation, User, UserRole
 
 from app.core.exceptions import bad_request, conflict, forbidden, not_found
 from app.core.security import hash_password
+from app.core.audit import audit
 from app.dependencies import get_current_user
 from app.schemas.users import (
     CreateUserRequest,
@@ -65,6 +66,7 @@ async def list_users(
 @router.post("", response_model=UserListItem, status_code=201)
 async def create_user_direct(
     body: CreateUserRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -97,6 +99,9 @@ async def create_user_direct(
     )
     # Mật khẩu admin cấp là TẠM THỜI → buộc nhân viên đổi khi đăng nhập lần đầu
     user.must_change_password = True
+    await audit(db, request, action="user.created", resource_type="user",
+                user=current_user, resource_id=user.id,
+                metadata={"email": user.email, "role": user.role.value})
     await db.commit()
     await db.refresh(user)
     return UserListItem(
@@ -110,6 +115,7 @@ async def create_user_direct(
 async def update_user(
     user_id: uuid.UUID,
     body: UpdateUserRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -146,6 +152,9 @@ async def update_user(
     if body.is_active is not None:
         user.is_active = body.is_active
 
+    await audit(db, request, action="user.updated", resource_type="user",
+                user=current_user, resource_id=user.id,
+                metadata={"email": user.email, "role": user.role.value, "is_active": user.is_active})
     await db.commit()
     await db.refresh(user)
     return UserListItem(
@@ -158,6 +167,7 @@ async def update_user(
 @router.delete("/{user_id}", status_code=204)
 async def delete_user(
     user_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -182,4 +192,7 @@ async def delete_user(
 
     user.deleted_at = datetime.now(timezone.utc)
     user.is_active = False
+    await audit(db, request, action="user.deleted", resource_type="user",
+                user=current_user, resource_id=user.id,
+                metadata={"email": user.email, "role": user.role.value})
     await db.commit()
