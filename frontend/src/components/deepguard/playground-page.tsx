@@ -2,14 +2,13 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import {
-  detectImage,
-  detectVideo,
+  playgroundDetectImage,
+  playgroundDetectVideo,
   type DetectionResponse,
   type VideoDetectionResponse,
 } from '@/lib/api';
-import { useAuthStore } from '@/store/auth';
 import { Icon, ScoreBar, Gauge, CodeBlock } from '@/components/deepguard/shared';
-import { DG, verdictStyle } from '@/lib/dg';
+import { DG, verdictStyle, riskBandStyle } from '@/lib/dg';
 
 /* ────────────────────────────────────────────────────────────────
    Sample presets — wired as real file inputs to detectImage when the
@@ -26,6 +25,12 @@ function resultToJSON(r: DetectionResponse): string {
   return JSON.stringify(
     {
       request_id: r.request_id,
+      // Tín hiệu rủi ro (khách eKYC dùng cái này)
+      risk_score: +(r.risk_score ?? r.prob_fake ?? 0).toFixed(4),
+      risk_band: r.risk_band ?? null,
+      decision_hint: r.decision_hint ?? null,
+      thresholds: r.thresholds ?? null,
+      // Chi tiết / tương thích ngược
       verdict: r.verdict,
       confidence: r.confidence,
       prob_fake: +(r.prob_fake ?? 0).toFixed(4),
@@ -141,6 +146,35 @@ async function extractFrameThumbs(
   }
 }
 
+/* Thumbnail data URL BỀN (base64) cho Recent runs — KHÔNG dùng blob: URL vì blob bị revoke
+   khi chọn file kế tiếp / reload trang -> ERR_FILE_NOT_FOUND. */
+async function fileToThumbDataUrl(file: File, max = 72): Promise<string> {
+  if (!file.type.startsWith('image/')) return '';
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('image load error'));
+      im.src = url;
+    });
+    const w = img.width || max;
+    const h = img.height || max;
+    const scale = Math.min(max / w, max / h, 1);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch {
+    return '';
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /* ── Numbered section divider (V2) ── */
 function SectionDivider({ n, title }: { n: string; title: string }) {
   return (
@@ -153,7 +187,6 @@ function SectionDivider({ n, title }: { n: string; title: string }) {
 }
 
 export default function PlaygroundPage() {
-  const apiKey = useAuthStore((s) => s.apiKey);
   const [threshold, setThreshold] = useState(0.35);
   const [includeHeatmap, setIncludeHeatmap] = useState(true);
   const [codeTab, setCodeTab] = useState<'python' | 'curl' | 'js'>('python');
@@ -231,17 +264,13 @@ export default function PlaygroundPage() {
       setError('Vui lòng chọn file hoặc sample trước');
       return;
     }
-    if (!apiKey) {
-      setError('Chưa có API Key. Vào API Keys → tạo key → key sẽ tự lưu');
-      return;
-    }
     setError('');
     setResult(null);
     setVideoResult(null);
     setIsAnalyzing(true);
     try {
       if (isVideo) {
-        const res = await detectVideo(selectedFile, apiKey, 3);
+        const res = await playgroundDetectVideo(selectedFile, 3);
         setVideoResult(res);
         const thumbs: Record<number, string> = {};
         for (const fr of res.frame_results) {
@@ -263,14 +292,16 @@ export default function PlaygroundPage() {
             setExtracting(null);
           }
         }
+        const videoRunSrc = res.frame_results.find((f) => f.thumb)?.thumb ?? '';
         setRuns((p) =>
-          [{ name: selectedFile.name, src: previewUrl ?? '', verdict: res.verdict, confidence: res.confidence }, ...p].slice(0, 5),
+          [{ name: selectedFile.name, src: videoRunSrc, verdict: res.verdict, confidence: res.confidence }, ...p].slice(0, 5),
         );
       } else {
-        const res = await detectImage(selectedFile, apiKey, threshold);
+        const res = await playgroundDetectImage(selectedFile, threshold);
         setResult(res);
+        const imgRunSrc = await fileToThumbDataUrl(selectedFile);   // base64 bền, không phải blob
         setRuns((p) =>
-          [{ name: selectedFile.name, src: previewUrl ?? '', verdict: res.verdict, confidence: res.confidence }, ...p].slice(0, 5),
+          [{ name: selectedFile.name, src: imgRunSrc, verdict: res.verdict, confidence: res.confidence }, ...p].slice(0, 5),
         );
       }
     } catch (e: unknown) {
@@ -318,10 +349,15 @@ console.log(data);`;
     setTimeout(() => setCopied(false), 2000);
   };
 
-  /* ── Derived verdict state ── */
+  /* ── Derived verdict + risk-band state ── */
   const v = result?.verdict ?? videoResult?.verdict ?? null;
   const vStyle = v ? verdictStyle(v) : null;
-  const accentColor = vStyle?.color ?? '#94a3b8';
+  // Risk band (chỉ ảnh — định vị eKYC: trả tín hiệu rủi ro, không nhãn cứng)
+  const rBand = result?.risk_band ?? null;
+  const rStyle = rBand ? riskBandStyle(rBand) : null;
+  const riskScore = result?.risk_score ?? null;
+  // Accent: ưu tiên màu risk band cho ảnh; video vẫn theo verdict
+  const accentColor = rStyle?.color ?? vStyle?.color ?? '#94a3b8';
   const activeResult = result ?? videoResult;
   const jsonOutput = result ? resultToJSON(result) : videoResult ? videoToJSON(videoResult) : null;
 
@@ -346,6 +382,7 @@ console.log(data);`;
 
           {/* Drop zone */}
           <div
+            data-tour="pg-upload"
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => {
               e.preventDefault();
@@ -383,7 +420,7 @@ console.log(data);`;
 
           {/* Sample presets */}
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.14em] mb-2">Sample Presets</p>
-          <div className="grid grid-cols-3 gap-2 mb-5">
+          <div data-tour="pg-samples" className="grid grid-cols-3 gap-2 mb-5">
             {SAMPLES.map((s) => {
               const sel = activeSample === s.id;
               return (
@@ -419,7 +456,7 @@ console.log(data);`;
           <SectionDivider n="02" title="Parameters" />
 
           {/* Threshold slider */}
-          <div className="mb-5">
+          <div data-tour="pg-threshold" className="mb-5">
             <div className="flex justify-between items-center mb-2">
               <label className="text-xs font-bold text-slate-600">Threshold</label>
               <span className="text-xs font-mono font-bold text-dgblue bg-dgblue/5 px-2 py-0.5 rounded border border-dgblue/10 tabular-nums">
@@ -469,6 +506,7 @@ console.log(data);`;
 
           {/* Analyze CTA */}
           <button
+            data-tour="pg-analyze"
             onClick={handleAnalyze}
             disabled={isAnalyzing}
             className="w-full py-3.5 bg-dgblue text-white rounded-2xl font-black text-xs tracking-widest shadow-xl shadow-dgblue/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 group disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
@@ -604,26 +642,59 @@ console.log(data);`;
             {/* Result panel */}
             <div className="flex-1 min-w-0 w-full">
               <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">
-                Kết quả chẩn đoán
+                {result ? 'Điểm rủi ro deepfake' : 'Kết quả chẩn đoán'}
               </h4>
 
-              <div className="flex items-baseline gap-3 flex-wrap mb-1">
-                <span className="text-5xl font-black tracking-tighter leading-none" style={{ color: accentColor }}>
-                  {v ?? '—'}
-                </span>
-                {activeResult ? (
-                  <span className="text-xl font-bold text-slate-400 font-mono tabular-nums">
-                    {activeResult.confidence.toFixed(1)}%
+              {/* Ảnh → dẫn bằng risk-score (định vị eKYC); Video → dẫn bằng verdict */}
+              {result ? (
+                <>
+                  <div className="flex items-baseline gap-3 flex-wrap mb-2">
+                    <span className="text-5xl font-black tracking-tighter leading-none tabular-nums" style={{ color: accentColor }}>
+                      {riskScore != null ? Math.round(riskScore * 100) : '—'}
+                    </span>
+                    <span className="text-sm font-bold text-slate-400">/100</span>
+                    {rStyle && (
+                      <span
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black tracking-wide"
+                        style={{ color: rStyle.color, background: rStyle.bg, border: `1px solid ${rStyle.border}` }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: rStyle.dot }} />
+                        {rStyle.label}
+                      </span>
+                    )}
+                    <span className="ml-auto text-[10px] font-bold text-slate-500 font-mono bg-slate-100 px-2 py-1 rounded-md tabular-nums">
+                      {result.processing_time_ms}ms
+                    </span>
+                  </div>
+                  {rStyle && (
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">Gợi ý</span>
+                      <span className="text-[12px] font-bold" style={{ color: rStyle.color }}>{rStyle.hint}</span>
+                      <span className="text-[10px] text-slate-400">
+                        · verdict {v} ({result.confidence.toFixed(1)}%)
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-baseline gap-3 flex-wrap mb-1">
+                  <span className="text-5xl font-black tracking-tighter leading-none" style={{ color: accentColor }}>
+                    {v ?? '—'}
                   </span>
-                ) : (
-                  <span className="text-sm font-medium text-slate-400 self-center">Chọn media &amp; bấm Phân Tích</span>
-                )}
-                {activeResult && (
-                  <span className="ml-auto text-[10px] font-bold text-slate-500 font-mono bg-slate-100 px-2 py-1 rounded-md tabular-nums">
-                    {activeResult.processing_time_ms}ms
-                  </span>
-                )}
-              </div>
+                  {videoResult ? (
+                    <span className="text-xl font-bold text-slate-400 font-mono tabular-nums">
+                      {videoResult.confidence.toFixed(1)}%
+                    </span>
+                  ) : (
+                    <span className="text-sm font-medium text-slate-400 self-center">Chọn media &amp; bấm Phân Tích</span>
+                  )}
+                  {videoResult && (
+                    <span className="ml-auto text-[10px] font-bold text-slate-500 font-mono bg-slate-100 px-2 py-1 rounded-md tabular-nums">
+                      {videoResult.processing_time_ms}ms
+                    </span>
+                  )}
+                </div>
+              )}
 
               {result && (
                 <p className="text-[11px] text-slate-400 mb-5 leading-relaxed">
@@ -709,6 +780,65 @@ console.log(data);`;
             </div>
           </div>
         </div>
+
+        {/* Evidence — Grad-CAM + Frequency (chỉ ảnh, nhìn chuyên nghiệp) */}
+        {result && (result.heatmap || result.frequency) && (
+          <section className="glass-panel rounded-2xl p-5 shadow-sm border border-white">
+            <SectionDivider n="04" title="Bằng chứng trực quan" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Grad-CAM overlay */}
+              <figure className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 m-0">
+                <div className="aspect-square relative">
+                  {previewUrl && <img src={previewUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                  {result.heatmap ? (
+                    <img
+                      src={result.heatmap}
+                      alt="Grad-CAM"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-[11px] font-semibold text-slate-400">Heatmap không khả dụng</span>
+                    </div>
+                  )}
+                </div>
+                <figcaption className="px-3.5 py-2.5 bg-white border-t border-slate-100">
+                  <p className="text-[11px] font-black text-slate-700 flex items-center gap-1.5">
+                    <Icon name="blur_on" className="text-[15px] text-dgblue" /> Grad-CAM
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                    Vùng ảnh model tập trung khi quyết định (nóng = ảnh hưởng mạnh).
+                  </p>
+                </figcaption>
+              </figure>
+
+              {/* Frequency spectrum (2D-DCT) */}
+              <figure className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 m-0">
+                <div className="aspect-square relative">
+                  {result.frequency ? (
+                    <img
+                      src={result.frequency}
+                      alt="Phổ tần số 2D-DCT"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-[11px] font-semibold text-slate-400">Phổ tần số không khả dụng</span>
+                    </div>
+                  )}
+                </div>
+                <figcaption className="px-3.5 py-2.5 bg-white border-t border-slate-100">
+                  <p className="text-[11px] font-black text-slate-700 flex items-center gap-1.5">
+                    <Icon name="graphic_eq" className="text-[15px] text-dgblue" /> Phổ tần số (2D-DCT)
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                    log|DCT|: đốm/nhiễu ở dải tần cao thường lộ dấu vết tổng hợp GAN.
+                  </p>
+                </figcaption>
+              </figure>
+            </div>
+          </section>
+        )}
 
         {/* Output tabs: Visual / JSON */}
         <div className="glass-panel rounded-2xl shadow-sm border border-white overflow-hidden">
@@ -836,7 +966,7 @@ console.log(data);`;
         )}
 
         {/* Code snippet */}
-        <div className="rounded-2xl overflow-hidden shadow-sm border border-slate-800 bg-slate-900">
+        <div data-tour="pg-code" className="rounded-2xl overflow-hidden shadow-sm border border-slate-800 bg-slate-900">
           <div className="flex items-center justify-between px-5 py-3 bg-slate-800/50 border-b border-slate-700">
             <div className="flex gap-5">
               {(

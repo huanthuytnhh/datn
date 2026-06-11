@@ -465,6 +465,8 @@ interface PageMeta {
 const PAGE_META: Record<Page, PageMeta> = {
   landing: { label: 'Trang giới thiệu', desc: 'Trang công khai giới thiệu nền tảng.', icon: 'public' },
   login: { label: 'Đăng nhập', desc: 'Xác thực email/mật khẩu để vào dashboard.', icon: 'login' },
+  register: { label: 'Đăng ký', desc: 'Tạo tổ chức mới (chờ quản trị nền tảng duyệt).', icon: 'app_registration' },
+  'accept-invite': { label: 'Chấp nhận lời mời', desc: 'Đặt mật khẩu cho tài khoản được mời vào tổ chức.', icon: 'how_to_reg' },
   dashboard: { label: 'Dashboard', desc: 'Bảng điều khiển tổng quan, hiển thị theo vai trò.', icon: 'dashboard' },
   account: { label: 'Tài khoản', desc: 'Hồ sơ cá nhân, đổi mật khẩu, bảo mật.', icon: 'person' },
   notifications: { label: 'Thông báo', desc: 'Cảnh báo hệ thống, hạn mức, sự kiện.', icon: 'notifications' },

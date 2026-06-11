@@ -3,6 +3,8 @@ import { create } from 'zustand';
 export type Page =
   | 'login'
   | 'landing'
+  | 'register'
+  | 'accept-invite'
   | 'playground'
   | 'dashboard'
   | 'history'

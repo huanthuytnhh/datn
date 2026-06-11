@@ -684,6 +684,7 @@ export default function TeamPage() {
           </p>
         </div>
         <button
+          data-tour="tm-add"
           onClick={openCreate}
           className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
         >
@@ -722,7 +723,7 @@ export default function TeamPage() {
       </div>
 
       {/* tabs */}
-      <div className="flex items-center gap-1 dg-rise">
+      <div data-tour="tm-tabs" className="flex items-center gap-1 dg-rise">
         {(
           [
             ['members', 'Thành viên', 'group'],

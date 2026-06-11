@@ -25,6 +25,8 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const PAGE_ACCESS: Record<Page, Role[]> = {
   landing: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
   login: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
+  register: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],   // public standalone
+  'accept-invite': ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'], // public standalone
 
   dashboard: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
   account: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],

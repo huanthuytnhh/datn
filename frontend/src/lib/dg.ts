@@ -30,6 +30,20 @@ export const VERDICT_STYLE: Record<string, VerdictStyle> = {
 
 export const verdictStyle = (v: string): VerdictStyle => VERDICT_STYLE[v] ?? VERDICT_STYLE.UNCERTAIN;
 
+/* ── Risk band (định vị eKYC: trả tín hiệu rủi ro, không nhãn cứng) ── */
+export interface RiskBandStyle extends VerdictStyle {
+  label: string;   // nhãn hiển thị tiếng Việt
+  hint: string;    // gợi ý hành động (pass/review/reject)
+}
+
+export const RISK_BAND_STYLE: Record<string, RiskBandStyle> = {
+  low:    { color: DG.real,      bg: '#f0fdf4', border: '#bbf7d0', dot: DG.real,      label: 'RỦI RO THẤP',     hint: 'Cho qua' },
+  medium: { color: DG.uncertain, bg: '#fff7ed', border: '#fed7aa', dot: DG.uncertain, label: 'RỦI RO TRUNG BÌNH', hint: 'Cần xem xét' },
+  high:   { color: DG.fake,      bg: '#fef2f2', border: '#fecaca', dot: DG.fake,      label: 'RỦI RO CAO',      hint: 'Từ chối' },
+};
+
+export const riskBandStyle = (b: string): RiskBandStyle => RISK_BAND_STYLE[b] ?? RISK_BAND_STYLE.medium;
+
 /** Integer with thousands separators (vi-VN style grouping). */
 export function fmtInt(n: number): string {
   return Math.round(n).toLocaleString('en-US');

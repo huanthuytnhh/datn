@@ -5,6 +5,7 @@ import { Icon, StatPill, Donut } from '@/components/deepguard/shared';
 import { DG, fmtInt, timeAgo } from '@/lib/dg';
 import {
   tenantsList,
+  tenantsCreate,
   tenantUpdateById,
   tenantUsers,
   tenantApiKeys,
@@ -20,7 +21,10 @@ import { useAuthStore } from '@/store/auth';
    TYPES
    ────────────────────────────────────────────── */
 type Plan = 'Starter' | 'Pro' | 'Enterprise';
-type TenantStatus = 'active' | 'suspended';
+type TenantStatus = 'active' | 'suspended' | 'pending';
+
+/** Nhãn nút hành động theo trạng thái: pending → Duyệt; suspended → Kích hoạt; active → Suspend. */
+const statusActionLabel = (s: TenantStatus) => (s === 'active' ? 'Suspend' : s === 'pending' ? 'Duyệt' : 'Kích hoạt');
 
 /** Normalised view-model derived from the real TenantListItem. */
 interface Tenant {
@@ -44,7 +48,10 @@ function normPlan(p: string): Plan {
   return 'Starter';
 }
 function normStatus(s: string): TenantStatus {
-  return (s || '').toLowerCase() === 'suspended' ? 'suspended' : 'active';
+  const v = (s || '').toLowerCase();
+  if (v === 'suspended') return 'suspended';
+  if (v === 'pending') return 'pending';
+  return 'active';
 }
 function fmtDate(iso: string): string {
   if (!iso) return '—';
@@ -123,12 +130,23 @@ function PlanBadge({ plan }: { plan: Plan }) {
 }
 
 function StatusBadge({ status }: { status: TenantStatus }) {
-  return status === 'active' ? (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border bg-green-50 text-dgreal border-green-200">
-      <span className="w-1.5 h-1.5 rounded-full bg-dgreal animate-pulse" />
-      Active
-    </span>
-  ) : (
+  if (status === 'active') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border bg-green-50 text-dgreal border-green-200">
+        <span className="w-1.5 h-1.5 rounded-full bg-dgreal animate-pulse" />
+        Active
+      </span>
+    );
+  }
+  if (status === 'pending') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border bg-amber-50 text-dgwarn border-amber-200">
+        <span className="w-1.5 h-1.5 rounded-full bg-dgwarn animate-pulse" />
+        Chờ duyệt
+      </span>
+    );
+  }
+  return (
     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black tracking-wider border bg-red-50 text-dgfake border-red-200">
       <span className="w-1.5 h-1.5 rounded-full bg-dgfake" />
       Suspended
@@ -516,7 +534,7 @@ function TenantDetail({
             </div>
             <div className="flex justify-between text-[11px]">
               <span className="text-slate-500 font-medium">Trạng thái</span>
-              <span className="font-bold text-slate-700">{tenant.status === 'active' ? 'Active' : 'Suspended'}</span>
+              <span className="font-bold text-slate-700">{tenant.status === 'active' ? 'Active' : tenant.status === 'pending' ? 'Chờ duyệt' : 'Suspended'}</span>
             </div>
           </div>
         </div>
@@ -611,9 +629,9 @@ function TenantCard({
           <button
             onClick={() => onSuspend(tenant)}
             className="w-7 h-7 rounded-lg hover:bg-orange-50 flex items-center justify-center text-slate-400 hover:text-dgwarn transition-colors"
-            title={tenant.status === 'active' ? 'Suspend' : 'Activate'}
+            title={statusActionLabel(tenant.status)}
           >
-            <Icon name="block" className="text-[16px]" />
+            <Icon name={tenant.status === 'active' ? 'block' : 'check'} className="text-[16px]" />
           </button>
         </div>
       </div>
@@ -653,6 +671,8 @@ export default function TenantsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [createNotice, setCreateNotice] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createdResult, setCreatedResult] = useState<{ admin_email: string; temp_password: string } | null>(null);
   const [form, setForm] = useState<CreateForm>(emptyForm);
   const [wizStep, setWizStep] = useState(0);
   /** Per-tenant drill-down cache (users + api keys), keyed by tenant id. */
@@ -754,13 +774,32 @@ export default function TenantsPage() {
     setForm(emptyForm);
     setWizStep(0);
     setCreateNotice(false);
+    setCreatedResult(null);
     setShowCreate(true);
   };
 
-  /** No backend create endpoint yet → surface a notice instead of faking. */
-  const submitCreate = () => {
+  /** Tạo tenant qua POST /tenants (sysadmin). Tenant ACTIVE ngay + admin có mật khẩu tạm (hiện 1 lần). */
+  const submitCreate = async () => {
     if (!form.name.trim() || !form.email.trim()) return;
-    setCreateNotice(true);
+    setCreating(true);
+    setCreateNotice(false);
+    setActionError('');
+    try {
+      const res = await tenantsCreate({
+        name: form.name.trim(),
+        admin_email: form.email.trim(),
+        admin_name: form.adminName.trim() || undefined,
+        plan: form.plan.toLowerCase(),
+        monthly_quota: form.quota,
+      });
+      setCreatedResult({ admin_email: res.admin_email, temp_password: res.temp_password });
+      load();
+    } catch (e: unknown) {
+      setCreateNotice(true);
+      setActionError(e instanceof Error ? e.message : 'Tạo tenant thất bại');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const applyUpdate = async (
@@ -844,6 +883,7 @@ export default function TenantsPage() {
             ))}
           </div>
           <button
+            data-tour="tn-create"
             onClick={openCreate}
             className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
           >
@@ -853,7 +893,7 @@ export default function TenantsPage() {
       </div>
 
       {/* KPI summary — derived from real list */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-fade">
+      <div data-tour="tn-kpis" className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-fade">
         <StatPill label="Tổng tenants" value={kpis.total} color={DG.primary} icon="apartment" />
         <StatPill label="Đang hoạt động" value={kpis.active} color={DG.real} icon="check_circle" />
         <StatPill label="Tổng usage" value={fmtInt(kpis.totalUsage)} color={DG.primary} icon="data_usage" />
@@ -869,7 +909,7 @@ export default function TenantsPage() {
       )}
 
       {/* filter bar */}
-      <div className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-fade flex flex-wrap items-center gap-3">
+      <div data-tour="tn-filter" className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-fade flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
           <input
@@ -1018,8 +1058,8 @@ export default function TenantsPage() {
                               disabled={busy}
                               className="px-2.5 py-1.5 text-[10px] font-bold text-dgwarn bg-orange-50 border border-orange-100 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-1 disabled:opacity-50"
                             >
-                              <Icon name="block" className="text-[13px]" />
-                              {tn.status === 'active' ? 'Suspend' : 'Activate'}
+                              <Icon name={tn.status === 'active' ? 'block' : 'check'} className="text-[13px]" />
+                              {statusActionLabel(tn.status)}
                             </button>
                           </div>
                         </td>
@@ -1140,14 +1180,46 @@ export default function TenantsPage() {
 
           <div className="px-6 py-5 space-y-4 min-h-[220px] border-t border-slate-100">
             {createNotice && (
-              <div className="rounded-xl px-4 py-3 border border-amber-200 bg-amber-50 flex items-start gap-2.5 dg-fade">
-                <Icon name="info" className="text-[18px] text-dgwarn shrink-0 mt-0.5" />
-                <p className="text-[12px] font-semibold text-amber-700 leading-relaxed">
-                  Chức năng tạo tenant chưa khả dụng (cần POST /tenants).
+              <div className="rounded-xl px-4 py-3 border border-rose-200 bg-rose-50 flex items-start gap-2.5 dg-fade">
+                <Icon name="error" className="text-[18px] text-dgfake shrink-0 mt-0.5" />
+                <p className="text-[12px] font-semibold text-rose-700 leading-relaxed">
+                  {actionError || 'Tạo tenant thất bại.'}
                 </p>
               </div>
             )}
-            {wizStep === 0 && (
+            {createdResult && (
+              <div className="dg-fade space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-9 h-9 rounded-full bg-dgreal/10 border border-dgreal/20 flex items-center justify-center shrink-0">
+                    <Icon name="check_circle" className="text-[20px] text-dgreal" />
+                  </span>
+                  <div>
+                    <p className="text-[13px] font-black text-slate-800">Đã tạo tổ chức «{form.name}»</p>
+                    <p className="text-[11px] text-slate-500">Tài khoản admin đã kích hoạt (ACTIVE).</p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
+                  <p className="text-[11px] font-bold text-amber-700">⚠ Mật khẩu tạm chỉ hiện 1 lần — gửi cho admin, họ buộc đổi khi đăng nhập.</p>
+                  <div className="flex items-center justify-between text-[12px]">
+                    <span className="text-slate-500">Email</span>
+                    <span className="font-mono font-bold text-slate-800">{createdResult.admin_email}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-[12px]">
+                    <span className="text-slate-500">Mật khẩu tạm</span>
+                    <span className="flex items-center gap-2">
+                      <code className="font-mono font-bold text-slate-800 bg-white px-2 py-1 rounded border border-slate-200">{createdResult.temp_password}</code>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(createdResult.temp_password)}
+                        className="text-dgblue hover:opacity-70" title="Sao chép"
+                      >
+                        <Icon name="content_copy" className="text-[15px]" />
+                      </button>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+            {!createdResult && wizStep === 0 && (
               <div className="space-y-4 dg-fade">
                 <Field label="Tên tổ chức" req>
                   <input
@@ -1179,7 +1251,7 @@ export default function TenantsPage() {
                 </Field>
               </div>
             )}
-            {wizStep === 1 && (
+            {!createdResult && wizStep === 1 && (
               <div className="space-y-4 dg-fade">
                 <Field label="Gói cước">
                   <div className="grid grid-cols-3 gap-2">
@@ -1228,7 +1300,7 @@ export default function TenantsPage() {
                 </Field>
               </div>
             )}
-            {wizStep === 2 && (
+            {!createdResult && wizStep === 2 && (
               <div className="space-y-4 dg-fade">
                 <Field label="Tên quản trị viên">
                   <input
@@ -1266,34 +1338,44 @@ export default function TenantsPage() {
           </div>
 
           <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-3">
-            <button
-              onClick={() => (wizStep === 0 ? setShowCreate(false) : setWizStep(wizStep - 1))}
-              className="px-4 py-2.5 text-[12.5px] font-semibold rounded-xl transition-all flex items-center gap-1.5 text-slate-500 bg-white border border-slate-200 hover:bg-slate-50"
-            >
-              {wizStep === 0 ? (
-                'Hủy'
-              ) : (
-                <>
-                  <Icon name="arrow_back" className="text-[14px]" />Quay lại
-                </>
-              )}
-            </button>
-            {wizStep < 2 ? (
+            {createdResult ? (
               <button
-                onClick={() => canNext && setWizStep(wizStep + 1)}
-                disabled={!canNext}
-                className="px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 transition-all bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                onClick={() => setShowCreate(false)}
+                className="ml-auto px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 transition-all bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97]"
               >
-                Tiếp tục <Icon name="arrow_forward" className="text-[14px]" />
+                <Icon name="check" className="text-[14px]" /> Xong
               </button>
             ) : (
-              <button
-                onClick={submitCreate}
-                disabled={!form.email.trim()}
-                className="px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 transition-all bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-              >
-                <Icon name="check" className="text-[14px]" /> Tạo tenant
-              </button>
+              <>
+                <button
+                  onClick={() => (wizStep === 0 ? setShowCreate(false) : setWizStep(wizStep - 1))}
+                  disabled={creating}
+                  className="px-4 py-2.5 text-[12.5px] font-semibold rounded-xl transition-all flex items-center gap-1.5 text-slate-500 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  {wizStep === 0 ? 'Hủy' : (<><Icon name="arrow_back" className="text-[14px]" />Quay lại</>)}
+                </button>
+                {wizStep < 2 ? (
+                  <button
+                    onClick={() => canNext && setWizStep(wizStep + 1)}
+                    disabled={!canNext}
+                    className="px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 transition-all bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    Tiếp tục <Icon name="arrow_forward" className="text-[14px]" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={submitCreate}
+                    disabled={!form.email.trim() || creating}
+                    className="px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 transition-all bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    {creating ? (
+                      <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Đang tạo…</>
+                    ) : (
+                      <><Icon name="check" className="text-[14px]" /> Tạo tenant</>
+                    )}
+                  </button>
+                )}
+              </>
             )}
           </div>
         </Modal>
@@ -1304,17 +1386,21 @@ export default function TenantsPage() {
         <Modal onClose={() => setSuspendTarget(null)} max="max-w-sm">
           <div className="px-6 pt-6 pb-4">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-                <Icon name="warning" className="text-[20px] text-dgfake" />
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${suspendTarget.status === 'active' ? 'bg-red-50' : 'bg-green-50'}`}>
+                <Icon name={suspendTarget.status === 'active' ? 'warning' : 'check_circle'} className={`text-[20px] ${suspendTarget.status === 'active' ? 'text-dgfake' : 'text-dgreal'}`} />
               </div>
               <h2 className="text-base font-black text-slate-900">
-                Xác nhận {suspendTarget.status === 'active' ? 'Suspend' : 'Activate'}
+                Xác nhận {statusActionLabel(suspendTarget.status)}
               </h2>
             </div>
             <p className="text-[13px] text-slate-600 leading-relaxed">
               {suspendTarget.status === 'active' ? (
                 <>
                   Chắc chắn suspend <b className="text-slate-900">{suspendTarget.name}</b>? Tất cả API keys sẽ bị ngưng.
+                </>
+              ) : suspendTarget.status === 'pending' ? (
+                <>
+                  Duyệt tổ chức <b className="text-slate-900">{suspendTarget.name}</b>? Tổ chức sẽ được kích hoạt và quản trị viên có thể đăng nhập.
                 </>
               ) : (
                 <>
@@ -1338,7 +1424,7 @@ export default function TenantsPage() {
               }`}
             >
               <Icon name={suspendTarget.status === 'active' ? 'block' : 'check'} className="text-[14px]" />
-              {suspendTarget.status === 'active' ? 'Suspend' : 'Activate'}
+              {statusActionLabel(suspendTarget.status)}
             </button>
           </div>
         </Modal>

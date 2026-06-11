@@ -266,6 +266,7 @@ export default function HistoryPage() {
             <Icon name="refresh" className={`text-[18px] ${loading ? 'animate-spin' : ''}`} />
           </button>
           <button
+            data-tour="hs-export"
             onClick={handleExportCsv}
             disabled={filtered.length === 0}
             className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
@@ -284,7 +285,7 @@ export default function HistoryPage() {
       </div>
 
       {/* filter bar */}
-      <div className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-rise flex flex-wrap items-center gap-3">
+      <div data-tour="hs-filter" className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-rise flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
           <input
@@ -397,7 +398,12 @@ export default function HistoryPage() {
                   </span>
                 </div>
                 <div className="p-3">
-                  <p className="text-[12px] font-bold text-slate-700 truncate font-mono">{r.request_id.slice(0, 12)}…</p>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <p className="text-[12px] font-bold text-slate-700 truncate font-mono">{r.request_id.slice(0, 12)}…</p>
+                    {r.source === 'playground' && (
+                      <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{ background: 'rgba(0,71,204,.1)', color: '#0047cc' }}>Playground</span>
+                    )}
+                  </div>
                   <p className="text-[10px] text-slate-400 font-mono truncate">{r.model_version}</p>
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-[10px] text-slate-400">{timeAgo(r.created_at)}</span>
@@ -436,7 +442,12 @@ export default function HistoryPage() {
                             <Icon name="image" className="text-[18px] text-slate-300" />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[12px] font-bold text-slate-700 truncate font-mono">{r.request_id.slice(0, 8)}…</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-[12px] font-bold text-slate-700 truncate font-mono">{r.request_id.slice(0, 8)}…</p>
+                              {r.source === 'playground' && (
+                                <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{ background: 'rgba(0,71,204,.1)', color: '#0047cc' }}>Playground</span>
+                              )}
+                            </div>
                             <p className="text-[10px] text-slate-400 font-mono truncate">{r.image_hash.slice(0, 16)}</p>
                           </div>
                         </div>

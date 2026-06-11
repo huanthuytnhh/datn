@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Icon, Sparkline, StatPill, RangeToggle, CodeBlock } from '@/components/deepguard/shared';
+import { Icon, Sparkline, StatPill, RangeToggle } from '@/components/deepguard/shared';
 import { DG, fmtInt, timeAgo } from '@/lib/dg';
 import { apiKeysList, apiKeysCreate, apiKeysRevoke, type ApiKeyOut } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -212,6 +212,9 @@ export default function ApiKeysPage() {
   const [step, setStep] = useState<'config' | 'reveal'>('config');
   const [newKeyPlain, setNewKeyPlain] = useState('');
   const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState('');
+  const [revealShow, setRevealShow] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
   const [form, setForm] = useState({ name: '', quota: 10000, rpm: 100 });
 
   const loadKeys = () => {
@@ -268,25 +271,41 @@ export default function ApiKeysPage() {
     setForm({ name: '', quota: 10000, rpm: 100 });
     setStep('config');
     setNewKeyPlain('');
+    setCreateErr('');
+    setRevealShow(false);
+    setKeyCopied(false);
     setShowCreate(true);
   };
 
   const handleCreate = async () => {
     if (!form.name.trim() || creating) return;
     setCreating(true);
+    setCreateErr('');
     try {
       const created = await apiKeysCreate(form.name.trim(), form.quota, form.rpm);
       setKeys((prev) => [toRow(created), ...prev]);
       setApiKey(created.plain_key);
       setNewKeyPlain(created.plain_key);
-      setCreatedKey(created.plain_key);
-      setStep('reveal');
-    } catch {
-      alert('Tạo API key thất bại');
+      setStep('reveal');   // banner trên cùng chỉ hiện SAU khi đóng modal (finishReveal) — tránh trùng lặp
+    } catch (e: unknown) {
+      setCreateErr(e instanceof Error ? e.message : 'Tạo API key thất bại');
     } finally {
       setCreating(false);
     }
   };
+
+  const copyNewKey = () => {
+    if (!newKeyPlain) return;
+    navigator.clipboard?.writeText(newKeyPlain);
+    setKeyCopied(true);
+    setTimeout(() => setKeyCopied(false), 2000);
+  };
+  // Đóng modal reveal → để lại banner nhắc copy (chỉ 1 surface tại 1 thời điểm)
+  const finishReveal = () => {
+    setCreatedKey(newKeyPlain);
+    setShowCreate(false);
+  };
+  const maskKey = (k: string) => (k.length > 14 ? `${k.slice(0, 10)}${'•'.repeat(18)}${k.slice(-4)}` : k);
 
   const handleRevoke = async (key: KeyRow) => {
     if (!confirm(`Thu hồi API key "${key.name}"?`)) return;
@@ -322,6 +341,7 @@ export default function ApiKeysPage() {
             ]}
           />
           <button
+            data-tour="ak-create"
             onClick={openCreate}
             className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
           >
@@ -366,7 +386,7 @@ export default function ApiKeysPage() {
       )}
 
       {/* ── KPI pills ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-fade">
+      <div data-tour="ak-kpis" className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-fade">
         <StatPill label="Tổng keys" value={fmtInt(kpis.total)} color={DG.primary} icon="key" />
         <StatPill label="Đang active" value={fmtInt(kpis.active)} color={DG.real} icon="check_circle" />
         <StatPill label="Requests đã dùng" value={fmtInt(kpis.totalReq)} color={DG.primary} icon="data_usage" />
@@ -575,7 +595,7 @@ export default function ApiKeysPage() {
 
       {/* ── Create modal ── */}
       {showCreate && (
-        <Modal onClose={() => setShowCreate(false)}>
+        <Modal onClose={() => (step === 'reveal' ? finishReveal() : setShowCreate(false))}>
           {step === 'config' ? (
             <>
               <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-center justify-between">
@@ -631,6 +651,14 @@ export default function ApiKeysPage() {
                   </Field>
                 </div>
               </div>
+              {createErr && (
+                <div className="px-6 pb-1">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
+                    <Icon name="error" className="text-[15px] text-dgfake shrink-0" />
+                    <span className="text-[12px] font-semibold text-dgfake">{createErr}</span>
+                  </div>
+                </div>
+              )}
               <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3">
                 <button
                   onClick={() => setShowCreate(false)}
@@ -663,36 +691,58 @@ export default function ApiKeysPage() {
                 </div>
               </div>
               <div className="px-6 py-5 space-y-4">
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2">
-                  <Icon name="warning" className="text-[16px] text-dgwarn mt-px shrink-0" />
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Đây là lần duy nhất key đầy đủ được hiển thị. Lưu vào nơi an toàn (vault / .env).
-                  </p>
-                </div>
+                {/* Secret key — masked + reveal + copy inline */}
                 <div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Secret key</p>
-                  <CodeBlock code={newKeyPlain} language="text" />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Secret key</p>
+                    <button
+                      onClick={() => setRevealShow((v) => !v)}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-600"
+                    >
+                      <Icon name={revealShow ? 'visibility_off' : 'visibility'} className="text-[14px]" />
+                      {revealShow ? 'Ẩn' : 'Hiện'}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 p-1.5 rounded-xl border border-slate-200 bg-slate-50">
+                    <code className="flex-1 min-w-0 px-2.5 py-2 text-[13px] font-mono font-semibold text-slate-800 break-all select-all">
+                      {revealShow ? newKeyPlain : maskKey(newKeyPlain)}
+                    </code>
+                    <button
+                      onClick={copyNewKey}
+                      className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-bold transition-all ${
+                        keyCopied ? 'bg-dgreal text-white' : 'bg-dgblue text-white hover:bg-dgblue/90'
+                      }`}
+                    >
+                      <Icon name={keyCopied ? 'check' : 'content_copy'} className="text-[14px]" />
+                      {keyCopied ? 'Đã copy' : 'Copy'}
+                    </button>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 text-[11px]">
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <p className="text-[9px] font-black text-slate-400 uppercase">Tên</p>
-                    <p className="font-bold text-slate-600 mt-0.5 truncate">{form.name}</p>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <p className="text-[9px] font-black text-slate-400 uppercase">Quota · RPM</p>
-                    <p className="font-bold text-slate-600 mt-0.5 tabular-nums">
-                      {fmtInt(form.quota)} · {form.rpm}
-                    </p>
-                  </div>
+                {/* Cảnh báo 1-lần */}
+                <div className="flex items-start gap-2 text-[11px] text-amber-700">
+                  <Icon name="warning" className="text-[15px] text-dgwarn mt-px shrink-0" />
+                  <p className="leading-relaxed">Key đầy đủ chỉ hiển thị <b>một lần</b>. Lưu vào nơi an toàn (vault / <code className="font-mono">.env</code>) — không thể xem lại sau khi đóng.</p>
+                </div>
+                {/* Summary chips */}
+                <div className="grid grid-cols-3 gap-2 pt-1">
+                  {[
+                    ['Tên', form.name || '—'],
+                    ['Quota', fmtInt(form.quota)],
+                    ['Rate limit', `${form.rpm} rpm`],
+                  ].map(([l, v]) => (
+                    <div key={l} className="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.1em]">{l}</p>
+                      <p className="text-[12px] font-bold text-slate-700 mt-0.5 truncate tabular-nums">{v}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
               <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3">
                 <button
-                  onClick={() => setShowCreate(false)}
-                  className="px-6 py-2.5 rounded-xl font-semibold text-[13px] text-white transition-all hover:scale-[1.02]"
-                  style={{ background: 'linear-gradient(135deg,#1a7f3c,#34d399)', boxShadow: '0 4px 16px rgba(46,125,50,0.3)' }}
+                  onClick={finishReveal}
+                  className="px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all"
                 >
-                  Xong
+                  <Icon name="check" className="text-[15px]" /> Xong
                 </button>
               </div>
             </>

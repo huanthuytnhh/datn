@@ -3,6 +3,7 @@
 import { useNavigation, type Page } from '@/store/navigation';
 import { Icon } from '@/components/deepguard/shared';
 import { RadiusQuickToggle } from '@/components/deepguard/radius-switcher';
+import { useOnboardingStore } from '@/store/onboarding';
 
 const META: Record<string, { title: string; sub?: string }> = {
   dashboard: { title: 'Dashboard', sub: 'Tổng quan' },
@@ -27,60 +28,99 @@ const META: Record<string, { title: string; sub?: string }> = {
 
 export default function TopHeader() {
   const { currentPage, navigate } = useNavigation();
+  const openTip = useOnboardingStore((s) => s.openTip);
   const meta = META[currentPage] ?? { title: 'DeepGuard' };
 
   return (
-    <header className="fixed top-0 right-0 w-[calc(100%-240px)] z-40 border-b border-white/50 bg-white/75 backdrop-blur-xl flex justify-between items-center h-16 px-8 shadow-sm">
-      <div className="flex items-center gap-3">
+    <header
+      className="fixed top-0 right-0 w-[calc(100%-240px)] z-40 flex justify-between items-center h-14 px-7"
+      style={{
+        background: 'rgba(245,248,252,0.92)',
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        borderBottom: '1px solid rgba(0,0,0,0.07)',
+      }}
+    >
+      <div className="flex items-center gap-2.5">
         {currentPage === 'detail' && (
           <button
             onClick={() => navigate('history')}
-            className="w-9 h-9 -ml-2 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-600"
+            className="w-8 h-8 -ml-1 flex items-center justify-center rounded-lg hover:bg-slate-200/60 transition-colors text-slate-500"
           >
-            <Icon name="arrow_back" />
+            <Icon name="arrow_back" className="text-[18px]" />
           </button>
         )}
-        <span className="text-sm font-bold text-slate-800">{meta.title}</span>
+        <button
+          onClick={openTip}
+          title="Bấm để xem hướng dẫn trang này"
+          className="group flex items-center gap-1.5 hover:text-dgblue transition-colors"
+        >
+          <span className="text-[13.5px] font-semibold text-slate-800 group-hover:text-dgblue">{meta.title}</span>
+          <Icon name="info" className="text-[14px] text-slate-300 group-hover:text-dgblue/70 transition-colors" />
+        </button>
         {meta.sub && (
           <>
-            <span className="text-slate-300">/</span>
-            <span className="text-xs text-slate-500">{meta.sub}</span>
+            <span className="text-slate-300 text-sm select-none">/</span>
+            <span className="text-[11.5px] text-slate-400 font-medium">{meta.sub}</span>
           </>
         )}
       </div>
 
-      <div className="flex items-center gap-3">
-        <button className="hidden sm:flex items-center gap-2 px-3 h-9 rounded-full bg-white/60 border border-slate-200 text-slate-400 hover:text-slate-600 transition-colors text-xs font-medium w-44">
-          <Icon name="search" className="text-[18px]" /> Tìm request…
-          <kbd className="ml-auto text-[9px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">⌘K</kbd>
+      <div className="flex items-center gap-2">
+        <button
+          className="hidden sm:flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-slate-400 hover:text-slate-600 transition-colors w-40"
+          style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8 }}
+        >
+          <Icon name="search" className="text-[16px]" />
+          <span className="flex-1 text-left">Tìm request…</span>
+          <kbd className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1 py-0.5 rounded border border-slate-200">⌘K</kbd>
         </button>
 
-        <div className="flex items-center gap-2 px-3 h-9 bg-white/60 rounded-full border border-slate-200">
-          <span className="relative flex w-2 h-2">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60 animate-ping" />
-            <span className="relative inline-flex rounded-full w-2 h-2 bg-emerald-500" />
+        <div
+          className="flex items-center gap-1.5 px-2.5 h-8"
+          style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8 }}
+        >
+          <span className="relative flex w-1.5 h-1.5">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+            <span className="relative inline-flex rounded-full w-1.5 h-1.5 bg-emerald-500" />
           </span>
-          <span className="text-[10px] font-bold text-slate-600">MODEL READY</span>
+          <span className="text-[10px] font-semibold text-slate-500 tracking-wide">READY</span>
         </div>
 
         <RadiusQuickToggle />
 
         <button
-          onClick={() => navigate('notifications')}
-          className="relative w-9 h-9 flex items-center justify-center rounded-full bg-white/60 border border-slate-200 text-slate-500 hover:text-dgblue transition-colors"
+          onClick={openTip}
+          title="Hướng dẫn trang"
+          className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-dgblue transition-colors rounded-lg hover:bg-white/70"
         >
-          <Icon name="notifications" className="text-[19px]" fill={currentPage === 'notifications'} />
+          <Icon name="help" className="text-[18px]" />
+        </button>
+
+        <button
+          onClick={() => navigate('notifications')}
+          className="relative w-8 h-8 flex items-center justify-center text-slate-400 hover:text-dgblue transition-colors rounded-lg hover:bg-white/70"
+        >
+          <Icon name="notifications" className="text-[18px]" fill={currentPage === 'notifications'} />
           <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-dgfake rounded-full" />
         </button>
 
         {currentPage === 'playground' && (
-          <button className="bg-dgblue text-white px-4 h-9 rounded-full shadow-lg shadow-dgblue/25 hover:bg-dgblue/90 transition-all text-xs font-bold flex items-center gap-2">
-            <Icon name="download" className="text-[18px]" /> Xuất Báo Cáo
+          <button
+            className="flex items-center gap-1.5 px-3.5 h-8 rounded-lg text-white text-[12px] font-semibold transition-all hover:opacity-90"
+            style={{ background: '#0050cb', boxShadow: '0 2px 10px rgba(0,80,203,0.3)' }}
+          >
+            <Icon name="download" className="text-[16px]" />
+            Xuất Báo Cáo
           </button>
         )}
         {currentPage === 'detail' && (
-          <button className="bg-white border border-slate-200 text-slate-700 px-4 h-9 rounded-full hover:bg-slate-50 transition-all text-xs font-bold flex items-center gap-2 shadow-sm">
-            <Icon name="picture_as_pdf" className="text-[18px]" /> Forensic Report
+          <button
+            className="flex items-center gap-1.5 px-3.5 h-8 rounded-lg text-slate-700 text-[12px] font-semibold transition-all hover:bg-slate-100"
+            style={{ background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.09)' }}
+          >
+            <Icon name="picture_as_pdf" className="text-[16px]" />
+            Forensic Report
           </button>
         )}
       </div>

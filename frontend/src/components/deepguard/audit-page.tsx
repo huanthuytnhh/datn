@@ -20,27 +20,46 @@ interface ActionMeta {
   icon: string;
   sev: Sev;
 }
+const INFO = { color: '#2e7d32', bg: '#f0fdf4', border: '#bbf7d0' };
+const BLUE = { color: '#0050cb', bg: '#eff6ff', border: '#bfdbfe' };
+const WARN = { color: '#ed6c02', bg: '#fff7ed', border: '#fed7aa' };
+const CRIT = { color: '#ba1a1a', bg: '#fef2f2', border: '#fecaca' };
 const ACTION_META: Record<string, ActionMeta> = {
-  'api_key.created':   { color: '#2e7d32', bg: '#f0fdf4', border: '#bbf7d0', icon: 'key',          sev: 'info' },
-  'api_key.revoked':   { color: '#ba1a1a', bg: '#fef2f2', border: '#fecaca', icon: 'key_off',      sev: 'warn' },
-  'detection.created': { color: '#0050cb', bg: '#eff6ff', border: '#bfdbfe', icon: 'image_search', sev: 'info' },
-  'detection.viewed':  { color: '#64748b', bg: '#f8fafc', border: '#e2e8f0', icon: 'visibility',   sev: 'info' },
-  'webhook.created':   { color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', icon: 'webhook',      sev: 'info' },
-  'webhook.failed':    { color: '#ed6c02', bg: '#fff7ed', border: '#fed7aa', icon: 'error',        sev: 'warn' },
-  'user.login':        { color: '#ed6c02', bg: '#fff7ed', border: '#fed7aa', icon: 'login',        sev: 'info' },
-  'user.logout':       { color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0', icon: 'logout',       sev: 'info' },
-  'tenant.suspended':  { color: '#ba1a1a', bg: '#fef2f2', border: '#fecaca', icon: 'block',        sev: 'crit' },
-  'tenant.created':    { color: '#2e7d32', bg: '#f0fdf4', border: '#bbf7d0', icon: 'domain_add',   sev: 'info' },
+  'api_key.created':   { ...INFO, icon: 'key',            sev: 'info' },
+  'api_key.updated':   { ...BLUE, icon: 'key',            sev: 'info' },
+  'api_key.revoked':   { ...CRIT, icon: 'key_off',        sev: 'warn' },
+  'detection.created': { ...BLUE, icon: 'image_search',   sev: 'info' },
+  'detection.viewed':  { color: '#64748b', bg: '#f8fafc', border: '#e2e8f0', icon: 'visibility', sev: 'info' },
+  'detection.note_added': { ...BLUE, icon: 'edit_note',   sev: 'info' },
+  'webhook.created':   { color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', icon: 'webhook', sev: 'info' },
+  'webhook.failed':    { ...WARN, icon: 'error',          sev: 'warn' },
+  'user.login':        { ...WARN, icon: 'login',          sev: 'info' },
+  'user.logout':       { color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0', icon: 'logout', sev: 'info' },
+  'user.created':      { ...INFO, icon: 'person_add',     sev: 'info' },
+  'user.updated':      { ...BLUE, icon: 'manage_accounts', sev: 'info' },
+  'user.deleted':      { ...CRIT, icon: 'person_off',     sev: 'warn' },
+  'user.invited':      { ...INFO, icon: 'mail',           sev: 'info' },
+  'user.change_password': { ...BLUE, icon: 'password',    sev: 'info' },
+  'user.accept_invite':{ ...INFO, icon: 'how_to_reg',     sev: 'info' },
+  'tenant.suspended':  { ...CRIT, icon: 'block',          sev: 'crit' },
+  'tenant.activated':  { ...INFO, icon: 'check_circle',   sev: 'info' },
+  'tenant.created':    { ...INFO, icon: 'domain_add',     sev: 'info' },
+  'tenant.updated':    { ...BLUE, icon: 'edit',           sev: 'info' },
+  'platform.create_tenant':     { ...INFO, icon: 'domain_add', sev: 'info' },
+  'platform.update_tenant':     { ...BLUE, icon: 'edit',  sev: 'info' },
+  'platform.update_tenant_user':{ ...BLUE, icon: 'manage_accounts', sev: 'info' },
 };
 const FALLBACK_META: ActionMeta = { color: '#64748b', bg: '#f8fafc', border: '#e2e8f0', icon: 'bolt', sev: 'info' };
 const metaFor = (action: string): ActionMeta => {
   if (ACTION_META[action]) return ACTION_META[action];
-  if (action.startsWith('api_key')) return ACTION_META['api_key.created'];
+  // suy luận theo verb cho action chưa khai báo
+  const warn = /(delete|deleted|revoke|revoked|suspend|suspended|fail)/.test(action);
+  if (action.startsWith('api_key')) return warn ? ACTION_META['api_key.revoked'] : ACTION_META['api_key.created'];
   if (action.startsWith('detection')) return ACTION_META['detection.viewed'];
-  if (action.startsWith('webhook')) return action.includes('fail') ? ACTION_META['webhook.failed'] : ACTION_META['webhook.created'];
-  if (action.startsWith('tenant')) return action.includes('suspend') ? ACTION_META['tenant.suspended'] : ACTION_META['tenant.created'];
-  if (action.startsWith('user')) return ACTION_META['user.login'];
-  return FALLBACK_META;
+  if (action.startsWith('webhook')) return warn ? ACTION_META['webhook.failed'] : ACTION_META['webhook.created'];
+  if (action.startsWith('tenant') || action.startsWith('platform')) return action.includes('suspend') ? ACTION_META['tenant.suspended'] : ACTION_META['tenant.created'];
+  if (action.startsWith('user')) return warn ? ACTION_META['user.deleted'] : ACTION_META['user.login'];
+  return warn ? { ...FALLBACK_META, ...WARN, sev: 'warn' } : FALLBACK_META;
 };
 
 const RESOURCE_ICON: Record<string, string> = {
@@ -304,6 +323,7 @@ export default function AuditPage() {
             options={[{ id: 'timeline', label: 'Timeline' }, { id: 'table', label: 'Bảng' }]}
           />
           <button
+            data-tour="au-export"
             onClick={exportCsv}
             disabled={rows.length === 0}
             className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
@@ -361,7 +381,7 @@ export default function AuditPage() {
       </div>
 
       {/* filter bar */}
-      <div className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-fade flex flex-wrap items-center gap-3">
+      <div data-tour="au-filter" className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-fade flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
           <input

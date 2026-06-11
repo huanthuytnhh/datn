@@ -20,7 +20,13 @@ async function req<T>(
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (res.status === 204) return undefined as T;
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.detail ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("dg_token");
+      window.dispatchEvent(new CustomEvent("dg:session-expired"));
+    }
+    throw new Error(data?.detail ?? `HTTP ${res.status}`);
+  }
   return data as T;
 }
 
@@ -41,10 +47,21 @@ export interface MeResponse { user: UserOut; tenant: TenantOut }
 export const authLogin = (email: string, password: string) =>
   req<TokenResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
 
+export interface RegisterPendingResponse { status: string; message: string; tenant_id: string }
 export const authRegister = (tenant_name: string, email: string, password: string, name: string) =>
-  req<TokenResponse>("/auth/register", { method: "POST", body: JSON.stringify({ tenant_name, email, password, name }) });
+  req<RegisterPendingResponse>("/auth/register", { method: "POST", body: JSON.stringify({ tenant_name, email, password, name }) });
+
+// ── Accept-invite (public, dùng token; không cần JWT) ──
+export interface InviteInfo { valid: boolean; email?: string; role?: string; tenant_name?: string; reason?: string }
+export const authInviteInfo = (token: string) =>
+  req<InviteInfo>(`/auth/accept-invite?token=${encodeURIComponent(token)}`, {}, null);
+export const authAcceptInvite = (token: string, name: string, password: string) =>
+  req<TokenResponse>("/auth/accept-invite", { method: "POST", body: JSON.stringify({ token, name, password }) }, null);
 
 export const authMe = () => req<MeResponse>("/auth/me");
+
+// ── Health (public, không cần auth) ──
+export const apiHealth = () => req<{ status: string; version: string }>("/health", {}, null);
 
 export const authUpdateMe = (data: { name?: string; phone?: string; timezone?: string }) =>
   req<UserOut>("/auth/me", { method: "PATCH", body: JSON.stringify(data) });
@@ -70,6 +87,7 @@ export const apiKeysRevoke = (id: string) =>
 export interface DetectionListItem {
   request_id: string; verdict: string; confidence: number; prob_fake: number;
   processing_time_ms: number; model_version: string; image_hash: string; created_at: string;
+  source?: string; // 'api' | 'playground'
 }
 export interface Paginated<T> { items: T[]; total: number; page: number; limit: number }
 
@@ -243,11 +261,21 @@ export const analyticsUsage = () => req<UsageInfo>("/analytics/usage");
 
 // ── Detect (uses API key, not JWT) ───────────────────────────────────────────
 export interface DetectionResponse {
-  request_id: string; verdict: string; confidence: number; prob_fake: number;
+  request_id: string;
+  // ── Tín hiệu rủi ro (định vị eKYC — khách dùng cái này) ──
+  risk_score: number;                              // P(deepfake) đã calibrate ∈ [0,1]
+  risk_band: "low" | "medium" | "high" | string;   // band theo ngưỡng per-tenant
+  decision_hint: "pass" | "review" | "reject" | string;  // GỢI Ý, không phải quyết định cuối
+  thresholds?: { low?: number; high?: number };    // ngưỡng band đang dùng
+  // ── Giải thích trực quan ──
+  heatmap?: string | null;     // Grad-CAM overlay (base64 data URL) — vùng nghi vấn
+  frequency?: string | null;   // phổ log|2D-DCT| (base64 data URL) — bằng chứng tần số
+  // ── Tương thích ngược + chi tiết ──
+  verdict: string; confidence: number; prob_fake: number;
   prob_cnn: number; spatial_score: number | null; frequency_score: number | null;
   threshold_used: number; face_detected: boolean; processing_time_ms: number;
   model_version: string; image_width: number | null; image_height: number | null;
-  created_at: string; heatmap?: string | null;   // Grad-CAM overlay (base64 data URL) từ SFDCT
+  created_at: string;
 }
 
 export const detectImage = (file: File, apiKey: string, threshold?: number) => {
@@ -271,6 +299,19 @@ export const detectVideo = (file: File, apiKey: string, sampleRate = 3) => {
   const form = new FormData();
   form.append("file", file);
   return req<VideoDetectionResponse>(`/v1/detect/video?sample_rate=${sampleRate}`, { method: "POST", body: form }, apiKey);
+};
+
+// ── Playground (JWT, dashboard) — KHÔNG cần API key; dùng cho test nhanh sau login ──
+export const playgroundDetectImage = (file: File, threshold?: number) => {
+  const form = new FormData();
+  form.append("file", file);
+  const qs = threshold != null ? `?threshold=${threshold}` : "";
+  return req<DetectionResponse>(`/playground/detect/image${qs}`, { method: "POST", body: form });
+};
+export const playgroundDetectVideo = (file: File, sampleRate = 3) => {
+  const form = new FormData();
+  form.append("file", file);
+  return req<VideoDetectionResponse>(`/playground/detect/video?sample_rate=${sampleRate}`, { method: "POST", body: form });
 };
 
 // ── Webhooks ─────────────────────────────────────────────────────────────────
@@ -338,6 +379,10 @@ export interface PlatformOverview {
   avg_latency_ms: number;
 }
 export const tenantsList = () => req<Paginated<TenantListItem>>("/tenants");
+export interface CreateTenantResponse { tenant: TenantListItem; admin_email: string; temp_password: string }
+export const tenantsCreate = (data: {
+  name: string; admin_email: string; admin_name?: string; plan?: string; monthly_quota?: number;
+}) => req<CreateTenantResponse>("/tenants", { method: "POST", body: JSON.stringify(data) });
 export const tenantUpdateById = (id: string, data: { status?: string; plan?: string; monthly_quota?: number }) =>
   req<TenantListItem>(`/tenants/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 export const platformOverview = (days = 30) =>

@@ -46,6 +46,12 @@ export const RADIUS_MODES: {
 export const DEFAULT_RADIUS: RadiusMode = 'sharp';
 const STORAGE_KEY = 'dg_radius';
 
+/* ── Bố cục Dashboard: 'classic' (mặc định) ↔ 'focus' (bố cục mới kiểu LoopAI) ── */
+export type DashboardLayout = 'classic' | 'focus';
+export const DEFAULT_LAYOUT: DashboardLayout = 'classic';
+const LAYOUT_KEY = 'dg_dash_layout';
+const isLayout = (v: unknown): v is DashboardLayout => v === 'classic' || v === 'focus';
+
 const isRadiusMode = (v: unknown): v is RadiusMode =>
   v === 'slight' || v === 'sharp' || v === 'geometric';
 
@@ -58,6 +64,8 @@ function applyRadius(mode: RadiusMode) {
 interface AppearanceState {
   radius: RadiusMode;
   setRadius: (mode: RadiusMode) => void;
+  dashboardLayout: DashboardLayout;
+  setDashboardLayout: (l: DashboardLayout) => void;
   /** Sync store + <html> from localStorage. Call once on client mount. */
   hydrate: () => void;
 }
@@ -69,11 +77,18 @@ export const useAppearanceStore = create<AppearanceState>((set) => ({
     applyRadius(mode);
     set({ radius: mode });
   },
+  dashboardLayout: DEFAULT_LAYOUT,
+  setDashboardLayout: (l) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(LAYOUT_KEY, l);
+    set({ dashboardLayout: l });
+  },
   hydrate: () => {
     if (typeof localStorage === 'undefined') return;
     const stored = localStorage.getItem(STORAGE_KEY);
     const mode = isRadiusMode(stored) ? stored : DEFAULT_RADIUS;
     applyRadius(mode);
-    set({ radius: mode });
+    const storedLayout = localStorage.getItem(LAYOUT_KEY);
+    const layout = isLayout(storedLayout) ? storedLayout : DEFAULT_LAYOUT;
+    set({ radius: mode, dashboardLayout: layout });
   },
 }));

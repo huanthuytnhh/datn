@@ -12,8 +12,10 @@
    ────────────────────────────────────────────── */
 
 import { useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import { useNavigation } from '@/store/navigation';
 import { useAuthStore } from '@/store/auth';
+import { useAppearanceStore, type DashboardLayout } from '@/store/appearance';
 import { canEdit, ROLE_LABEL, type Role } from '@/lib/rbac';
 import {
   analyticsOverview,
@@ -941,11 +943,13 @@ function PlanBadge({ plan }: { plan: string }) {
   return <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-black bg-slate-100 text-slate-600 uppercase tracking-wider">{plan}</span>;
 }
 function StatusDot({ status }: { status: string }) {
-  const ok = status === 'active';
+  const s = (status || '').toLowerCase();
+  const label = s === 'active' ? 'Hoạt động' : s === 'pending' ? 'Chờ duyệt' : s === 'suspended' ? 'Tạm ngưng' : status;
+  const color = s === 'active' ? DG.real : s === 'pending' ? DG.uncertain : DG.fake;
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold" style={{ color: ok ? DG.real : DG.uncertain }}>
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: ok ? DG.real : DG.uncertain }} />
-      {ok ? 'Hoạt động' : status}
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold" style={{ color }}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+      {label}
     </span>
   );
 }
@@ -1127,15 +1131,590 @@ function ViewerDashboard({ d }: { d: SharedData }) {
 /* ════════════════════════════════════════════════════════════════════════════
    Root — switch by role
    ════════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════════
+   BỐ CỤC MỚI (focus) — giao diện LoopAI (tím/teal) ĐỔ DỮ LIỆU THẬT từ useSharedAnalytics
+   (cùng nguồn với bản cổ điển): KPI overview, biểu đồ dot-column Thực tế + Dự báo,
+   bảng "Phát hiện gần đây", cảnh báo suy ra từ dữ liệu, DeepGuard Copilot.
+   ════════════════════════════════════════════════════════════════════════════ */
+const L_TEAL = 'rgba(79,145,255,.72)';   // Actual — medium blue
+const L_PROJ = '#bfdbfe';                // AI Projected — sky-200 blue
+const L_TODAY = '#0047cc';               // hôm nay — sidebar primary blue
+const L_BRAND = '#0047cc';              // primary blue (sidebar match)
+const L_BRAND_DK = '#003db5';           // dark blue
+
+/** % thay đổi nửa cũ vs nửa mới của chuỗi (period-over-period trong cửa sổ). */
+function halfTrend(arr: number[]): { pct: number; up: boolean } | null {
+  if (arr.length < 4) return null;
+  const mid = Math.floor(arr.length / 2);
+  const older = arr.slice(0, mid).reduce((s, v) => s + v, 0);
+  const newer = arr.slice(mid).reduce((s, v) => s + v, 0);
+  if (older === 0) return newer > 0 ? { pct: 100, up: true } : null;
+  const pct = Math.round(((newer - older) / older) * 100);
+  return { pct, up: pct >= 0 };
+}
+
+/** Dự báo tuyến tính n điểm kế tiếp (hồi quy bậc nhất). */
+function projectSeries(actual: number[], n: number): number[] {
+  const len = actual.length;
+  if (len < 2) return Array(n).fill(actual[len - 1] ?? 0);
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < len; i++) { sx += i; sy += actual[i]; sxx += i * i; sxy += i * actual[i]; }
+  const den = len * sxx - sx * sx || 1;
+  const b = (len * sxy - sx * sy) / den;
+  const a = (sy - b * sx) / len;
+  return Array.from({ length: n }, (_, k) => Math.max(0, Math.round(a + b * (len + k))));
+}
+
+function LoopChart({ actual, axis }: { actual: number[]; axis: string[] }) {
+  const proj = useMemo(() => projectSeries(actual, Math.max(3, Math.round(actual.length * 0.4))), [actual]);
+  const all = [...actual, ...proj];
+  const maxV = Math.max(...all, 1);
+  const dotsFor = (v: number) => (v <= 0 ? 0 : Math.min(8, Math.max(1, Math.round((v / maxV) * 8))));
+  const todayIdx = actual.length - 1;
+  const mean = actual.length ? Math.round(actual.reduce((s, v) => s + v, 0) / actual.length) : 0;
+  const cols = all.map((v, i) => ({ v, dots: dotsFor(v), kind: i < actual.length ? (i === todayIdx ? 'today' : 'actual') : 'proj' }));
+  const colColor = (k: string) => (k === 'today' ? L_TODAY : k === 'actual' ? L_TEAL : L_PROJ);
+  const meanTop = `${Math.round((1 - mean / maxV) * 100)}%`;
+  const step = Math.max(1, Math.floor(axis.length / 5));
+  const xLabels = axis.filter((_, i) => i % step === 0);
+
+  return (
+    <div className="flex-1 relative flex items-end">
+      <div className="absolute left-0 top-0 bottom-6 flex flex-col justify-between text-xs text-slate-400 tabular-nums">
+        <span>{fmtInt(maxV)}</span><span>{fmtInt(Math.round(maxV * 0.66))}</span><span>{fmtInt(Math.round(maxV * 0.33))}</span><span>0</span>
+      </div>
+      <div className="ml-10 flex-1 h-full relative flex items-end justify-between pb-6">
+        {mean > 0 && (
+          <>
+            <div className="absolute left-0 right-0 border-t border-dashed z-0" style={{ top: meanTop, borderColor: L_PROJ }} />
+            <div className="absolute left-[-40px] -translate-y-1/2 text-white text-[11px] font-bold px-1.5 py-0.5 rounded z-10" style={{ top: meanTop, background: L_BRAND }}>{fmtInt(mean)}</div>
+          </>
+        )}
+        {cols.map((c, i) => (
+          <div key={i} className="flex flex-col gap-1 items-center z-10 relative">
+            {Array.from({ length: c.dots }).map((_, k) => (
+              <div key={k} className="w-3 h-3 rounded-full" style={{ background: colColor(c.kind) }} />
+            ))}
+            {c.kind === 'today' && (
+              <div className="absolute -bottom-8 whitespace-nowrap text-white text-xs px-2 py-1 rounded-full" style={{ background: L_BRAND }}>Hôm nay · {fmtInt(c.v)}</div>
+            )}
+          </div>
+        ))}
+        <div className="absolute left-10 right-0 bottom-0 flex justify-between text-xs text-slate-400">
+          {xLabels.map((l, i) => <span key={i}>{l}</span>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoopKpi({ label, value, sub, delta }: { label: string; value: string; sub: string; delta: { pct: number; up: boolean; goodUp: boolean } | null }) {
+  const good = delta ? delta.up === delta.goodUp : true;
+  return (
+    <div style={{
+      background: 'white', borderRadius: 18, padding: '20px 18px',
+      border: '1px solid rgba(0,71,204,.08)',
+      boxShadow: '0 2px 10px rgba(0,71,204,.06)',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 108,
+    }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b', letterSpacing: '.04em', textTransform: 'uppercase' }}>{label}</span>
+          {delta && (
+            <span style={{
+              padding: '3px 9px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+              background: good ? '#f0fdf4' : '#fef2f2', color: good ? '#16a34a' : '#dc2626',
+              boxShadow: `0 0 0 1px ${good ? 'rgba(22,163,74,.15)' : 'rgba(220,38,38,.15)'}`,
+            }}>
+              {delta.up ? '+' : ''}{delta.pct}%
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ fontSize: 32, fontWeight: 900, color: '#08142a', letterSpacing: '-0.05em', lineHeight: 1 }}>{value}</span>
+          <span style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right', lineHeight: 1.5 }}>{sub}</span>
+        </div>
+    </div>
+  );
+}
+
+function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
+  const navigate = useNavigation((s) => s.navigate);
+  const { overview, usage, recent, reqSpark, fakeSpark, loading, shared } = d;
+  const [tab, setTab] = useState<'review' | 'all' | 'FAKE' | 'REAL'>('review');
+
+  const reqTrend = halfTrend(reqSpark);
+  const fakeTrend = halfTrend(fakeSpark);
+
+  const counts = useMemo(() => ({
+    review: recent.filter((r) => r.verdict === 'FAKE' || r.verdict === 'UNCERTAIN').length,
+    all: recent.length,
+    FAKE: recent.filter((r) => r.verdict === 'FAKE').length,
+    REAL: recent.filter((r) => r.verdict === 'REAL').length,
+  }), [recent]);
+  const rows = useMemo(() => {
+    if (tab === 'all') return recent;
+    if (tab === 'review') return recent.filter((r) => r.verdict === 'FAKE' || r.verdict === 'UNCERTAIN');
+    return recent.filter((r) => r.verdict === tab);
+  }, [recent, tab]);
+
+  // Cảnh báo ưu tiên — suy ra từ dữ liệu thật (giữ phong cách "task row" của LoopAI).
+  const alerts: { color: string; title: string; meta: string; desc: string; page: Parameters<typeof navigate>[0] }[] = [];
+  if (overview && overview.fake_detected > 0)
+    alerts.push({ color: DG.fake, title: `${fmtInt(overview.fake_detected)} deepfake cần xem xét`, meta: `Tỉ lệ ${overview.fake_rate.toFixed(1)}%`, desc: 'Các trường hợp nghi giả mạo cần con người duyệt.', page: 'history' });
+  if (usage && usage.usage_percent >= 80)
+    alerts.push({ color: DG.uncertain, title: 'Sắp chạm hạn mức tháng', meta: `${usage.usage_percent.toFixed(0)}% đã dùng`, desc: `Còn ${fmtInt(usage.remaining)} request trong kỳ.`, page: (role === 'admin' ? 'billing' : 'analytics') });
+  if (overview && overview.avg_latency_ms > 800)
+    alerts.push({ color: DG.uncertain, title: 'Độ trễ cao hơn thường lệ', meta: `P95 ${overview.p95_latency_ms}ms`, desc: 'Theo dõi sức khỏe cụm suy luận.', page: 'status' });
+  if (alerts.length === 0)
+    alerts.push({ color: DG.real, title: 'Hệ thống đang ổn định', meta: 'OK', desc: 'Không có cảnh báo ưu tiên.', page: 'analytics' });
+
+  const copilotActions: { icon: string; label: string; page: Parameters<typeof navigate>[0] }[] = [
+    { icon: 'visibility', label: 'Xem phát hiện', page: 'history' },
+    { icon: 'insights', label: 'Phân tích', page: 'analytics' },
+    { icon: 'menu_book', label: 'Tài liệu', page: 'docs' },
+    { icon: 'monitor_heart', label: 'Trạng thái', page: 'status' },
+  ];
+
+  /* Framer variants for stagger entrance */
+  const containerV = { hidden: {}, show: { transition: { staggerChildren: 0.1 } } };
+  const itemV = { hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.52, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] } } };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* ── LEFT col-span-8 ── */}
+      <div className="lg:col-span-8 flex flex-col gap-6">
+
+        {/* KPI row — always above fold, dùng animate thay whileInView để tránh IntersectionObserver miss on mount */}
+        <motion.div
+          className="grid grid-cols-1 md:grid-cols-3 gap-4"
+          variants={containerV} initial="hidden" animate="show"
+        >
+          {loading || !overview ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <motion.div key={i} variants={itemV}><div className="skeleton h-[130px] rounded-2xl" /></motion.div>
+            ))
+          ) : (
+            <>
+              <motion.div variants={itemV}>
+                <LoopKpi label="Tổng requests" value={fmtInt(overview.total_requests)} sub={`${fmtInt(overview.real_detected)} real`} delta={reqTrend ? { ...reqTrend, goodUp: true } : null} />
+              </motion.div>
+              <motion.div variants={itemV}>
+                <LoopKpi label="Deepfake detected" value={fmtInt(overview.fake_detected)} sub={`${overview.fake_rate.toFixed(1)}% tỉ lệ`} delta={fakeTrend ? { ...fakeTrend, goodUp: false } : null} />
+              </motion.div>
+              <motion.div variants={itemV}>
+                <LoopKpi label="Độ trễ TB" value={`${fmtInt(overview.avg_latency_ms)}ms`} sub={`P95 ${overview.p95_latency_ms}ms`} delta={null} />
+              </motion.div>
+            </>
+          )}
+        </motion.div>
+
+        {/* Analytics card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true, margin: '-40px' }}
+          style={{
+            background: 'white', borderRadius: 20, padding: '24px',
+            border: '1px solid rgba(0,71,204,.09)',
+            boxShadow: '0 2px 12px rgba(0,71,204,.06)',
+          }}
+        >
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-5">
+              <div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#0047cc', letterSpacing: '.1em', textTransform: 'uppercase' }}>Phân tích</span>
+                <h2 className="text-base font-bold text-slate-900 mt-0.5">Phát hiện theo thời gian</h2>
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="flex items-center gap-1.5 text-slate-500">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: L_TEAL }} /> Thực tế
+                </span>
+                <span className="flex items-center gap-1.5 text-slate-500">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: L_PROJ }} /> Dự báo AI
+                </span>
+                <RangeToggle options={RANGE_OPTIONS} value={shared.range} onChange={shared.setRange} />
+              </div>
+            </div>
+            <div className="flex flex-col md:flex-row gap-5 h-64">
+              {/* Left insight + CTA */}
+              <div className="w-full md:w-60 flex flex-col justify-between">
+                {/* Insight box */}
+                <div style={{
+                  borderRadius: 13, padding: '14px',
+                  background: 'rgba(0,71,204,.05)', border: '1px solid rgba(0,71,204,.1)',
+                }}>
+                  <div className="flex items-start gap-2">
+                    <svg className="w-4 h-4 mt-0.5 shrink-0" style={{ color: L_BRAND }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <p style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.6 }}>
+                      Lưu lượng & tỉ lệ nghi giả theo {RANGE_LABEL[shared.range].toLowerCase()}. Nét đứt = trung bình; chấm nhạt = dự báo xu hướng AI.
+                    </p>
+                  </div>
+                </div>
+                {/* Button-in-button CTA */}
+                <button
+                  onClick={() => navigate('analytics')}
+                  className="group w-full mt-4"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                    padding: '11px 18px', borderRadius: 13, border: 'none', cursor: 'pointer',
+                    background: `linear-gradient(135deg,${L_BRAND} 0%,#1a6fff 100%)`,
+                    color: 'white', fontWeight: 800, fontSize: 13, letterSpacing: '.04em',
+                    boxShadow: `0 4px 16px rgba(0,71,204,.35)`,
+                    transition: 'all .28s cubic-bezier(.22,1,.36,1)',
+                  }}
+                >
+                  <span>Xem phân tích</span>
+                  <span style={{
+                    width: 26, height: 26, borderRadius: '50%',
+                    background: 'rgba(255,255,255,.2)', border: '1px solid rgba(255,255,255,.3)',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'transform .28s cubic-bezier(.22,1,.36,1)',
+                  }}
+                    className="group-hover:[transform:translate(2px,-1px)_scale(1.12)]"
+                  >
+                    <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </span>
+                </button>
+              </div>
+              {/* Chart */}
+              {loading ? (
+                <div className="flex-1 skeleton rounded-xl" />
+              ) : reqSpark.some((v) => v > 0) ? (
+                <LoopChart actual={reqSpark} axis={shared.axis} />
+              ) : (
+                <div className="flex-1 flex items-center justify-center">
+                  <FriendlyEmpty icon="bar_chart" title="Chưa có dữ liệu trong khoảng này" />
+                </div>
+              )}
+            </div>
+        </motion.div>
+
+        {/* Recent detections */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, delay: 0.08, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true, margin: '-40px' }}
+          style={{
+            background: 'white', borderRadius: 20, padding: '24px',
+            border: '1px solid rgba(0,71,204,.08)',
+            boxShadow: '0 2px 10px rgba(0,71,204,.05)',
+          }}
+        >
+            <div className="flex justify-between items-center mb-5">
+              <div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#0047cc', letterSpacing: '.1em', textTransform: 'uppercase' }}>Log</span>
+                <h2 className="text-base font-bold text-slate-900 mt-0.5">Phát hiện gần đây</h2>
+              </div>
+              <button
+                onClick={() => navigate('history')}
+                className="flex items-center gap-1.5 text-xs font-semibold transition-colors hover:opacity-80"
+                style={{ color: L_BRAND }}
+              >
+                Xem lịch sử
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+              </button>
+            </div>
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #f1f5f9', marginBottom: 16, paddingBottom: 0 }}>
+              {([['review', 'Cần xem xét'], ['all', 'Tất cả'], ['FAKE', 'FAKE'], ['REAL', 'REAL']] as const).map(([id, label]) => (
+                <button
+                  key={id} onClick={() => setTab(id)}
+                  style={{
+                    paddingBottom: 10, paddingLeft: 12, paddingRight: 12, paddingTop: 2,
+                    fontSize: 13, fontWeight: tab === id ? 700 : 500,
+                    color: tab === id ? '#0047cc' : '#94a3b8',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: tab === id ? '2px solid #0047cc' : '2px solid transparent',
+                    cursor: 'pointer', transition: 'color .2s ease',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  {label}
+                  <span style={{
+                    padding: '1px 7px', borderRadius: 99, fontSize: 10, fontWeight: 700,
+                    background: tab === id ? 'rgba(0,71,204,.1)' : '#f1f5f9',
+                    color: tab === id ? '#0047cc' : '#94a3b8',
+                    transition: 'all .2s ease',
+                  }}>
+                    {counts[id]}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="overflow-x-auto">
+              {loading ? (
+                <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-12 rounded-lg" />)}</div>
+              ) : rows.length === 0 ? (
+                <FriendlyEmpty icon="history" title="Không có mục nào" />
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <thead className="text-xs text-slate-400 border-b border-slate-50">
+                    <tr><th className="py-3 font-semibold">Nguồn</th><th className="py-3 font-semibold">Mã</th><th className="py-3 font-semibold">Risk</th><th className="py-3 font-semibold">Thời gian</th><th className="py-3 font-semibold">Kết luận</th><th className="py-3 font-semibold text-right">More</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {rows.map((r) => {
+                      const risk = Math.round((r.prob_fake ?? 0) * 100);
+                      const color = r.verdict === 'FAKE' ? DG.fake : r.verdict === 'REAL' ? DG.real : DG.uncertain;
+                      const vIcon = r.verdict === 'FAKE' ? 'priority_high' : r.verdict === 'REAL' ? 'check' : 'warning';
+                      return (
+                        <tr key={r.request_id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => navigate('history')}>
+                          <td className="py-3 flex items-center gap-3">
+                            <span className="w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0" style={{ background: color }}>
+                              <Icon name={vIcon} className="text-[16px]" fill />
+                            </span>
+                            <div>
+                              <p className="font-semibold text-slate-800">{r.model_version}</p>
+                              <p className="text-xs text-slate-400">Phát hiện ảnh</p>
+                            </div>
+                          </td>
+                          <td className="py-3 text-slate-400 font-mono text-xs">{r.image_hash?.slice(0, 10)}…</td>
+                          <td className="py-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full" style={{ width: `${risk}%`, background: color }} />
+                              </div>
+                              <span className="font-bold text-slate-900 tabular-nums text-xs">{risk}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 text-slate-500 text-xs">{timeAgo(r.created_at)}</td>
+                          <td className="py-3"><VerdictBadge verdict={r.verdict} /></td>
+                          <td className="py-3 text-right text-slate-300 hover:text-slate-500">
+                            <svg className="w-4 h-4 inline" fill="currentColor" viewBox="0 0 24 24">
+                              <circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />
+                            </svg>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+        </motion.div>
+      </div>
+
+      {/* ── RIGHT col-span-4 ── */}
+      <div className="lg:col-span-4 flex flex-col gap-6">
+
+        {/* Cảnh báo ưu tiên */}
+        <motion.div
+          initial={{ opacity: 0, x: 20 }} whileInView={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true, margin: '-40px' }}
+          style={{
+            background: 'white', borderRadius: 20, padding: '22px',
+            border: '1px solid rgba(0,71,204,.09)',
+            boxShadow: '0 2px 12px rgba(0,71,204,.06)',
+          }}
+        >
+            <div className="flex justify-between items-center mb-5">
+              <div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#0047cc', letterSpacing: '.1em', textTransform: 'uppercase' }}>Alerts</span>
+                <h2 className="text-base font-bold text-slate-900 mt-0.5">Cảnh báo ưu tiên</h2>
+              </div>
+              <button
+                onClick={() => navigate('analytics')}
+                className="text-xs font-semibold hover:opacity-70 transition-opacity"
+                style={{ color: L_BRAND_DK }}
+              >
+                Xem tất cả
+              </button>
+            </div>
+            <div className="space-y-3">
+              {alerts.map((al, i) => (
+                <div
+                  key={i} onClick={() => navigate(al.page)}
+                  className="group cursor-pointer rounded-xl transition-all hover:shadow-sm"
+                  style={{
+                    padding: '12px 14px',
+                    background: i === 0 ? 'rgba(0,71,204,.03)' : 'transparent',
+                    border: i === 0 ? '1px solid rgba(0,71,204,.08)' : '1px solid transparent',
+                    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10,
+                    transition: 'all .2s cubic-bezier(.22,1,.36,1)',
+                  }}
+                >
+                  <div className="flex gap-3">
+                    <div style={{
+                      width: 32, height: 32, borderRadius: 10, flexShrink: 0, marginTop: 1,
+                      background: `${al.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <svg className="w-4 h-4" style={{ color: al.color }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{al.title}</span>
+                        <span style={{ padding: '2px 7px', borderRadius: 99, fontSize: 10, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>{al.meta}</span>
+                      </div>
+                      <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.5 }}>{al.desc}</p>
+                    </div>
+                  </div>
+                  <svg className="w-4 h-4 shrink-0 mt-1 text-slate-200 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              ))}
+            </div>
+        </motion.div>
+
+        {/* DeepGuard Copilot */}
+        <motion.div
+          initial={{ opacity: 0, x: 20 }} whileInView={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.55, delay: 0.1, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true, margin: '-40px' }}
+          style={{
+            background: 'linear-gradient(155deg,#fafcff 0%,#f0f6ff 100%)',
+            borderRadius: 20, padding: '22px', flex: 1,
+            border: '1px solid rgba(0,71,204,.1)',
+            boxShadow: '0 4px 18px rgba(0,71,204,.08)',
+            display: 'flex', flexDirection: 'column',
+          }}
+        >
+            {/* Header */}
+            <div className="text-center mb-5">
+              <div style={{
+                width: 44, height: 44, borderRadius: 14, margin: '0 auto 10px',
+                background: 'linear-gradient(145deg,#0047cc,#1a6fff)',
+                boxShadow: '0 6px 16px rgba(0,71,204,.32)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <p style={{ fontSize: 11.5, color: '#64748b', marginBottom: 3 }}>Chào, {ROLE_LABEL[role]}</p>
+              <h2 style={{ fontSize: 17, fontWeight: 900, color: '#0a1628', letterSpacing: '-0.03em' }}>DeepGuard Copilot</h2>
+            </div>
+            {/* Model tabs */}
+            <div style={{
+              display: 'flex', padding: 3, borderRadius: 14, marginBottom: 16,
+              background: 'rgba(255,255,255,.7)', border: '1px solid rgba(0,71,204,.1)',
+              boxShadow: 'inset 0 1px 3px rgba(0,0,0,.04)',
+            }}>
+              <button style={{
+                flex: 1, padding: '8px 6px', fontSize: 12, fontWeight: 800,
+                borderRadius: 11, background: 'white', color: L_BRAND_DK,
+                border: `1px solid rgba(0,71,204,.15)`,
+                boxShadow: '0 1px 4px rgba(0,71,204,.12)',
+                cursor: 'pointer',
+              }}>SFDCT</button>
+              <button style={{ flex: 1, padding: '8px 6px', fontSize: 12, fontWeight: 600, color: '#94a3b8', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: 11 }}>B4 baseline</button>
+              <button style={{ flex: 1, padding: '8px 6px', fontSize: 12, fontWeight: 600, color: '#94a3b8', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: 11 }}>Liveness</button>
+            </div>
+            {/* Action grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 'auto' }}>
+              {copilotActions.map((a) => (
+                <button
+                  key={a.label} onClick={() => navigate(a.page)}
+                  className="group"
+                  style={{
+                    padding: '14px 12px', borderRadius: 14, textAlign: 'left',
+                    background: 'white', cursor: 'pointer',
+                    border: '1px solid rgba(0,71,204,.08)',
+                    boxShadow: '0 1px 4px rgba(0,71,204,.07)',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 88,
+                    transition: 'all .22s cubic-bezier(.22,1,.36,1)',
+                  }}
+                >
+                  <div style={{
+                    width: 30, height: 30, borderRadius: 9,
+                    background: 'rgba(0,71,204,.07)',
+                    color: L_BRAND,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'background .22s ease',
+                  }}
+                    className="group-hover:bg-[rgba(0,71,204,.14)]"
+                  >
+                    <Icon name={a.icon} className="text-[17px]" />
+                  </div>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: '#374151' }}>{a.label}</span>
+                </button>
+              ))}
+            </div>
+            {/* Input */}
+            <div style={{ marginTop: 16, position: 'relative' }}>
+              <input
+                style={{
+                  width: '100%', padding: '11px 44px 11px 14px', borderRadius: 13,
+                  background: 'white', border: '1px solid rgba(0,71,204,.12)',
+                  fontSize: 12.5, color: '#1e293b', outline: 'none',
+                  boxShadow: '0 1px 4px rgba(0,71,204,.07)',
+                  boxSizing: 'border-box',
+                }}
+                placeholder="Hỏi Copilot về phát hiện, ngưỡng, tenant…"
+                type="text"
+              />
+              <button style={{
+                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                width: 28, height: 28, borderRadius: 9, border: 'none', cursor: 'pointer',
+                background: 'linear-gradient(135deg,#0047cc,#1a6fff)',
+                color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(0,71,204,.3)',
+              }}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Toggle chọn bố cục (Cổ điển ↔ Mới), lưu vào appearance store ── */
+const DASH_LAYOUTS: { id: DashboardLayout; label: string; icon: string }[] = [
+  { id: 'classic', label: 'Cổ điển', icon: 'dashboard' },
+  { id: 'focus', label: 'Bố cục mới', icon: 'view_quilt' },
+];
+function LayoutToggle() {
+  const layout = useAppearanceStore((s) => s.dashboardLayout);
+  const setLayout = useAppearanceStore((s) => s.setDashboardLayout);
+  return (
+    <div className="flex justify-end mb-4">
+      <div className="inline-flex p-0.5 rounded-xl bg-slate-100 border border-white">
+        {DASH_LAYOUTS.map((l) => (
+          <button
+            key={l.id}
+            onClick={() => setLayout(l.id)}
+            className={`flex items-center gap-1.5 px-3 h-8 rounded-lg text-[12px] font-bold transition-all ${
+              layout === l.id ? 'bg-white text-dgblue shadow-sm' : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <Icon name={l.icon} className="text-[16px]" />{l.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const role = useAuthStore((s) => s.user?.role) as Role | undefined;
+  const layout = useAppearanceStore((s) => s.dashboardLayout);
   // Shared analytics fetch powers every variant except the sysadmin platform-ops one.
   const shared = useSharedAnalytics(role);
 
-  if (role === 'sysadmin') return <SysadminDashboard />;
-  if (role === 'admin') return <AdminDashboard d={shared} role="admin" />;
-  if (role === 'compliance') return <ComplianceDashboard d={shared} />;
-  if (role === 'viewer') return <ViewerDashboard d={shared} />;
-  // developer (and any unknown/undefined role) → integration dashboard
-  return <DeveloperDashboard d={shared} role={(role ?? 'developer') as Role} />;
+  let body: React.ReactNode;
+  if (layout === 'focus') {
+    body = <FocusDashboard d={shared} role={(role ?? 'developer') as Role} />;
+  } else if (role === 'sysadmin') {
+    body = <SysadminDashboard />;
+  } else if (role === 'admin') {
+    body = <AdminDashboard d={shared} role="admin" />;
+  } else if (role === 'compliance') {
+    body = <ComplianceDashboard d={shared} />;
+  } else if (role === 'viewer') {
+    body = <ViewerDashboard d={shared} />;
+  } else {
+    body = <DeveloperDashboard d={shared} role={(role ?? 'developer') as Role} />;
+  }
+
+  return (
+    <div>
+      <LayoutToggle />
+      {body}
+    </div>
+  );
 }

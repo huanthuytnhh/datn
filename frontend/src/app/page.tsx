@@ -4,10 +4,14 @@ import { useEffect } from 'react';
 import { useNavigation } from '@/store/navigation';
 import { useAuthStore } from '@/store/auth';
 import { useAppearanceStore } from '@/store/appearance';
-import { canAccess, type Role } from '@/lib/rbac';
+import { useOnboardingStore } from '@/store/onboarding';
+import { PAGE_TOURS } from '@/lib/onboarding';
+import { canAccess, defaultPageFor, type Role } from '@/lib/rbac';
 import { Icon } from '@/components/deepguard/shared';
 import LandingPage from '@/components/deepguard/landing-page';
 import LoginPage from '@/components/deepguard/login-page';
+import RegisterPage from '@/components/deepguard/register-page';
+import AcceptInvitePage from '@/components/deepguard/accept-invite-page';
 import ForceChangePassword from '@/components/deepguard/force-change-password';
 import Sidebar from '@/components/deepguard/sidebar';
 import TopHeader from '@/components/deepguard/top-header';
@@ -29,6 +33,7 @@ import SettingsPage from '@/components/deepguard/settings-page';
 import ModelsPage from '@/components/deepguard/models-page';
 import StatusPage from '@/components/deepguard/status-page';
 import AccountPage from '@/components/deepguard/account-page';
+import OnboardingTour from '@/components/deepguard/onboarding-tour';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const pageVariants = {
@@ -43,7 +48,14 @@ const pageTransition = {
   duration: 0.3,
 } as const;
 
-const standalonePages = ['landing', 'login'];
+const standalonePages = ['landing', 'login', 'register', 'accept-invite'];
+
+const standaloneComponents: Record<string, React.ComponentType> = {
+  landing: LandingPage,
+  login: LoginPage,
+  register: RegisterPage,
+  'accept-invite': AcceptInvitePage,
+};
 
 const pageComponents: Record<string, React.ComponentType> = {
   dashboard: DashboardPage,
@@ -69,7 +81,22 @@ const pageComponents: Record<string, React.ComponentType> = {
 export default function Home() {
   const { currentPage, navigate } = useNavigation();
   const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
   const role = user?.role as Role | undefined;
+
+  // Khi bất kỳ API call nào nhận 401, tự động logout + về login
+  useEffect(() => {
+    const handler = () => { logout(); navigate('login'); };
+    window.addEventListener('dg:session-expired', handler);
+    return () => window.removeEventListener('dg:session-expired', handler);
+  }, [logout, navigate]);
+  const obOpenTip = useOnboardingStore((s) => s.openTip);
+  const obStartTour = useOnboardingStore((s) => s.startTour);
+  const obShowWelcome = useOnboardingStore((s) => s.showWelcome);
+  const obPhase = useOnboardingStore((s) => s.phase);
+  const obWelcomed = useOnboardingStore((s) => s.welcomed);
+  const obAutoWalk = useOnboardingStore((s) => s.autoWalk);
+  const obSeenPages = useOnboardingStore((s) => s.seenPages);
 
   // Sync the radius mode store + <html data-radius> from localStorage on mount
   // (the no-FOUC script in layout.tsx already set the attribute before paint).
@@ -77,9 +104,41 @@ export default function Home() {
     useAppearanceStore.getState().hydrate();
   }, []);
 
-  // Standalone pages (landing, login) — no sidebar/header
+  // Link mời /?invite=<token> → mở trang accept-invite (ưu tiên cao nhất, kể cả khi đã có token cũ).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hasInvite = new URLSearchParams(window.location.search).get('invite');
+    if (hasInvite && currentPage !== 'accept-invite') navigate('accept-invite');
+  }, [currentPage, navigate]);
+
+  // Redirect theo trạng thái đăng nhập:
+  //  - đã đăng nhập mà đang ở landing/login → vào dashboard (giữ trong app sau reload).
+  //  - chưa đăng nhập mà ở trang workspace → đẩy về login.
+  useEffect(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('invite')) return; // nhường cho accept-invite
+    if (user && (currentPage === 'landing' || currentPage === 'login')) {
+      navigate(defaultPageFor((user.role as Role) ?? 'viewer'));
+    } else if (!user && !standalonePages.includes(currentPage)) {
+      navigate('login');
+    }
+  }, [user, currentPage, navigate]);
+
+  // Onboarding: lần đầu → modal chào mừng; nếu đã đồng ý "đi một vòng" → mỗi trang lần đầu tự chạy tour.
+  useEffect(() => {
+    if (!user || user.must_change_password) return;
+    if (standalonePages.includes(currentPage)) return;
+    if (obPhase !== 'closed') return;
+    const uid = user.id;
+    if (!obWelcomed[uid]) { obShowWelcome(); return; }
+    if (obAutoWalk[uid] && !obSeenPages[`${uid}::${currentPage}`]) {
+      const hasTour = !!PAGE_TOURS[currentPage] || currentPage === 'dashboard';
+      if (hasTour) obStartTour(); else obOpenTip();
+    }
+  }, [user, currentPage, obPhase, obWelcomed, obAutoWalk, obSeenPages, obShowWelcome, obStartTour, obOpenTip]);
+
+  // Standalone pages (landing, login, register, accept-invite) — no sidebar/header
   if (standalonePages.includes(currentPage)) {
-    const Component = currentPage === 'landing' ? LandingPage : LoginPage;
+    const Component = standaloneComponents[currentPage] ?? LandingPage;
     return (
       <AnimatePresence mode="wait">
         <motion.div
@@ -143,11 +202,11 @@ export default function Home() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F0F9FF] text-[#0b1c30] font-sans overflow-x-hidden relative">
-      {/* Background Blobs */}
+    <div className="min-h-screen bg-[#F0F4F8] text-[#0b1c30] font-sans overflow-x-hidden relative">
+      {/* Background — muted blobs for depth without visual noise */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="bg-blob bg-blue-200 w-[600px] h-[600px] top-[-200px] right-[-100px]" />
-        <div className="bg-blob bg-indigo-100 w-[500px] h-[500px] bottom-[-100px] left-[-100px]" />
+        <div className="bg-blob w-[700px] h-[700px] top-[-200px] right-[-150px]" style={{ background: 'radial-gradient(circle, rgba(99,130,255,0.35) 0%, transparent 70%)' }} />
+        <div className="bg-blob w-[500px] h-[500px] bottom-[-100px] left-[-80px]" style={{ background: 'radial-gradient(circle, rgba(139,167,255,0.22) 0%, transparent 70%)' }} />
       </div>
 
       {/* Sidebar */}
@@ -157,7 +216,7 @@ export default function Home() {
       <TopHeader />
 
       {/* Main Content */}
-      <main className="ml-[240px] pt-24 px-8 pb-12 max-w-[1600px] mx-auto">
+      <main className="ml-[240px] pt-[72px] px-8 pb-12 max-w-[1600px] mx-auto">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentPage}
@@ -171,6 +230,9 @@ export default function Home() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* Product tour theo role (overlay, tự bật lần đầu mỗi user) */}
+      <OnboardingTour />
     </div>
   );
 }
