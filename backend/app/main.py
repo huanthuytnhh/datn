@@ -53,6 +53,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Ghi 1 dòng JSON/request vào app.log — forwarder đẩy lên CloudWatch (Phase 2)
+from app.core.request_logging import setup_request_logging
+setup_request_logging(app)
+
 # Routers
 app.include_router(auth.router)
 app.include_router(detect.router)

@@ -19,6 +19,7 @@ from app.dependencies import require_role
 from app.services.ml_inference import run_inference, run_video_inference
 from app.services.ml_model import frequency_viz
 from app.services.risk import to_risk_score, risk_band, decision_hint, thresholds_dict
+from app.services import storage
 from app.schemas.detect import DetectionResponse, VideoDetectionResponse, FrameResult
 from app.core.exceptions import bad_request
 
@@ -78,6 +79,12 @@ async def playground_detect_image(
         model_version=result.model_version,
         user_agent=file.filename,
     )
+    # Phase 2: lưu bằng chứng Grad-CAM lên S3 (no-op khi S3_BUCKET trống)
+    if storage.enabled() and result.heatmap:
+        import asyncio
+        det.heatmap_url = await asyncio.to_thread(
+            storage.upload_heatmap, current_user.tenant_id, det.request_id, result.heatmap
+        )
     await crud.increment_tenant_usage(db, current_user.tenant_id)
     await db.commit()
 

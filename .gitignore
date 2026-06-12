@@ -32,6 +32,10 @@ backend/.env
 deepguard_db/.env
 serving/serving.env
 
+# Request log + CloudWatch forwarder state (Phase 2)
+backend/app.log*
+backend/scripts/.logfwd_state.json
+
 # Database
 *.db
 *.sqlite

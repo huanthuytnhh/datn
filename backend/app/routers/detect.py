@@ -13,6 +13,7 @@ from app.dependencies import get_api_key_auth
 from app.services.ml_inference import run_inference, run_video_inference
 from app.services.ml_model import frequency_viz
 from app.services.risk import to_risk_score, risk_band, decision_hint, thresholds_dict
+from app.services import storage
 
 settings = get_settings()
 from app.schemas.detect import DetectionResponse, DetectionListItem, VideoDetectionResponse, FrameResult
@@ -70,6 +71,13 @@ async def detect_image(
         user_agent=request.headers.get("user-agent"),
         ip_address=request.client.host if request.client else None,
     )
+
+    # Phase 2: lưu bằng chứng Grad-CAM lên S3 (no-op khi S3_BUCKET trống)
+    if storage.enabled() and result.heatmap:
+        import asyncio
+        detection.heatmap_url = await asyncio.to_thread(
+            storage.upload_heatmap, api_key.tenant_id, detection.request_id, result.heatmap
+        )
 
     # Increment quotas
     from sqlalchemy import update

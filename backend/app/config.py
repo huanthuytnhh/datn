@@ -27,6 +27,11 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
+    # S3 artifact storage (heatmap evidence) — để trống là tắt, app chạy như cũ.
+    # Credentials lấy từ env chuẩn AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (boto3 tự đọc).
+    S3_BUCKET: str = ""
+    S3_REGION: str = "ap-southeast-1"
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

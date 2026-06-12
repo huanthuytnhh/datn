@@ -20,6 +20,7 @@ from app.schemas.detect import (
     DetectionListItem,
 )
 from app.schemas.common import Paginated
+from app.services import storage
 
 router = APIRouter(prefix="/detections", tags=["detections"])
 
@@ -83,7 +84,7 @@ def _to_detail(d: Detection, mask_pii: bool = False) -> DetectionDetail:
         image_width=d.image_width,
         image_height=d.image_height,
         image_thumb=None if mask_pii else d.image_thumb,
-        heatmap_url=d.heatmap_url,
+        heatmap_url=storage.presigned_url(d.heatmap_url),  # S3 key -> URL tạm 1h (None nếu tắt S3)
         processing_time_ms=d.processing_time_ms,
         model_version=d.model_version,
         user_agent=None if mask_pii else d.user_agent,
