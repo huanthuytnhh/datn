@@ -5,6 +5,7 @@
 
 ## 2026-06-12
 
+- Chốt runbook Stop/Start instance (0 lệnh, chỉ verify health) — ghi vào AWS_DEPLOY_ASBUILT.md §12
 - Tạo file nhật ký này; quy ước từ nay mỗi việc xong ghi 1 dòng
 - Tích hợp Phase 2 AWS: S3 lưu heatmap evidence + CloudWatch log forwarder — commit `98d909b` (storage.py, request_logging.py, push_to_cloudwatch.py + wire 3 router)
 - Smoke test ONNX export model SFDCT: PASS (vá `index_add_`→matmul, parity 4e-07, forward nhanh 1.69x) — CHƯA tích hợp vào serving, chờ quyết định
