@@ -302,10 +302,13 @@ export const detectVideo = (file: File, apiKey: string, sampleRate = 3) => {
 };
 
 // ── Playground (JWT, dashboard) — KHÔNG cần API key; dùng cho test nhanh sau login ──
-export const playgroundDetectImage = (file: File, threshold?: number) => {
+export const playgroundDetectImage = (file: File, threshold?: number, includeHeatmap = true) => {
   const form = new FormData();
   form.append("file", file);
-  const qs = threshold != null ? `?threshold=${threshold}` : "";
+  const params = new URLSearchParams();
+  if (threshold != null) params.set("threshold", String(threshold));
+  if (!includeHeatmap) params.set("include_heatmap", "false");
+  const qs = params.size ? `?${params}` : "";
   return req<DetectionResponse>(`/playground/detect/image${qs}`, { method: "POST", body: form });
 };
 export const playgroundDetectVideo = (file: File, sampleRate = 3) => {

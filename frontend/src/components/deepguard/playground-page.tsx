@@ -297,7 +297,7 @@ export default function PlaygroundPage() {
           [{ name: selectedFile.name, src: videoRunSrc, verdict: res.verdict, confidence: res.confidence }, ...p].slice(0, 5),
         );
       } else {
-        const res = await playgroundDetectImage(selectedFile, threshold);
+        const res = await playgroundDetectImage(selectedFile, threshold, includeHeatmap);
         setResult(res);
         const imgRunSrc = await fileToThumbDataUrl(selectedFile);   // base64 bền, không phải blob
         setRuns((p) =>
@@ -716,12 +716,14 @@ console.log(data);`;
                   <div className="flex-1 w-full space-y-3.5">
                     <ScoreBar label="Prob Fake" value={result.prob_fake * 100} color={accentColor} />
                     <ScoreBar label="CNN Score" value={result.prob_cnn * 100} color={DG.primary} />
-                    <ScoreBar label="Spatial" value={(result.spatial_score ?? 0) * 100} color={DG.uncertain} />
+                    {result.spatial_score != null && (
+                      <ScoreBar label="Spatial" value={result.spatial_score * 100} color={DG.uncertain} />
+                    )}
                     <div className="grid grid-cols-3 gap-2 pt-1">
                       {[
                         ['Latency', `${result.processing_time_ms}ms`],
                         ['Threshold', result.threshold_used.toFixed(2)],
-                        ['Frequency', `${((result.frequency_score ?? 0) * 100).toFixed(0)}%`],
+                        ['Frequency', result.frequency_score != null ? `${(result.frequency_score * 100).toFixed(0)}%` : '—'],
                       ].map(([l, val]) => (
                         <div key={l} className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.1em] mb-1">{l}</p>

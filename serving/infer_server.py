@@ -11,11 +11,16 @@ import os
 import sys
 import time
 import base64
+import hashlib
+from collections import OrderedDict
+
 import numpy as np
 import torch
 import cv2
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import JSONResponse
+
+torch.set_num_threads(os.cpu_count() or 2)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools"))        # tools/infer.py
@@ -32,6 +37,10 @@ app = FastAPI(title="SFDCT Inference Service", version="1.0")
 _model = None
 _cfg = None
 
+# Cache kết quả theo sha256 ảnh — demo xoay quanh vài preset nên hit rate rất cao
+_CACHE_MAX = 32
+_cache: "OrderedDict[tuple, dict]" = OrderedDict()
+
 
 def _get_model():
     global _model, _cfg
@@ -40,15 +49,41 @@ def _get_model():
     return _model, _cfg
 
 
+def _prob_only(model, x):
+    """Forward-only (không backward Grad-CAM) — nhanh ~2x trên CPU."""
+    with torch.inference_mode():
+        feat = model.features({"image": x.to(DEVICE)})
+        prob = torch.softmax(model.classifier(feat), dim=1)[0, 1]
+    return float(prob)
+
+
+@app.on_event("startup")
+def _warmup():
+    """Load model + 1 forward giả ngay khi service lên — request đầu không phải gánh."""
+    model, cfg = _get_model()
+    res = int(cfg.get("resolution", 256))
+    dummy = torch.zeros(1, 3, res, res)
+    _prob_only(model, dummy)
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "device": DEVICE, "ckpt": os.path.basename(CKPT), "model_version": MODEL_VERSION}
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(file: UploadFile = File(...), gradcam: bool = Query(default=True)):
     start = time.perf_counter()
     raw = await file.read()
+
+    key = (hashlib.sha256(raw).hexdigest(), gradcam)
+    if key in _cache:
+        _cache.move_to_end(key)
+        resp = dict(_cache[key])
+        resp["processing_time_ms"] = int((time.perf_counter() - start) * 1000)
+        resp["cached"] = True
+        return resp
+
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
         return JSONResponse({"error": "cannot decode image"}, status_code=400)
@@ -58,15 +93,21 @@ async def predict(file: UploadFile = File(...)):
     rgb = cv2.cvtColor(cv2.resize(bgr, (res, res), interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)
     x = ((rgb.astype(np.float32) / 255.0 - np.array(mean)) / np.array(std)).transpose(2, 0, 1)
     x = torch.from_numpy(x).float().unsqueeze(0)
-    prob, cam = infer_mod.gradcam(model, x, DEVICE)             # prob in [0,1], cam[h,w] in [0,1]
+
+    cam_b64 = None
+    if gradcam:
+        prob, cam = infer_mod.gradcam(model, x, DEVICE)         # prob in [0,1], cam[h,w] in [0,1]
+        # Grad-CAM overlay -> base64 data URL
+        cam = cv2.resize(cam, (res, res), interpolation=cv2.INTER_LINEAR)
+        heat = cv2.cvtColor(cv2.applyColorMap((cam * 255).astype(np.uint8), cv2.COLORMAP_JET), cv2.COLOR_BGR2RGB)
+        overlay = (0.55 * rgb + 0.45 * heat).clip(0, 255).astype(np.uint8)
+        ok, buf = cv2.imencode(".jpg", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+        cam_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
+    else:
+        prob = _prob_only(model, x)
     verdict = "FAKE" if prob >= THR else "REAL"
-    # Grad-CAM overlay -> base64 data URL
-    cam = cv2.resize(cam, (res, res), interpolation=cv2.INTER_LINEAR)
-    heat = cv2.cvtColor(cv2.applyColorMap((cam * 255).astype(np.uint8), cv2.COLORMAP_JET), cv2.COLOR_BGR2RGB)
-    overlay = (0.55 * rgb + 0.45 * heat).clip(0, 255).astype(np.uint8)
-    ok, buf = cv2.imencode(".jpg", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
-    cam_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
-    return {
+
+    resp = {
         "prob_fake": round(float(prob), 4),
         "verdict": verdict,
         "threshold": THR,
@@ -75,3 +116,7 @@ async def predict(file: UploadFile = File(...)):
         "device": DEVICE,
         "processing_time_ms": int((time.perf_counter() - start) * 1000),
     }
+    _cache[key] = resp
+    if len(_cache) > _CACHE_MAX:
+        _cache.popitem(last=False)
+    return resp

@@ -27,8 +27,8 @@ class InferenceResult:
     confidence: float       # 0-100
     prob_fake: float        # 0-1
     prob_cnn: float         # 0-1
-    spatial_score: float    # Laplacian std (normalized 0-1)
-    frequency_score: float  # FFT mid-freq score (normalized 0-1)
+    spatial_score: Optional[float]    # Laplacian std (normalized 0-1) — None nếu model không trả điểm thành phần
+    frequency_score: Optional[float]  # FFT mid-freq score (normalized 0-1) — None nếu model không trả điểm thành phần
     threshold_used: float
     face_detected: bool
     processing_time_ms: int
@@ -124,9 +124,9 @@ def _mock_inference(image_bytes: bytes) -> InferenceResult:
     )
 
 
-def _sfdct_inference(image_bytes: bytes) -> InferenceResult:
+def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True) -> InferenceResult:
     """Gọi microservice SFDCT (DeepfakeBench) qua HTTP -> map sang InferenceResult (kèm Grad-CAM).
-    Service down -> fallback mock để không chặn API."""
+    include_heatmap=False -> serving bỏ backward Grad-CAM, nhanh ~2x. Service down -> fallback mock."""
     import httpx
     start = time.perf_counter()
     image_hash = hashlib.sha256(image_bytes).hexdigest()
@@ -136,6 +136,7 @@ def _sfdct_inference(image_bytes: bytes) -> InferenceResult:
         width = height = None
     try:
         r = httpx.post(settings.SFDCT_INFER_URL.rstrip("/") + "/predict",
+                       params={"gradcam": str(include_heatmap).lower()},
                        files={"file": ("upload.jpg", image_bytes, "image/jpeg")}, timeout=60.0)
         r.raise_for_status()
         j = r.json()
@@ -150,7 +151,7 @@ def _sfdct_inference(image_bytes: bytes) -> InferenceResult:
     return InferenceResult(
         verdict=verdict, confidence=confidence,
         prob_fake=round(prob_fake, 4), prob_cnn=round(prob_fake, 4),
-        spatial_score=0.0, frequency_score=0.0,
+        spatial_score=None, frequency_score=None,
         threshold_used=settings.MODEL_THRESHOLD, face_detected=True,
         processing_time_ms=int((time.perf_counter() - start) * 1000),
         model_version=j.get("model_version", settings.MODEL_VERSION),
@@ -160,9 +161,9 @@ def _sfdct_inference(image_bytes: bytes) -> InferenceResult:
 
 
 # ── Public entry points ──
-async def run_inference(image_bytes: bytes) -> InferenceResult:
+async def run_inference(image_bytes: bytes, include_heatmap: bool = True) -> InferenceResult:
     if settings.SFDCT_INFER_URL:                     # ưu tiên microservice SFDCT (model thật của thesis)
-        return _sfdct_inference(image_bytes)
+        return _sfdct_inference(image_bytes, include_heatmap)
     if settings.MOCK_ML or not settings.MODEL_PATH:
         return _mock_inference(image_bytes)
     return _real_inference(image_bytes)
