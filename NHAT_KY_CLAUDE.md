@@ -5,6 +5,7 @@
 
 ## 2026-06-12
 
+- Review intro EN: chỉ ra 15 dấu hiệu văn AI → chốt bộ rule report/QUY_TAC_CHONG_VAN_AI.md + lưu memory áp dụng mọi phiên sau
 - Chốt runbook Stop/Start instance (0 lệnh, chỉ verify health) — ghi vào AWS_DEPLOY_ASBUILT.md §12
 - Tạo file nhật ký này; quy ước từ nay mỗi việc xong ghi 1 dòng
 - Tích hợp Phase 2 AWS: S3 lưu heatmap evidence + CloudWatch log forwarder — commit `98d909b` (storage.py, request_logging.py, push_to_cloudwatch.py + wire 3 router)
