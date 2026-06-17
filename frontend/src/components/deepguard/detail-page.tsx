@@ -156,7 +156,7 @@ export default function DetailPage() {
 
   const isFake = detection.verdict !== 'REAL';
   const freqRaw = detection.frequency_score ?? detection.spatial_score ?? 0;
-  const hasImage = Boolean(detection.image_thumb);
+  const hasImage = Boolean(detection.image_thumb || detection.heatmap_url);
 
   return (
     <div className="space-y-5">
@@ -220,9 +220,16 @@ export default function DetailPage() {
                 <div className="text-center px-6">
                   <Icon name="image_not_supported" className="text-[60px] text-slate-600" />
                   <p className="text-[11px] text-slate-400 mt-2 leading-snug">
-                    Bản ghi này không có ảnh lưu (tạo trước khi bật lưu thumbnail).
+                    Không có ảnh để hiển thị.
                     <br />Hash SHA-256 vẫn được giữ làm chứng cứ audit.
                   </p>
+                </div>
+              ) : !detection.image_thumb ? (
+                /* Raw image hidden (PII-masked by role or not stored) — show the Grad-CAM evidence instead. */
+                <div className="relative w-full h-full">
+                  <img src={detection.heatmap_url!} className="w-full h-full object-cover" alt="Grad-CAM" />
+                  <span className="absolute bottom-2 left-2 text-[9px] font-black text-white bg-black/60 px-2 py-0.5 rounded">GRAD-CAM</span>
+                  <span className="absolute top-2 left-2 text-[9px] text-white/85 bg-black/50 px-2 py-0.5 rounded">Ảnh gốc ẩn theo quyền</span>
                 </div>
               ) : viewMode === 'split' ? (
                 <div className="grid grid-cols-2 h-full w-full">
@@ -524,7 +531,7 @@ function LivenessDetailView({
                 <div className="text-center px-6">
                   <Icon name="image_not_supported" className="text-[60px] text-slate-600" />
                   <p className="text-[11px] text-slate-400 mt-2 leading-snug">
-                    Bản ghi này không có ảnh lưu.
+                    Ảnh gốc ẩn theo quyền hoặc không lưu.
                     <br />Hash SHA-256 vẫn được giữ làm chứng cứ audit.
                   </p>
                 </div>
