@@ -24,7 +24,10 @@ def enabled() -> bool:
 @lru_cache
 def _client():
     import boto3  # import muộn: môi trường không bật S3 thì không cần boto3
-    return boto3.client("s3", region_name=settings.S3_REGION)
+    kwargs = {"region_name": settings.S3_REGION}
+    if settings.AWS_ENDPOINT_URL:  # LocalStack / custom endpoint for local testing
+        kwargs["endpoint_url"] = settings.AWS_ENDPOINT_URL
+    return boto3.client("s3", **kwargs)
 
 
 def upload_heatmap(tenant_id, request_id, heatmap_data_url: Optional[str]) -> Optional[str]:

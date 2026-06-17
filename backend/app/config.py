@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     CW_METRIC_NAMESPACE: str = ""
     CW_REGION: str = "ap-southeast-1"
 
+    # Optional custom AWS endpoint (e.g. LocalStack http://localhost:4566) so S3 and
+    # CloudWatch can be exercised locally without a real AWS account. Empty -> real AWS.
+    AWS_ENDPOINT_URL: str = ""
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
