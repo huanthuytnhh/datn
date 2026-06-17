@@ -179,7 +179,6 @@ export default function BillingPage() {
         {/* plan card */}
         <div
           className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise relative overflow-hidden"
-          style={{ borderTop: `4px solid ${DG.primary}` }}
         >
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gói hiện tại</span>

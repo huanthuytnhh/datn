@@ -118,7 +118,7 @@ export default function Sidebar() {
                   className={`group w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all text-[13px] relative ${
                     active ? 'font-semibold' : it.soon ? 'text-slate-400 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-50/80 font-medium'
                   }`}
-                  style={active ? { background: 'rgba(0,71,204,0.07)', color: '#0047cc', boxShadow: 'inset 2.5px 0 0 #0047cc' } : {}}
+                  style={active ? { background: 'rgba(0,71,204,0.07)', color: '#0047cc' } : {}}
                 >
                   <Icon name={it.icon} className="text-[18px]" fill={active} />
                   <span className="flex-1 text-left">{it.label}</span>

@@ -340,7 +340,6 @@ export default function LivenessPage() {
         <div className="lg:col-span-7 space-y-6">
           <div
             className="glass-panel rounded-3xl p-8 shadow-md relative overflow-hidden"
-            style={{ borderTop: `4px solid ${verdictColor}` }}
           >
             <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-6">Kết quả Liveness</h3>
 

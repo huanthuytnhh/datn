@@ -572,7 +572,6 @@ console.log(data);`;
         {/* Verdict hero card */}
         <div
           className="glass-panel rounded-2xl shadow-md relative overflow-hidden"
-          style={{ borderTop: `4px solid ${accentColor}` }}
         >
           <div className="p-6 flex flex-col md:flex-row gap-7 items-start">
             {/* Preview */}
