@@ -46,6 +46,31 @@ def upload_heatmap(tenant_id, request_id, heatmap_data_url: Optional[str]) -> Op
         return None
 
 
+_EXT_BY_CTYPE = {
+    "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
+    "image/webp": "webp", "video/mp4": "mp4", "video/quicktime": "mov",
+}
+
+
+def upload_media(tenant_id, request_id, data: Optional[bytes],
+                 content_type: str = "image/jpeg", kind: str = "input") -> Optional[str]:
+    """Lưu media GỐC đã upload (ảnh/video input) lên S3 -> trả về S3 key, lỗi/tắt -> None.
+
+    Key: tenants/<tenant_id>/detections/<request_id>_<kind>.<ext>. Không raise (S3 là phụ trợ).
+    Phục vụ audit eKYC: mỗi phán quyết có file đầu vào lưu lại để rà soát sau.
+    """
+    if not enabled() or not data:
+        return None
+    try:
+        ext = _EXT_BY_CTYPE.get(content_type, "bin")
+        key = f"tenants/{tenant_id}/detections/{request_id}_{kind}.{ext}"
+        _client().put_object(Bucket=settings.S3_BUCKET, Key=key, Body=data, ContentType=content_type)
+        return key
+    except Exception as exc:
+        log.warning("S3 upload media failed: %s", exc)
+        return None
+
+
 def presigned_url(key: Optional[str], expires: int = PRESIGN_EXPIRES) -> Optional[str]:
     """S3 key -> presigned GET URL. Key dạng http(s) (legacy) trả nguyên; tắt S3 -> None."""
     if not key:
