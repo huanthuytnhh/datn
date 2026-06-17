@@ -30,7 +30,7 @@ class LivenessDetail(LivenessResponse):
     image_hash: str
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
-    api_key_id: uuid.UUID
+    api_key_id: Optional[uuid.UUID] = None   # None for dashboard (JWT) checks
     api_key_prefix: Optional[str] = None
     api_key_name: Optional[str] = None
     tenant_name: Optional[str] = None

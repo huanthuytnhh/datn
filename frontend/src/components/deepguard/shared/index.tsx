@@ -354,8 +354,8 @@ export function InteractiveChart({
           ))}
         </defs>
 
-        {yticks.map((tk) => (
-          <g key={tk}>
+        {yticks.map((tk, ti) => (
+          <g key={`y${ti}`}>
             <line x1={pad.l} y1={yAt(tk)} x2={W - pad.r} y2={yAt(tk)} stroke="#e8eef5" strokeWidth="1" strokeDasharray={tk === 0 ? '0' : '4 5'} />
             <text x={pad.l - 10} y={yAt(tk) + 4} textAnchor="end" fontSize="10" fill="#94a3b8" className="tabular-nums">
               {tk >= 1000 ? (tk / 1000).toFixed(tk % 1000 ? 1 : 0) + 'k' : tk}
