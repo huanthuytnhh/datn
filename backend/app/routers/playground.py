@@ -17,7 +17,7 @@ from deepguard_db.app.db.models import User, DetectionVerdict
 from app.config import get_settings
 from app.dependencies import require_role
 from app.services.ml_inference import run_inference, run_video_inference
-from app.services.ml_model import frequency_viz
+from app.services.ml_model import frequency_viz, _encode_image_thumb
 from app.services.risk import to_risk_score, risk_band, decision_hint, thresholds_dict
 from app.services import storage
 from app.schemas.detect import DetectionResponse, VideoDetectionResponse, FrameResult
@@ -75,6 +75,7 @@ async def playground_detect_image(
         image_hash=image_hash,
         image_width=result.image_width,
         image_height=result.image_height,
+        image_thumb=_encode_image_thumb(image_bytes),  # store thumbnail so Detail can show the analysed image
         processing_time_ms=result.processing_time_ms,
         model_version=result.model_version,
         user_agent=file.filename,

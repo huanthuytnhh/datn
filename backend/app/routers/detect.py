@@ -11,7 +11,7 @@ from deepguard_db.app.db.models import ApiKey, DetectionVerdict, JobType, JobSta
 from app.config import get_settings
 from app.dependencies import get_api_key_auth
 from app.services.ml_inference import run_inference, run_video_inference
-from app.services.ml_model import frequency_viz
+from app.services.ml_model import frequency_viz, _encode_image_thumb
 from app.services.risk import to_risk_score, risk_band, decision_hint, thresholds_dict
 from app.services import storage
 
@@ -65,7 +65,7 @@ async def detect_image(
         image_hash=result.image_hash,
         image_width=result.image_width,
         image_height=result.image_height,
-        image_thumb=result.image_thumb,
+        image_thumb=result.image_thumb or _encode_image_thumb(image_bytes),
         processing_time_ms=result.processing_time_ms,
         model_version=result.model_version,
         user_agent=request.headers.get("user-agent"),
