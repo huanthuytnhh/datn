@@ -58,6 +58,8 @@ from app.routers._liveness_helpers import _save_liveness, _to_response
 async def detect_liveness_passive(
     request: Request,
     file: UploadFile = File(...),
+    threshold: Optional[float] = Query(default=None, ge=0.0, le=1.0,
+        description="Ngưỡng LIVE/SPOOF override (0-1). Bỏ trống => dùng LIVENESS_THRESHOLD ở config."),
     api_key: ApiKeyModel = Depends(get_api_key_auth),
     db: AsyncSession = Depends(get_db),
 ):
@@ -68,7 +70,7 @@ async def detect_liveness_passive(
     if len(image_bytes) > MAX_IMAGE_SIZE:
         raise bad_request("File size exceeds 10 MB limit")
 
-    result = await run_liveness_check(image_bytes)
+    result = await run_liveness_check(image_bytes, threshold=threshold)
     row = await _save_liveness(
         db, tenant_id=api_key.tenant_id, api_key_id=api_key.id,
         result=result, mode="passive", request=request,

@@ -37,9 +37,10 @@ from app.config import get_settings
 
 settings = get_settings()
 
-# Threshold giống ml_inference: > 0.5 + margin = LIVE, < 0.5 - margin = SPOOF
-LIVENESS_THRESHOLD = 0.5
-LIVENESS_MARGIN    = 0.08
+# Ngưỡng + margin lấy từ config (tùy chỉnh qua .env: LIVENESS_THRESHOLD / LIVENESS_MARGIN).
+# P(live) < THRESHOLD => SPOOF. MARGIN=0 => cắt nhị phân sạch tại ngưỡng.
+LIVENESS_THRESHOLD = settings.LIVENESS_THRESHOLD
+LIVENESS_MARGIN    = settings.LIVENESS_MARGIN
 
 CHALLENGES = ["blink", "turn_left", "turn_right", "smile", "nod"]
 
@@ -76,25 +77,28 @@ def _encode_thumb(image_bytes: bytes, max_dim: int = 320, quality: int = 80) -> 
         return None
 
 
-def _verdict_from_score(score: float, threshold: float = LIVENESS_THRESHOLD) -> tuple[str, float]:
-    """Returns (verdict, confidence 0-100)."""
-    if score >= threshold + LIVENESS_MARGIN:
+def _verdict_from_score(score: float, threshold: float = None, margin: float = None) -> tuple[str, float]:
+    """Returns (verdict, confidence 0-100). threshold/margin None => lấy từ config."""
+    threshold = LIVENESS_THRESHOLD if threshold is None else threshold
+    margin = LIVENESS_MARGIN if margin is None else margin
+    if score >= threshold + margin:
         verdict = "LIVE"
-        confidence = min(round((score - threshold) / (1 - threshold) * 100, 2), 99.9)
-    elif score <= threshold - LIVENESS_MARGIN:
+        confidence = min(round((score - threshold) / max(1 - threshold, 1e-6) * 100, 2), 99.9)
+    elif score <= threshold - margin:
         verdict = "SPOOF"
-        confidence = min(round((threshold - score) / threshold * 100, 2), 99.9)
+        confidence = min(round((threshold - score) / max(threshold, 1e-6) * 100, 2), 99.9)
     else:
         verdict = "UNCERTAIN"
-        confidence = round(50.0 + abs(score - threshold) / LIVENESS_MARGIN * 10, 2)
+        confidence = round(50.0 + abs(score - threshold) / max(margin, 1e-6) * 10, 2)
     return verdict, confidence
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Real inference — gọi liveness microservice (port 8502) qua HTTP
 # ─────────────────────────────────────────────────────────────────────────────
-def _real_liveness(image_bytes: bytes) -> LivenessResult:
-    """Gọi liveness_server.py qua HTTP. Fallback mock nếu service down."""
+def _real_liveness(image_bytes: bytes, threshold: float = None) -> LivenessResult:
+    """Gọi liveness_server.py qua HTTP. Fallback mock nếu service down.
+    threshold None => dùng config (LIVENESS_THRESHOLD); truyền vào để override per-request."""
     import httpx
     start = time.perf_counter()
     image_hash = hashlib.sha256(image_bytes).hexdigest()
@@ -114,7 +118,7 @@ def _real_liveness(image_bytes: bytes) -> LivenessResult:
         return _mock_liveness(image_bytes)
 
     score = float(j.get("liveness_score", 0.5))
-    threshold = settings.LIVENESS_THRESHOLD
+    threshold = settings.LIVENESS_THRESHOLD if threshold is None else threshold
     verdict, confidence = _verdict_from_score(score, threshold)
     spoof_type = None if verdict == "LIVE" else "unknown"
     elapsed = int((time.perf_counter() - start) * 1000)
@@ -234,10 +238,10 @@ def _aggregate_frames(
 # ─────────────────────────────────────────────────────────────────────────────
 # Public entry points
 # ─────────────────────────────────────────────────────────────────────────────
-async def run_liveness_check(image_bytes: bytes) -> LivenessResult:
-    """Passive liveness — 1 frame → kết quả."""
+async def run_liveness_check(image_bytes: bytes, threshold: float = None) -> LivenessResult:
+    """Passive liveness — 1 frame → kết quả. threshold None => dùng config."""
     if settings.LIVENESS_INFER_URL:
-        return _real_liveness(image_bytes)
+        return _real_liveness(image_bytes, threshold=threshold)
     return _mock_liveness(image_bytes)
 
 

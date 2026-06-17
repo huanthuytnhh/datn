@@ -22,15 +22,25 @@ class Settings(BaseSettings):
     SFDCT_INFER_URL: str = ""
     # Liveness microservice (DeepfakeBench liveness_server.py :8502)
     LIVENESS_INFER_URL: str = ""
-    # threshold@dev_eer từ metrics_liveness.json (B4, AUC=0.9829)
-    LIVENESS_THRESHOLD: float = 0.8743
+    # Ngưỡng quyết định LIVE/SPOOF (tùy chỉnh qua .env). P(live) < THRESHOLD => SPOOF.
+    # Mặc định demo 0.125 (12.5%): nới rộng để mặt thật OOD/webcam không bị gắn nhầm spoof.
+    # (Điểm dev-EER chuẩn của model là 0.8743 — dùng cho báo cáo, chặt hơn nhiều.)
+    LIVENESS_THRESHOLD: float = 0.125
+    # Vùng "không chắc chắn" quanh ngưỡng: |score-threshold| <= MARGIN => UNCERTAIN.
+    # 0.0 = cắt nhị phân sạch tại ngưỡng (không có UNCERTAIN).
+    LIVENESS_MARGIN: float = 0.0
 
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
-    # S3 artifact storage (heatmap evidence) — để trống là tắt, app chạy như cũ.
+    # S3 artifact storage (heatmap evidence + media gốc) — để trống là tắt, app chạy như cũ.
     # Credentials lấy từ env chuẩn AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (boto3 tự đọc).
     S3_BUCKET: str = ""
     S3_REGION: str = "ap-southeast-1"
+
+    # CloudWatch custom metrics (Detections / ProbFake / latency / errors).
+    # CW_METRIC_NAMESPACE trống -> tắt, app chạy như cũ.
+    CW_METRIC_NAMESPACE: str = ""
+    CW_REGION: str = "ap-southeast-1"
 
     @property
     def cors_origins_list(self) -> List[str]:

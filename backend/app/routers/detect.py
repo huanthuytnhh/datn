@@ -79,6 +79,16 @@ async def detect_image(
             storage.upload_heatmap, api_key.tenant_id, detection.request_id, result.heatmap
         )
 
+    # Phase 3: lưu media gốc lên S3 (audit) + bắn CloudWatch metric (no-op khi tắt)
+    import asyncio as _aio
+    from app.services import metrics
+    if storage.enabled():
+        await _aio.to_thread(storage.upload_media, api_key.tenant_id, detection.request_id,
+                             image_bytes, file.content_type or "image/jpeg", "input")
+    if metrics.enabled():
+        await _aio.to_thread(metrics.emit_detection, result.verdict, result.prob_fake,
+                             result.processing_time_ms, "api")
+
     # Increment quotas
     from sqlalchemy import update
     from deepguard_db.app.db.models import ApiKey as ApiKeyModel, Tenant
@@ -154,6 +164,16 @@ async def detect_video(
 
         import time
         processing_ms = int((datetime.now(timezone.utc) - start_ts).total_seconds() * 1000)
+
+        # Phase 3: lưu video gốc lên S3 (audit) + CloudWatch metric (no-op khi tắt)
+        import asyncio as _aio
+        from app.services import metrics
+        if storage.enabled():
+            await _aio.to_thread(storage.upload_media, api_key.tenant_id, job.id,
+                                 video_bytes, "video/mp4", "input")
+        if metrics.enabled():
+            await _aio.to_thread(metrics.emit_detection, result["verdict"], result["prob_fake"],
+                                 processing_ms, "api")
 
         job.status = JobStatus.COMPLETED
         job.progress_percent = 100

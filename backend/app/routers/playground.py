@@ -85,6 +85,15 @@ async def playground_detect_image(
         det.heatmap_url = await asyncio.to_thread(
             storage.upload_heatmap, current_user.tenant_id, det.request_id, result.heatmap
         )
+    # Phase 3: lưu media gốc lên S3 (audit) + bắn CloudWatch metric (no-op khi tắt)
+    import asyncio as _aio
+    from app.services import metrics
+    if storage.enabled():
+        await _aio.to_thread(storage.upload_media, current_user.tenant_id, det.request_id,
+                             image_bytes, file.content_type or "image/jpeg", "input")
+    if metrics.enabled():
+        await _aio.to_thread(metrics.emit_detection, result.verdict, result.prob_fake,
+                             result.processing_time_ms, "playground")
     await crud.increment_tenant_usage(db, current_user.tenant_id)
     await db.commit()
 
@@ -132,11 +141,23 @@ async def playground_detect_video(
         raise bad_request(f"Video inference failed: {exc}")
 
     processing_ms = int((datetime.now(timezone.utc) - start_ts).total_seconds() * 1000)
+
+    # Phase 3: lưu video gốc lên S3 (audit) + CloudWatch metric (no-op khi tắt)
+    import asyncio as _aio
+    from app.services import metrics
+    pg_job_id = uuid.uuid4()
+    if storage.enabled():
+        await _aio.to_thread(storage.upload_media, current_user.tenant_id, pg_job_id,
+                             video_bytes, "video/mp4", "input")
+    if metrics.enabled():
+        await _aio.to_thread(metrics.emit_detection, result["verdict"], result["prob_fake"],
+                             processing_ms, "playground")
+
     await crud.increment_tenant_usage(db, current_user.tenant_id)
     await db.commit()
 
     return VideoDetectionResponse(
-        job_id=uuid.uuid4(),
+        job_id=pg_job_id,
         verdict=result["verdict"],
         confidence=result["confidence"],
         prob_fake=result["prob_fake"],

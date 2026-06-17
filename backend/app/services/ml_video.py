@@ -142,7 +142,6 @@ def _sfdct_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
     import os
 
     url = settings.SFDCT_INFER_URL.rstrip("/") + "/predict"
-    detector = _get_detector()
 
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
         f.write(video_bytes)
@@ -165,23 +164,23 @@ def _sfdct_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
                     if len(frame_results) >= SFDCT_MAX_FRAMES:
                         truncated = True
                         break
-                    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    face = _crop_face(img_rgb, detector)
-                    if face is not None:
-                        ok, buf = cv2.imencode(".jpg", cv2.cvtColor(face, cv2.COLOR_RGB2BGR))
-                        if ok:
-                            try:
-                                r = client.post(url, files={"file": ("frame.jpg", buf.tobytes(), "image/jpeg")})
-                                r.raise_for_status()
-                                prob = float(r.json().get("prob_fake", 0.0))
-                                frame_results.append({
-                                    "frame_id":  frame_id,
-                                    "prob_fake": round(prob, 4),
-                                    "prob_cnn":  round(prob, 4),
-                                    "thumb":     _encode_thumb_bgr(frame),
-                                })
-                            except Exception:
-                                service_errors += 1
+                    # Gửi NGUYÊN frame sang :8501 để service tự crop mặt (giống path ảnh
+                    # _sfdct_inference) -> backend KHÔNG cần torch/MTCNN, hết lỗi
+                    # "No module named 'torch'" khi xử lý video.
+                    ok, buf = cv2.imencode(".jpg", frame)            # frame là BGR
+                    if ok:
+                        try:
+                            r = client.post(url, files={"file": ("frame.jpg", buf.tobytes(), "image/jpeg")})
+                            r.raise_for_status()
+                            prob = float(r.json().get("prob_fake", 0.0))
+                            frame_results.append({
+                                "frame_id":  frame_id,
+                                "prob_fake": round(prob, 4),
+                                "prob_cnn":  round(prob, 4),
+                                "thumb":     _encode_thumb_bgr(frame),
+                            })
+                        except Exception:
+                            service_errors += 1
                 frame_id += 1
         cap.release()
     finally:
