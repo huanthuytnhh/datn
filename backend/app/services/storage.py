@@ -25,8 +25,10 @@ def enabled() -> bool:
 def _client():
     import boto3  # import muộn: môi trường không bật S3 thì không cần boto3
     kwargs = {"region_name": settings.S3_REGION}
-    if settings.AWS_ENDPOINT_URL:  # LocalStack / custom endpoint for local testing
+    if settings.AWS_ENDPOINT_URL:  # LocalStack / MinIO — path-style addressing works for localhost endpoints
+        from botocore.config import Config
         kwargs["endpoint_url"] = settings.AWS_ENDPOINT_URL
+        kwargs["config"] = Config(s3={"addressing_style": "path"})
     return boto3.client("s3", **kwargs)
 
 
