@@ -258,7 +258,7 @@ export default function DetailPage() {
 
         {/* RIGHT — verdict + breakdown + meta */}
         <div className="lg:col-span-7 space-y-5">
-          <section className="glass-panel rounded-2xl p-7 shadow-sm border border-white/60" style={{ borderTop: `4px solid ${s.color}` }}>
+          <section className="glass-panel rounded-2xl p-7 shadow-sm border border-white/60">
             <div className="flex items-start justify-between gap-4 mb-7">
               <div>
                 <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Diagnostic verdict</h3>
