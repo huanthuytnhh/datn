@@ -19,20 +19,27 @@ Healthcheck: `:8501/health` và `:8502/health` trả `model_version` (deepfake `
 
 ## 1. Kịch bản chính (theo đúng luồng nghiệp vụ)
 
-| # | Actor | Thao tác | Kết quả mong đợi | Trạng thái |
+**Tạo tenant — 2 HƯỚNG (chọn 1 khi demo):**
+
+| Hướng | Actor | Thao tác | Kết quả | ✓ |
 |---|---|---|---|---|
-| 1 | **Sysadmin** | Đăng nhập `sysadmin@deepguard.vn` | Vào Dashboard nền tảng | ✅ 200 |
-| 2 | **Sysadmin** | Quản lý Tenants → **Tạo tenant** (vd "Acme Bank", gói pro, quota 10000, email admin) | Tenant **ACTIVE ngay** + tài khoản admin; **mật khẩu tạm hiện 1 lần** (copy gửi admin) | ✅ 201 |
-| 3 | **Admin tenant** | Đăng nhập bằng mật khẩu tạm | Bị buộc **đổi mật khẩu lần đầu** (must_change), chưa vào được app | ✅ 200 |
-| 4 | **Admin tenant** | Đổi mật khẩu | Đổi xong → vào Dashboard tổ chức | ✅ 204 |
-| 5 | **Admin tenant** | Team & Roles → **Thêm nhân viên** (role `developer`, mật khẩu tạm) | Dev được tạo trong tenant, buộc đổi mật khẩu lần đầu | ✅ 201 |
-| 6 | **Developer** | Đăng nhập (mật khẩu tạm) → đổi mật khẩu | Vào Dashboard developer | ✅ 200/204 |
-| 7 | **Developer** | API Keys → **Tạo key** | Key `sk-dg-…` **hiện 1 lần** (copy) | ✅ 201 |
-| 8 | **Developer (glm_deepfake)** | Dán key vào `glm_deepfake/.env`, mở trang Deepfake → upload ảnh | Client gọi `POST /v1/detect/image` (`Authorization: Bearer sk-dg-…`) → trả **verdict + prob_fake + Grad-CAM** | ✅ 200 |
-| 8b | **Developer (glm_deepfake)** | Upload video | Backend tách **8 frame rải đều toàn clip** → gọi serving từng frame → verdict tổng hợp (vài giây, không treo) | ✅ 200 |
-| 9 | **Developer** | Quay lại Dashboard → **Lịch sử (History)** | Bản ghi vừa chạy hiện trong danh sách (badge nguồn `api`) | ✅ 200 (total≥1) |
-| 10 | **Developer** | Bấm 1 dòng → **Detail** | Hiện ảnh + **Grad-CAM** + gauge + điểm + metadata của phán quyết đó; **PII bị che** (ip/user-agent = null) đúng quyền developer | ✅ 200 |
-| 11 | **Compliance** | Đăng nhập → mở cùng Detail | **PII hiển thị đầy đủ** + thêm được **ghi chú điều tra** | ✅ (RBAC verified) |
+| **A. Sysadmin tạo sẵn** | Sysadmin | Quản lý Tenants → **Tạo tenant** (tên, gói, quota, email admin) | Tenant **ACTIVE ngay** + admin + **mật khẩu tạm `123456`** (đổi lần đầu) | ✅ 201 |
+| **B. Tenant tự đăng ký + chờ duyệt** | Khách (anonymous) | Landing → "Dùng thử" → **Đăng ký tổ chức** | Tenant **SUSPENDED** (chờ duyệt), login bị chặn | ✅ 201 pending |
+| **B (duyệt)** | Sysadmin | Tenants → tenant pending → **Duyệt** (activate) | Tenant active → admin đăng nhập được | ✅ 200 |
+
+**Sau khi có tenant → tạo dev → glm_deepfake dùng key → xem history có tag:**
+
+| # | Actor | Thao tác | Kết quả mong đợi | ✓ |
+|---|---|---|---|---|
+| 1 | **Admin tenant** | Đăng nhập (mật khẩu tạm `123456`) → **buộc đổi mật khẩu** | Vào Dashboard tổ chức | ✅ 200/204 |
+| 2 | **Admin tenant** | Team & Roles → **Thêm developer** | Dev tạo trong tenant, buộc đổi mật khẩu lần đầu | ✅ 201 |
+| 3 | **Developer** | Đăng nhập → đổi mật khẩu → **API Keys → Tạo key** | Key `sk-dg-…` **hiện 1 lần** | ✅ 201 |
+| 4 | **glm_deepfake** | Dán key vào `glm_deepfake/.env`. **Trước khi có key**: trang Deepfake chạy DEMO MODE (không predict thật). | Badge "DEMO MODE" | ✅ |
+| 5 | **glm_deepfake** | Mở trang Deepfake → **chọn 1 trong 3 ảnh mẫu** (Mặt thật / Deepfake A / Deepfake B) hoặc upload → Phân tích | Có key → gọi `/v1/detect/image` Bearer → **verdict + prob_fake**, badge "MODEL THẬT" | ✅ 200 |
+| 5b | **glm_deepfake** | Upload **video** | Tách **8 frame rải đều toàn clip** → serving từng frame → verdict tổng hợp (vài giây) | ✅ 200 |
+| 6 | **Developer** | Dashboard → **History** | Bản ghi vừa chạy hiện, kèm **TAG `Deepfake` / `Liveness`** (gộp cả 2 loại, lọc theo loại) | ✅ 200 |
+| 7 | **Developer** | Bấm 1 dòng → **Detail** | Đúng loại: deepfake → Grad-CAM/điểm; liveness → score/spoof_type/mode; **PII che** với developer | ✅ 200 |
+| 8 | **Compliance** | Mở cùng Detail | **PII đầy đủ** + thêm **ghi chú điều tra** | ✅ (RBAC) |
 
 ## 2. Bằng chứng lên S3 + giám sát CloudWatch
 
