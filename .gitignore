@@ -87,3 +87,9 @@ frontend/data_images/
 
 # Office lock files (LibreOffice/OnlyOffice temp lock)
 .~lock.*#
+
+# junk/scaffold không commit (newfe_2)
+frontend/next
+frontend/nextjs_tailwind_shadcn_ts@*
+frontend/dashboard-sample.*
+frontend/package-lock.json
