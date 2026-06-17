@@ -148,6 +148,9 @@ async def update_tenant_admin(
         raise bad_request(f"Invalid plan: {body.plan}")
     if body.monthly_quota is not None and body.monthly_quota < 0:
         raise bad_request("monthly_quota must be >= 0")
+    # Chặn sysadmin tự tạm ngưng tổ chức của chính mình -> tránh tự khóa toàn bộ truy cập.
+    if body.status == "suspended" and tenant_id == current_user.tenant_id:
+        raise bad_request("Không thể tạm ngưng tổ chức của chính bạn (tránh tự khóa).")
 
     tenant = await crud.update_tenant_admin(
         db, tenant_id,
