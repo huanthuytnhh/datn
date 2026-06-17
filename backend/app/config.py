@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # 0.0 = cắt nhị phân sạch tại ngưỡng (không có UNCERTAIN).
     LIVENESS_MARGIN: float = 0.0
 
+    # Video: số frame TỐI ĐA gửi đi suy luận, lấy ĐỀU trên toàn clip (chặn video dài chạy quá lâu).
+    # Mỗi frame qua serving ~0.5-1s (GPU) -> 8 frame vài giây, vẫn đại diện toàn video.
+    VIDEO_MAX_FRAMES: int = 8
+
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
     # S3 artifact storage (heatmap evidence + media gốc) — để trống là tắt, app chạy như cũ.

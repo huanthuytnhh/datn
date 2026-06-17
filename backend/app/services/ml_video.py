@@ -128,8 +128,18 @@ def _real_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
     }
 
 
-# Số frame tối đa gửi sang microservice SFDCT (chặn video dài làm nghẽn :8501).
+# Trần cứng phòng video CỰC dài / total_frames sai (an toàn cho :8501).
 SFDCT_MAX_FRAMES = 60
+
+
+def _even_frame_ids(total_frames: int, n: int) -> list[int] | None:
+    """Chọn n frame_id rải ĐỀU trên toàn video. total<=0 (không đọc được độ dài) -> None (fallback)."""
+    if total_frames <= 0:
+        return None
+    n = max(1, min(n, total_frames))
+    if n == 1:
+        return [0]
+    return sorted({int(round(i * (total_frames - 1) / (n - 1))) for i in range(n)})
 
 
 def _sfdct_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
@@ -154,14 +164,18 @@ def _sfdct_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
         cap = cv2.VideoCapture(tmp_path)
         if not cap.isOpened():
             raise ValueError("Cannot open video file")
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        wanted = _even_frame_ids(total_frames, settings.VIDEO_MAX_FRAMES)  # rải đều; None nếu không biết độ dài
         frame_id = 0
         with httpx.Client(timeout=60.0) as client:
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                if frame_id % sample_rate == 0:
-                    if len(frame_results) >= SFDCT_MAX_FRAMES:
+                # rải đều VIDEO_MAX_FRAMES frame trên toàn clip; không biết độ dài -> sample_rate + trần cứng
+                take = (frame_id in wanted) if wanted is not None else (frame_id % sample_rate == 0)
+                if take:
+                    if wanted is None and len(frame_results) >= SFDCT_MAX_FRAMES:
                         truncated = True
                         break
                     # Gửi NGUYÊN frame sang :8501 để service tự crop mặt (giống path ảnh
