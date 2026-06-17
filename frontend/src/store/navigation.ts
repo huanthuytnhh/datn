@@ -24,11 +24,16 @@ export type Page =
   | 'status'
   | 'account';
 
+export type DetectionKind = 'deepfake' | 'liveness';
+
 interface NavigationState {
   currentPage: Page;
   navigate: (page: Page) => void;
   selectedRequestId: string | null;
   setSelectedRequestId: (id: string | null) => void;
+  // Which history record type the Detail page should load (deepfake detection vs liveness check).
+  selectedKind: DetectionKind;
+  setSelectedKind: (kind: DetectionKind) => void;
 }
 
 export const useNavigation = create<NavigationState>((set) => ({
@@ -36,4 +41,6 @@ export const useNavigation = create<NavigationState>((set) => ({
   navigate: (page) => set({ currentPage: page }),
   selectedRequestId: null,
   setSelectedRequestId: (id) => set({ selectedRequestId: id }),
+  selectedKind: 'deepfake',
+  setSelectedKind: (kind) => set({ selectedKind: kind }),
 }));
