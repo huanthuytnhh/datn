@@ -21,7 +21,10 @@ def enabled() -> bool:
 @lru_cache
 def _client():
     import boto3  # import muộn: môi trường không bật CloudWatch thì không cần boto3
-    return boto3.client("cloudwatch", region_name=settings.CW_REGION)
+    kwargs = {"region_name": settings.CW_REGION}
+    if settings.AWS_ENDPOINT_URL:  # LocalStack / custom endpoint for local testing
+        kwargs["endpoint_url"] = settings.AWS_ENDPOINT_URL
+    return boto3.client("cloudwatch", **kwargs)
 
 
 def emit_detection(verdict: str, prob_fake: Optional[float], latency_ms: Optional[float],
