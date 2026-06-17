@@ -181,10 +181,11 @@ export interface LivenessChallenge {
   expires_at: string;
 }
 
-export const detectLivenessPassive = (file: File, apiKey: string) => {
+export const detectLivenessPassive = (file: File, apiKey: string, threshold?: number) => {
   const form = new FormData();
   form.append("file", file);
-  return req<LivenessResponse>("/v1/detect/liveness", { method: "POST", body: form }, apiKey);
+  const q = threshold != null ? `?threshold=${threshold}` : "";
+  return req<LivenessResponse>(`/v1/detect/liveness${q}`, { method: "POST", body: form }, apiKey);
 };
 
 export const livenessGetChallenge = (apiKey: string) =>

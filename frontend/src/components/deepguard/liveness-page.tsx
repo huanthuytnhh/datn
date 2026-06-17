@@ -35,6 +35,9 @@ export default function LivenessPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Ngưỡng LIVE/SPOOF tùy chỉnh: P(live) < threshold => SPOOF. Mặc định 0.125 (12.5%).
+  const [threshold, setThreshold] = useState(0.125);
+
   // Active state — webcam
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -109,7 +112,7 @@ export default function LivenessPage() {
     if (!file) { setError('Chưa chọn ảnh'); return; }
     setError(''); setResult(null); setRunning(true);
     try {
-      const res = await detectLivenessPassive(file, apiKey);
+      const res = await detectLivenessPassive(file, apiKey, threshold);
       setResult(res);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Liveness check thất bại');
@@ -285,6 +288,23 @@ export default function LivenessPage() {
                   )}
                 </div>
               </>
+            )}
+
+            {mode === 'passive' && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Ngưỡng LIVE / SPOOF</label>
+                  <span className="text-xs font-bold text-[#0050cb]">{(threshold * 100).toFixed(1)}%</span>
+                </div>
+                <input
+                  type="range" min={0} max={1} step={0.005} value={threshold}
+                  onChange={(e) => setThreshold(parseFloat(e.target.value))}
+                  className="w-full accent-[#0050cb] cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  P(live) &lt; {(threshold * 100).toFixed(1)}% ⇒ SPOOF. Mặc định 12.5%; tăng = chặt hơn (ít spoof lọt nhưng dễ từ chối mặt thật).
+                </p>
+              </div>
             )}
 
             {error && (
