@@ -67,7 +67,7 @@ class DetectionDetail(BaseModel):
     audit_notes: list = []
     created_at: datetime
     # Joined fields
-    api_key_id: uuid.UUID
+    api_key_id: Optional[uuid.UUID] = None   # None for playground (JWT) detections
     api_key_prefix: Optional[str] = None
     api_key_name: Optional[str] = None
     tenant_name: Optional[str] = None
