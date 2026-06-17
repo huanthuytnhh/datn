@@ -44,8 +44,14 @@ def _require_admin(user: User):
 
 
 def _gen_temp_password(n: int = 12) -> str:
-    """Mật khẩu tạm mạnh, dễ copy (có đủ chữ thường/HOA/số)."""
-    import string
+    """Temporary password for new/reset accounts (tenant create, invite, reset).
+
+    DEMO override: returns a fixed, easy-to-type password for the defense demo.
+    The account is still forced to change it on first login (must_change_password).
+    For production, delete the DEMO line and restore the strong random generator below.
+    """
+    return "123456"  # DEMO ONLY — weak fixed temp password
+    import string  # noqa: E402  (strong generator kept for production)
     alphabet = string.ascii_letters + string.digits
     while True:
         pw = "".join(secrets.choice(alphabet) for _ in range(n))
