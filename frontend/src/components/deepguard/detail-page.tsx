@@ -10,9 +10,27 @@ import {
   detectionsGet,
   detectionsAddNote,
   detectionsList,
+  livenessGet,
   type DetectionDetail,
   type DetectionListItem,
+  type LivenessDetail,
 } from '@/lib/api';
+
+// Same small uppercase pill style used on the History page TYPE badge.
+function TypeBadge({ kind }: { kind: 'deepfake' | 'liveness' }) {
+  const k =
+    kind === 'liveness'
+      ? { label: 'Liveness', bg: 'rgba(13,148,136,.1)', color: '#0d9488' }
+      : { label: 'Deepfake', bg: 'rgba(0,71,204,.1)', color: '#0047cc' };
+  return (
+    <span
+      className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide"
+      style={{ background: k.bg, color: k.color }}
+    >
+      {k.label}
+    </span>
+  );
+}
 
 type ViewMode = 'overlay' | 'split' | 'original';
 
@@ -24,8 +42,9 @@ function fmtDateTime(iso: string): string {
 }
 
 export default function DetailPage() {
-  const { selectedRequestId, navigate, setSelectedRequestId } = useNavigation();
+  const { selectedRequestId, selectedKind, navigate, setSelectedRequestId } = useNavigation();
   const [detection, setDetection] = useState<DetectionDetail | null>(null);
+  const [liveness, setLiveness] = useState<LivenessDetail | null>(null);
   const [related, setRelated] = useState<DetectionListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,6 +64,18 @@ export default function DetailPage() {
     }
     setLoading(true);
     setError('');
+    setDetection(null);
+    setLiveness(null);
+    setRelated([]);
+
+    if (selectedKind === 'liveness') {
+      livenessGet(selectedRequestId)
+        .then((d) => setLiveness(d))
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'))
+        .finally(() => setLoading(false));
+      return;
+    }
+
     detectionsGet(selectedRequestId)
       .then((d) => {
         setDetection(d);
@@ -63,7 +94,7 @@ export default function DetailPage() {
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'))
       .finally(() => setLoading(false));
-  }, [selectedRequestId]);
+  }, [selectedRequestId, selectedKind]);
 
   const handleSaveNote = async () => {
     if (!detection || !noteText.trim()) return;
@@ -97,22 +128,30 @@ export default function DetailPage() {
     );
   }
 
+  const notFound = (
+    <div className="glass-panel rounded-2xl p-8 border border-white/60 flex flex-col items-center text-center max-w-md mx-auto mt-10">
+      <span className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
+        <Icon name="touch_app" className="text-[28px] text-slate-400" />
+      </span>
+      <h3 className="text-sm font-black text-slate-800 mb-1">Không thể hiển thị</h3>
+      <p className="text-xs text-slate-500 mb-5">{error || 'Không tìm thấy bản ghi.'}</p>
+      <button
+        onClick={() => navigate('history')}
+        className="px-5 py-2 bg-dgblue text-white rounded-xl text-xs font-bold shadow-lg shadow-dgblue/25 hover:bg-dgblue/90 transition-all"
+      >
+        Quay lại Lịch sử
+      </button>
+    </div>
+  );
+
+  // ── Liveness check detail (focused view; no notes / related sections) ──
+  if (selectedKind === 'liveness') {
+    if (error || !liveness) return notFound;
+    return <LivenessDetailView liveness={liveness} navigate={navigate} />;
+  }
+
   if (error || !detection) {
-    return (
-      <div className="glass-panel rounded-2xl p-8 border border-white/60 flex flex-col items-center text-center max-w-md mx-auto mt-10">
-        <span className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
-          <Icon name="touch_app" className="text-[28px] text-slate-400" />
-        </span>
-        <h3 className="text-sm font-black text-slate-800 mb-1">Không thể hiển thị</h3>
-        <p className="text-xs text-slate-500 mb-5">{error || 'Không tìm thấy detection.'}</p>
-        <button
-          onClick={() => navigate('history')}
-          className="px-5 py-2 bg-dgblue text-white rounded-xl text-xs font-bold shadow-lg shadow-dgblue/25 hover:bg-dgblue/90 transition-all"
-        >
-          Quay lại Lịch sử
-        </button>
-      </div>
-    );
+    return notFound;
   }
 
   const isFake = detection.verdict !== 'REAL';
@@ -134,6 +173,7 @@ export default function DetailPage() {
             <div className="flex items-center gap-2.5">
               <h1 className="text-xl font-black tracking-tight text-slate-900">Chi tiết phát hiện</h1>
               <VerdictBadge verdict={detection.verdict} size="lg" />
+              <TypeBadge kind="deepfake" />
             </div>
             <p className="text-[11px] font-mono text-slate-400 truncate">
               {detection.request_id} · {fmtDateTime(detection.created_at)}
@@ -416,6 +456,176 @@ export default function DetailPage() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+// ── Liveness (anti-spoofing) detail — focused view reusing the page shell ──
+function LivenessDetailView({
+  liveness,
+  navigate,
+}: {
+  liveness: LivenessDetail;
+  navigate: (p: 'history') => void;
+}) {
+  const s = verdictStyle(liveness.verdict);
+  const isSpoof = liveness.verdict === 'SPOOF';
+  const hasImage = Boolean(liveness.image_thumb);
+  const dimensionsLabel =
+    liveness.image_width && liveness.image_height
+      ? `${liveness.image_width}×${liveness.image_height}`
+      : '—';
+
+  return (
+    <div className="space-y-5">
+      {/* Breadcrumb header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 dg-rise">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => navigate('history')}
+            className="w-9 h-9 rounded-full hover:bg-white flex items-center justify-center text-slate-500 transition-colors shrink-0"
+          >
+            <Icon name="arrow_back" className="text-[20px]" />
+          </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-black tracking-tight text-slate-900">Chi tiết liveness</h1>
+              <VerdictBadge verdict={liveness.verdict} size="lg" />
+              <TypeBadge kind="liveness" />
+            </div>
+            <p className="text-[11px] font-mono text-slate-400 truncate">
+              {liveness.check_id} · {fmtDateTime(liveness.created_at)}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigator.clipboard?.writeText(liveness.check_id)}
+            className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
+          >
+            <Icon name="content_copy" className="text-[16px]" /> Copy ID
+          </button>
+        </div>
+      </div>
+
+      {/* Main grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* LEFT — captured frame */}
+        <div className="lg:col-span-5 space-y-5">
+          <section className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Ảnh chụp</h3>
+              <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] text-slate-500 font-mono">{dimensionsLabel}</span>
+            </div>
+            <div className="relative rounded-2xl overflow-hidden aspect-square bg-slate-900 shadow-inner flex items-center justify-center">
+              {hasImage ? (
+                <img src={liveness.image_thumb!} className="w-full h-full object-cover" alt="Ảnh liveness" />
+              ) : (
+                <div className="text-center px-6">
+                  <Icon name="image_not_supported" className="text-[60px] text-slate-600" />
+                  <p className="text-[11px] text-slate-400 mt-2 leading-snug">
+                    Bản ghi này không có ảnh lưu.
+                    <br />Hash SHA-256 vẫn được giữ làm chứng cứ audit.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-xl bg-slate-50/60 border border-slate-100">
+                <p className="text-[9px] font-black text-slate-400 uppercase">Mode</p>
+                <p className="text-sm font-bold text-slate-700 capitalize">{liveness.mode}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50/60 border border-slate-100">
+                <p className="text-[9px] font-black text-slate-400 uppercase">Số khung hình</p>
+                <p className="text-sm font-bold text-slate-700 tabular-nums">{liveness.frame_count}</p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* RIGHT — verdict + scores + meta */}
+        <div className="lg:col-span-7 space-y-5">
+          <section className="glass-panel rounded-2xl p-7 shadow-sm border border-white/60">
+            <div className="flex items-start justify-between gap-4 mb-7">
+              <div>
+                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Liveness verdict</h3>
+                <div className="flex items-center gap-4">
+                  <span className="text-5xl font-black tracking-tighter" style={{ color: s.color, textShadow: `0 0 18px ${s.color}28` }}>
+                    {liveness.verdict}
+                  </span>
+                  <div className="h-10 w-px bg-slate-200" />
+                  <div>
+                    <p className="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Liveness score</p>
+                    <p className="text-2xl font-black text-slate-800 tabular-nums leading-none">{(liveness.liveness_score * 100).toFixed(1)}%</p>
+                  </div>
+                </div>
+              </div>
+              <Gauge value={liveness.confidence} color={s.color} />
+            </div>
+
+            <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Score breakdown</p>
+            <div className="space-y-4 mb-6">
+              <ScoreBar label="Liveness score" value={liveness.liveness_score * 100} raw={liveness.liveness_score} color={s.color} />
+              <ScoreBar label="Confidence" value={liveness.confidence} color="#0050cb" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 pt-5 border-t border-slate-100">
+              {([
+                ['Threshold', liveness.threshold_used.toFixed(2)],
+                ['Latency', `${liveness.processing_time_ms}ms`],
+                ['Model', liveness.model_version],
+              ] as const).map(([k, v]) => (
+                <div key={k}>
+                  <p className="text-[9px] font-black text-slate-400 uppercase">{k}</p>
+                  <p className="text-sm font-bold text-slate-700 tabular-nums truncate">{v}</p>
+                </div>
+              ))}
+            </div>
+
+            {isSpoof && (
+              <div className="mt-5 flex items-center gap-3 p-3 rounded-xl bg-red-50 border border-red-100">
+                <Icon name="gpp_maybe" className="text-[20px] text-red-600" fill />
+                <div>
+                  <p className="text-xs font-bold text-slate-700">Loại giả mạo (spoof)</p>
+                  <p className="text-[11px] text-slate-500 capitalize">{liveness.spoof_type ?? 'unknown'}</p>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* Metadata */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="lg:col-span-12 glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-5">Request metadata</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-6">
+            {([
+              ['Tenant', liveness.tenant_name ?? '—'],
+              ['API Key', liveness.api_key_name ?? '—'],
+              ['Key prefix', liveness.api_key_prefix ?? '—'],
+              ['Mode', liveness.mode],
+              ['Challenge', liveness.challenge_type ?? '—'],
+              ['Challenge passed', liveness.challenge_passed == null ? '—' : liveness.challenge_passed ? 'Có' : 'Không'],
+              ['IP Address', liveness.ip_address ?? '—'],
+              ['Created', fmtDateTime(liveness.created_at)],
+            ] as const).map(([k, v]) => (
+              <div key={k}>
+                <p className="text-[9px] font-bold text-slate-400 uppercase">{k}</p>
+                <p className="text-xs font-bold text-slate-700 font-mono truncate" title={String(v)}>{v}</p>
+              </div>
+            ))}
+            <div className="col-span-2 md:col-span-3">
+              <p className="text-[9px] font-bold text-slate-400 uppercase">User Agent</p>
+              <p className="text-[11px] font-bold text-slate-600 truncate" title={liveness.user_agent ?? ''}>{liveness.user_agent ?? '—'}</p>
+            </div>
+            <div className="col-span-2 md:col-span-3">
+              <p className="text-[9px] font-bold text-slate-400 uppercase">Image SHA-256</p>
+              <p className="text-[10px] font-mono font-bold text-slate-500 bg-slate-50 p-2 rounded-lg mt-1 break-all">{liveness.image_hash || '—'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigation } from '@/store/navigation';
-import { detectionsList, type DetectionListItem } from '@/lib/api';
+import { useNavigation, type DetectionKind } from '@/store/navigation';
+import { detectionsList, livenessList, type DetectionListItem, type LivenessListItem } from '@/lib/api';
 import { Icon, VerdictBadge, StatPill } from '@/components/deepguard/shared';
 import { DG, verdictStyle, fmtInt, timeAgo } from '@/lib/dg';
 
@@ -19,6 +19,34 @@ const VERDICT_CHIPS: { id: string; label: string; color: string }[] = [
   { id: 'FAKE', label: 'Fake', color: DG.fake },
   { id: 'UNCERTAIN', label: 'Uncertain', color: DG.uncertain },
 ];
+
+// Record-type filter chips (deepfake detection vs liveness check).
+const KIND_CHIPS: { id: '' | DetectionKind; label: string; color: string }[] = [
+  { id: '', label: 'Tất cả', color: DG.primary },
+  { id: 'deepfake', label: 'Deepfake', color: '#0047cc' },
+  { id: 'liveness', label: 'Liveness', color: '#0d9488' },
+];
+
+// Visual style for the per-row TYPE badge — kept consistent with the small 'Playground' pill.
+const KIND_BADGE: Record<DetectionKind, { label: string; bg: string; color: string }> = {
+  deepfake: { label: 'Deepfake', bg: 'rgba(0,71,204,.1)', color: '#0047cc' },
+  liveness: { label: 'Liveness', bg: 'rgba(13,148,136,.1)', color: '#0d9488' },
+};
+
+// Merged history row — a deepfake list item plus its record kind (and optional liveness spoof_type).
+type HistoryRow = DetectionListItem & { kind: DetectionKind; spoof_type?: string | null };
+
+function TypeBadge({ kind }: { kind: DetectionKind }) {
+  const k = KIND_BADGE[kind];
+  return (
+    <span
+      className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide"
+      style={{ background: k.bg, color: k.color }}
+    >
+      {k.label}
+    </span>
+  );
+}
 
 type ViewMode = 'table' | 'cards';
 
@@ -120,15 +148,15 @@ function Pagination({
 }
 
 export default function HistoryPage() {
-  const { navigate, setSelectedRequestId } = useNavigation();
+  const { navigate, setSelectedRequestId, setSelectedKind } = useNavigation();
   const [confidenceFilter, setConfidenceFilter] = useState(0);
   const [query, setQuery] = useState('');
   const [view, setView] = useState<ViewMode>('table');
   const [currentPage, setCurrentPage] = useState(1);
   const [verdictFilter, setVerdictFilter] = useState('');
+  const [kindFilter, setKindFilter] = useState<'' | DetectionKind>('');
   const [dateRangeIdx, setDateRangeIdx] = useState(0);
-  const [rows, setRows] = useState<DetectionListItem[]>([]);
-  const [total, setTotal] = useState(0);
+  const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
@@ -142,44 +170,84 @@ export default function HistoryPage() {
     return { start_date: start.toISOString(), end_date: end.toISOString() };
   }, [dateRangeIdx]);
 
+  // Date-range lower bound applied client-side to liveness rows (the /liveness endpoint
+  // doesn't accept a date filter, so we filter the merged list ourselves).
+  const startMs = useMemo(() => {
+    const range = DATE_RANGES[dateRangeIdx];
+    if (range.hours == null) return null;
+    return Date.now() - range.hours * 60 * 60 * 1000;
+  }, [dateRangeIdx]);
+
   useEffect(() => {
     setLoading(true);
     setError('');
-    detectionsList({
-      verdict: verdictFilter || undefined,
-      page: currentPage,
-      limit,
-      ...dateParams,
-    })
-      .then((r) => {
-        setRows(r.items);
-        setTotal(r.total);
+    // Fetch both sources; each catch is independent so one failing source doesn't blank the page.
+    Promise.all([
+      detectionsList({ page: 1, limit: 100, ...dateParams }).catch(() => null),
+      livenessList({ page: 1, limit: 100 }).catch(() => null),
+    ])
+      .then(([dRes, lRes]) => {
+        if (!dRes && !lRes) {
+          setError('Lỗi tải dữ liệu');
+          setRows([]);
+          return;
+        }
+        const detRows: HistoryRow[] = (dRes?.items ?? []).map((it) => ({ ...it, kind: 'deepfake' }));
+        const liveRows: HistoryRow[] = (lRes?.items ?? []).map((it: LivenessListItem) => ({
+          request_id: it.check_id,
+          verdict: it.verdict,
+          confidence: it.confidence,
+          prob_fake: it.liveness_score,
+          processing_time_ms: it.processing_time_ms,
+          model_version: it.model_version,
+          image_hash: '',
+          created_at: it.created_at,
+          source: 'liveness',
+          kind: 'liveness',
+          spoof_type: it.spoof_type,
+        }));
+        const merged = [...detRows, ...liveRows].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
+        setRows(merged);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'))
       .finally(() => setLoading(false));
-  }, [verdictFilter, currentPage, dateParams, refreshTick]);
+  }, [dateParams, refreshTick]);
 
-  // Local refinements over the server page (confidence threshold + text search).
+  // Client-side filters over the merged list: date range + record kind + verdict chip +
+  // confidence threshold + text search.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter(
       (r) =>
+        (startMs == null || new Date(r.created_at).getTime() >= startMs) &&
+        (kindFilter === '' || r.kind === kindFilter) &&
+        (verdictFilter === '' || r.verdict === verdictFilter) &&
         (confidenceFilter === 0 || r.confidence >= confidenceFilter) &&
         (q === '' ||
           r.request_id.toLowerCase().includes(q) ||
           r.model_version.toLowerCase().includes(q) ||
           r.image_hash.toLowerCase().includes(q)),
     );
-  }, [rows, confidenceFilter, query]);
+  }, [rows, startMs, kindFilter, verdictFilter, confidenceFilter, query]);
 
-  // Stat strip derived from the current page payload.
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * limit, currentPage * limit),
+    [filtered, currentPage],
+  );
+
+  // Stat strip derived from the full merged list.
   const stats = useMemo(() => {
-    const c = { fake: 0, real: 0, uncertain: 0 };
+    const c = { fake: 0, real: 0, uncertain: 0, deepfake: 0, liveness: 0 };
     let confSum = 0;
     for (const r of rows) {
-      if (r.verdict === 'FAKE') c.fake++;
-      else if (r.verdict === 'REAL') c.real++;
+      if (r.verdict === 'FAKE' || r.verdict === 'SPOOF') c.fake++;
+      else if (r.verdict === 'REAL' || r.verdict === 'LIVE') c.real++;
       else c.uncertain++;
+      if (r.kind === 'deepfake') c.deepfake++;
+      else c.liveness++;
       confSum += r.confidence;
     }
     return {
@@ -188,20 +256,19 @@ export default function HistoryPage() {
     };
   }, [rows]);
 
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-
-  const handleRowClick = (id: string) => {
-    setSelectedRequestId(id);
+  const handleRowClick = (r: HistoryRow) => {
+    setSelectedKind(r.kind);
+    setSelectedRequestId(r.request_id);
     navigate('detail');
   };
 
   const handleExportCsv = useCallback(() => {
     if (filtered.length === 0) return;
-    const headers = ['request_id', 'created_at', 'verdict', 'confidence', 'prob_fake', 'model_version', 'processing_time_ms'];
+    const headers = ['kind', 'request_id', 'created_at', 'verdict', 'confidence', 'prob_fake', 'model_version', 'processing_time_ms'];
     const lines = [headers.join(',')];
     for (const r of filtered) {
       lines.push(
-        [r.request_id, r.created_at, r.verdict, r.confidence.toFixed(2), r.prob_fake.toFixed(4), r.model_version, r.processing_time_ms]
+        [r.kind, r.request_id, r.created_at, r.verdict, r.confidence.toFixed(2), r.prob_fake.toFixed(4), r.model_version, r.processing_time_ms]
           .map((v) => `"${String(v).replace(/"/g, '""')}"`)
           .join(','),
       );
@@ -210,13 +277,14 @@ export default function HistoryPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `detections_page${currentPage}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `history_page${currentPage}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }, [filtered, currentPage]);
 
   const clearFilters = () => {
     setVerdictFilter('');
+    setKindFilter('');
     setQuery('');
     setConfidenceFilter(0);
     setDateRangeIdx(0);
@@ -227,7 +295,7 @@ export default function HistoryPage() {
     ? 'loading'
     : error
       ? 'error'
-      : total === 0
+      : rows.length === 0
         ? 'empty'
         : filtered.length === 0
           ? 'noresults'
@@ -240,7 +308,7 @@ export default function HistoryPage() {
         <div>
           <h1 className="text-2xl font-black tracking-tight text-slate-900">Lịch sử phát hiện</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {fmtInt(total)} bản ghi · {fmtInt(stats.fake)} deepfake trên trang này
+            {fmtInt(total)} bản ghi · {fmtInt(stats.deepfake)} deepfake · {fmtInt(stats.liveness)} liveness
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -294,6 +362,24 @@ export default function HistoryPage() {
             placeholder="Tìm request id, model, image hash…"
             className="w-full h-9 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
           />
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {KIND_CHIPS.map((c) => (
+            <button
+              key={c.id || 'ALL_KINDS'}
+              onClick={() => {
+                setKindFilter(c.id);
+                setCurrentPage(1);
+              }}
+              className={`px-3 h-9 rounded-lg text-[11px] font-bold transition-all border flex items-center gap-1.5 ${
+                kindFilter === c.id ? 'text-white border-transparent shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+              }`}
+              style={kindFilter === c.id ? { background: c.color } : undefined}
+            >
+              {c.label}
+            </button>
+          ))}
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -383,18 +469,21 @@ export default function HistoryPage() {
         />
       ) : view === 'cards' ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {filtered.map((r) => {
+          {paged.map((r) => {
             const s = verdictStyle(r.verdict);
             return (
               <button
                 key={r.request_id}
-                onClick={() => handleRowClick(r.request_id)}
+                onClick={() => handleRowClick(r)}
                 className="glass-panel rounded-2xl overflow-hidden border border-white/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all text-left group dg-rise"
               >
                 <div className="relative aspect-[4/3] bg-slate-100 flex items-center justify-center overflow-hidden">
                   <Icon name="image" className="text-[40px] text-slate-300" />
                   <span className="absolute top-2 left-2">
                     <VerdictBadge verdict={r.verdict} />
+                  </span>
+                  <span className="absolute top-2 right-2">
+                    <TypeBadge kind={r.kind} />
                   </span>
                 </div>
                 <div className="p-3">
@@ -432,10 +521,10 @@ export default function HistoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map((r) => {
+                {paged.map((r) => {
                   const s = verdictStyle(r.verdict);
                   return (
-                    <tr key={r.request_id} onClick={() => handleRowClick(r.request_id)} className="data-table-row cursor-pointer">
+                    <tr key={r.request_id} onClick={() => handleRowClick(r)} className="data-table-row cursor-pointer">
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
@@ -444,6 +533,7 @@ export default function HistoryPage() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <p className="text-[12px] font-bold text-slate-700 truncate font-mono">{r.request_id.slice(0, 8)}…</p>
+                              <TypeBadge kind={r.kind} />
                               {r.source === 'playground' && (
                                 <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{ background: 'rgba(0,71,204,.1)', color: '#0047cc' }}>Playground</span>
                               )}
