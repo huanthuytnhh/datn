@@ -34,9 +34,6 @@ function resultToJSON(r: DetectionResponse): string {
       verdict: r.verdict,
       confidence: r.confidence,
       prob_fake: +(r.prob_fake ?? 0).toFixed(4),
-      prob_cnn: +(r.prob_cnn ?? 0).toFixed(4),
-      spatial_score: r.spatial_score != null ? +r.spatial_score.toFixed(4) : null,
-      frequency_score: r.frequency_score != null ? +r.frequency_score.toFixed(4) : null,
       threshold_used: r.threshold_used,
       face_detected: r.face_detected,
       processing_time_ms: r.processing_time_ms,
@@ -714,15 +711,11 @@ console.log(data);`;
                 <div className="flex flex-col md:flex-row gap-6 items-start">
                   <div className="flex-1 w-full space-y-3.5">
                     <ScoreBar label="Prob Fake" value={result.prob_fake * 100} color={accentColor} />
-                    <ScoreBar label="CNN Score" value={result.prob_cnn * 100} color={DG.primary} />
-                    {result.spatial_score != null && (
-                      <ScoreBar label="Spatial" value={result.spatial_score * 100} color={DG.uncertain} />
-                    )}
                     <div className="grid grid-cols-3 gap-2 pt-1">
                       {[
                         ['Latency', `${result.processing_time_ms}ms`],
                         ['Threshold', result.threshold_used.toFixed(2)],
-                        ['Frequency', result.frequency_score != null ? `${(result.frequency_score * 100).toFixed(0)}%` : '—'],
+                        ['Risk', result.risk_band ?? '—'],
                       ].map(([l, val]) => (
                         <div key={l} className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.1em] mb-1">{l}</p>

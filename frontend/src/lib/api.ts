@@ -110,7 +110,6 @@ export interface AuditNote {
 }
 export interface DetectionDetail {
   request_id: string; verdict: string; confidence: number; prob_fake: number;
-  prob_cnn: number; spatial_score: number | null; frequency_score: number | null;
   threshold_used: number; image_hash: string;
   image_width: number | null; image_height: number | null;
   image_thumb: string | null;
@@ -153,8 +152,6 @@ export interface LivenessResponse {
   spoof_type: string | null;        // print | screen | mask_3d | deepfake | unknown
   threshold_used: number;
   mode: string;                     // passive | active
-  challenge_type: string | null;
-  challenge_passed: boolean | null;
   frame_count: number;
   processing_time_ms: number;
   model_version: string;
@@ -273,7 +270,6 @@ export interface DetectionResponse {
   frequency?: string | null;   // phổ log|2D-DCT| (base64 data URL) — bằng chứng tần số
   // ── Tương thích ngược + chi tiết ──
   verdict: string; confidence: number; prob_fake: number;
-  prob_cnn: number; spatial_score: number | null; frequency_score: number | null;
   threshold_used: number; face_detected: boolean; processing_time_ms: number;
   model_version: string; image_width: number | null; image_height: number | null;
   created_at: string;

@@ -4,10 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/store/auth';
 import {
   detectLivenessPassive,
-  detectLivenessActive,
-  livenessGetChallenge,
   type LivenessResponse,
-  type LivenessChallenge,
 } from '@/lib/api';
 
 const VERDICT_COLOR: Record<string, string> = {
@@ -24,13 +21,14 @@ const SPOOF_LABEL: Record<string, string> = {
   unknown:  'Không xác định',
 };
 
-type Mode = 'passive' | 'active';
+// Hai cách lấy ảnh, cùng đưa vào ĐÚNG một endpoint passive (1 ảnh → live/spoof).
+type Source = 'upload' | 'webcam';
 
 export default function LivenessPage() {
   const apiKey = useAuthStore((s) => s.apiKey);
-  const [mode, setMode] = useState<Mode>('passive');
+  const [source, setSource] = useState<Source>('upload');
 
-  // Passive state
+  // Upload state
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,21 +36,18 @@ export default function LivenessPage() {
   // Ngưỡng LIVE/SPOOF tùy chỉnh: P(live) < threshold => SPOOF. Mặc định 0.125 (12.5%).
   const [threshold, setThreshold] = useState(0.125);
 
-  // Active state — webcam
+  // Webcam state
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [streamActive, setStreamActive] = useState(false);
-  const [challenge, setChallenge] = useState<LivenessChallenge | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [activeStatus, setActiveStatus] = useState<string>('');
 
   // Result
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<LivenessResponse | null>(null);
   const [error, setError] = useState('');
 
-  // Preview URL lifecycle
+  // Preview URL lifecycle (upload)
   useEffect(() => {
     if (!file) { setPreviewUrl(null); return; }
     const url = URL.createObjectURL(file);
@@ -87,7 +82,7 @@ export default function LivenessPage() {
 
   useEffect(() => () => stopCamera(), [stopCamera]);
 
-  // Capture single frame from webcam
+  // Chụp 1 khung từ webcam → File
   const captureFrame = useCallback((): Promise<File | null> => {
     return new Promise((resolve) => {
       const video = videoRef.current;
@@ -106,13 +101,20 @@ export default function LivenessPage() {
     });
   }, []);
 
-  // Passive: upload single image
-  const runPassive = async () => {
+  // Cả upload và webcam đều chấm bằng passive (1 ảnh) — không challenge, không gesture.
+  const runCheck = async () => {
     if (!apiKey) { setError('Chưa có API Key. Vào API Keys → tạo key'); return; }
-    if (!file) { setError('Chưa chọn ảnh'); return; }
+    let target: File | null = file;
+    if (source === 'webcam') {
+      if (!streamActive) { setError('Hãy bật webcam trước'); return; }
+      target = await captureFrame();
+      if (!target) { setError('Không chụp được khung hình từ webcam'); return; }
+    }
+    if (!target) { setError('Chưa chọn ảnh'); return; }
     setError(''); setResult(null); setRunning(true);
     try {
-      const res = await detectLivenessPassive(file, apiKey, threshold);
+      const res = await detectLivenessPassive(target, apiKey, threshold);
+      console.log('Liveness Full Response:', res);
       setResult(res);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Liveness check thất bại');
@@ -121,74 +123,31 @@ export default function LivenessPage() {
     }
   };
 
-  // Active: get challenge → countdown → capture 5 frames → submit
-  const runActive = async () => {
-    if (!apiKey) { setError('Chưa có API Key. Vào API Keys → tạo key'); return; }
-    if (!streamActive) { setError('Hãy bật webcam trước'); return; }
-    setError(''); setResult(null); setRunning(true);
-
-    try {
-      const ch = await livenessGetChallenge(apiKey);
-      setChallenge(ch);
-      setActiveStatus(`Chuẩn bị: ${ch.instructions}`);
-
-      // 3-second prep countdown
-      for (let s = 3; s > 0; s--) {
-        setCountdown(s);
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      setCountdown(null);
-      setActiveStatus('Thực hiện hành động...');
-
-      // Capture 5 frames over ~2 seconds
-      const frames: File[] = [];
-      for (let i = 0; i < 5; i++) {
-        const f = await captureFrame();
-        if (f) frames.push(f);
-        await new Promise((r) => setTimeout(r, 400));
-      }
-      setActiveStatus('Đang phân tích...');
-
-      // For demo we mark challenge_passed=true. A real client would run a small
-      // on-device model (e.g. face landmark detection) to verify the gesture.
-      const res = await detectLivenessActive(frames, ch.challenge_type, true, apiKey);
-      setResult(res);
-      setActiveStatus('');
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Active liveness thất bại');
-      setActiveStatus('');
-    } finally {
-      setRunning(false);
-      setChallenge(null);
-    }
-  };
-
   const verdictColor = result ? VERDICT_COLOR[result.verdict] ?? '#94a3b8' : '#94a3b8';
+  const canRun = source === 'upload' ? !!file : streamActive;
 
   return (
     <div className="space-y-8">
-      {/* Mode selector */}
+      {/* Source selector */}
       <div className="glass-panel rounded-2xl p-4 shadow-sm border border-white flex items-center gap-4">
-        <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Mode</span>
+        <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nguồn ảnh</span>
         <div className="flex gap-2">
-          {(['passive', 'active'] as const).map((m) => (
+          {(['upload', 'webcam'] as const).map((m) => (
             <button
               key={m}
-              onClick={() => { setMode(m); setResult(null); setError(''); if (m === 'passive') stopCamera(); }}
+              onClick={() => { setSource(m); setResult(null); setError(''); if (m === 'upload') stopCamera(); }}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                mode === m
+                source === m
                   ? 'bg-[#0050cb] text-white shadow-md shadow-[#0050cb]/20'
                   : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
-              {m === 'passive' ? '01. Passive (1 ảnh)' : '02. Active (webcam + challenge)'}
+              {m === 'upload' ? '01. Upload ảnh' : '02. Webcam'}
             </button>
           ))}
         </div>
         <p className="text-[10px] text-slate-400 ml-auto italic">
-          {mode === 'passive'
-            ? 'Upload 1 ảnh chân dung → phân loại live/spoof'
-            : 'Yêu cầu user thực hiện gesture → capture 5 frame → aggregate verdict'}
+          Cả hai đều chấm bằng cùng một model liveness (1 ảnh → live/spoof)
         </p>
       </div>
 
@@ -198,10 +157,10 @@ export default function LivenessPage() {
           <section className="glass-panel rounded-2xl p-6 shadow-sm border border-white">
             <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
               <span className="w-1.5 h-1.5 bg-[#0050cb] rounded-full" />
-              {mode === 'passive' ? '01. Media Input' : '01. Camera Feed'}
+              {source === 'upload' ? '01. Media Input' : '01. Camera Feed'}
             </h3>
 
-            {mode === 'passive' ? (
+            {source === 'upload' ? (
               <>
                 <input
                   ref={fileInputRef}
@@ -247,27 +206,6 @@ export default function LivenessPage() {
                       <p className="text-xs mt-2">Webcam chưa bật</p>
                     </div>
                   )}
-
-                  {countdown !== null && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                      <span className="text-9xl font-black text-white" style={{ textShadow: '0 0 30px rgba(0,80,203,0.8)' }}>
-                        {countdown}
-                      </span>
-                    </div>
-                  )}
-
-                  {challenge && countdown === null && (
-                    <div className="absolute top-0 left-0 right-0 bg-[#0050cb] text-white p-3 text-center">
-                      <p className="text-[10px] font-bold uppercase tracking-widest">Challenge</p>
-                      <p className="text-sm font-black">{challenge.instructions}</p>
-                    </div>
-                  )}
-
-                  {activeStatus && challenge === null && (
-                    <div className="absolute bottom-0 left-0 right-0 bg-slate-900/80 text-white p-3 text-center text-xs font-bold">
-                      {activeStatus}
-                    </div>
-                  )}
                 </div>
 
                 <div className="flex gap-2">
@@ -290,30 +228,28 @@ export default function LivenessPage() {
               </>
             )}
 
-            {mode === 'passive' && (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Ngưỡng LIVE / SPOOF</label>
-                  <span className="text-xs font-bold text-[#0050cb]">{(threshold * 100).toFixed(1)}%</span>
-                </div>
-                <input
-                  type="range" min={0} max={1} step={0.005} value={threshold}
-                  onChange={(e) => setThreshold(parseFloat(e.target.value))}
-                  className="w-full accent-[#0050cb] cursor-pointer"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  P(live) &lt; {(threshold * 100).toFixed(1)}% ⇒ SPOOF. Mặc định 12.5%; tăng = chặt hơn (ít spoof lọt nhưng dễ từ chối mặt thật).
-                </p>
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Ngưỡng LIVE / SPOOF</label>
+                <span className="text-xs font-bold text-[#0050cb]">{(threshold * 100).toFixed(1)}%</span>
               </div>
-            )}
+              <input
+                type="range" min={0} max={1} step={0.005} value={threshold}
+                onChange={(e) => setThreshold(parseFloat(e.target.value))}
+                className="w-full accent-[#0050cb] cursor-pointer"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                P(live) &lt; {(threshold * 100).toFixed(1)}% ⇒ SPOOF. Mặc định 12.5%; tăng = chặt hơn (ít spoof lọt nhưng dễ từ chối mặt thật).
+              </p>
+            </div>
 
             {error && (
               <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 mb-4 mt-4 border border-red-200">{error}</p>
             )}
 
             <button
-              onClick={mode === 'passive' ? runPassive : runActive}
-              disabled={running || (mode === 'passive' ? !file : !streamActive)}
+              onClick={runCheck}
+              disabled={running || !canRun}
               className="w-full mt-6 py-4 bg-[#0050cb] text-white rounded-2xl font-black text-xs tracking-widest shadow-xl shadow-[#0050cb]/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 group disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {running ? (
@@ -326,10 +262,8 @@ export default function LivenessPage() {
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined group-hover:scale-110 transition-transform">
-                    {mode === 'passive' ? 'verified_user' : 'rocket_launch'}
-                  </span>
-                  {mode === 'passive' ? 'CHECK LIVENESS' : 'BẮT ĐẦU CHALLENGE'}
+                  <span className="material-symbols-outlined group-hover:scale-110 transition-transform">verified_user</span>
+                  {source === 'upload' ? 'CHECK LIVENESS' : 'CHỤP & KIỂM TRA'}
                 </>
               )}
             </button>
@@ -338,9 +272,7 @@ export default function LivenessPage() {
 
         {/* RIGHT: Result */}
         <div className="lg:col-span-7 space-y-6">
-          <div
-            className="glass-panel rounded-3xl p-8 shadow-md relative overflow-hidden"
-          >
+          <div className="glass-panel rounded-3xl p-8 shadow-md relative overflow-hidden">
             <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-6">Kết quả Liveness</h3>
 
             {!result && !running && (
@@ -414,21 +346,6 @@ export default function LivenessPage() {
                     <p className="text-xs font-bold text-slate-700 truncate">{result.model_version}</p>
                   </div>
                 </div>
-
-                {result.mode === 'active' && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <p className="text-[9px] font-black text-slate-400 uppercase">Challenge</p>
-                      <p className="text-xs font-bold text-slate-700">{result.challenge_type ?? '—'}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <p className="text-[9px] font-black text-slate-400 uppercase">Passed</p>
-                      <p className={`text-xs font-bold ${result.challenge_passed ? 'text-emerald-600' : 'text-red-600'}`}>
-                        {result.challenge_passed ? 'YES' : 'NO'}
-                      </p>
-                    </div>
-                  </div>
-                )}
 
                 <p className="text-[10px] font-mono text-slate-400 break-all">
                   check_id: {result.check_id}

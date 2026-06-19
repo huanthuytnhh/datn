@@ -155,7 +155,6 @@ export default function DetailPage() {
   }
 
   const isFake = detection.verdict !== 'REAL';
-  const freqRaw = detection.frequency_score ?? detection.spatial_score ?? 0;
   const hasImage = Boolean(detection.image_thumb || detection.heatmap_url);
 
   return (
@@ -325,9 +324,8 @@ export default function DetailPage() {
 
             <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Explainable AI · Score breakdown</p>
             <div className="space-y-4 mb-6">
-              <ScoreBar label="Spatial feature (CNN)" value={detection.prob_cnn * 100} raw={detection.prob_cnn} color="#0050cb" />
-              <ScoreBar label="Frequency artifact (DCT)" value={freqRaw * 100} raw={freqRaw} color="#ed6c02" />
-              <ScoreBar label="Final combined (prob_fake)" value={detection.prob_fake * 100} raw={detection.prob_fake} color={s.color} />
+              <ScoreBar label="Deepfake probability (prob_fake)" value={detection.prob_fake * 100} raw={detection.prob_fake} color={s.color} />
+              <ScoreBar label="Confidence" value={detection.confidence} color="#0050cb" />
             </div>
 
             <div className="grid grid-cols-3 gap-3 pt-5 border-t border-slate-100">
@@ -612,8 +610,6 @@ function LivenessDetailView({
               ['API Key', liveness.api_key_name ?? '—'],
               ['Key prefix', liveness.api_key_prefix ?? '—'],
               ['Mode', liveness.mode],
-              ['Challenge', liveness.challenge_type ?? '—'],
-              ['Challenge passed', liveness.challenge_passed == null ? '—' : liveness.challenge_passed ? 'Có' : 'Không'],
               ['IP Address', liveness.ip_address ?? '—'],
               ['Created', fmtDateTime(liveness.created_at)],
             ] as const).map(([k, v]) => (
