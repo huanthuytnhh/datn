@@ -57,7 +57,7 @@ async def _save_liveness(
     return row
 
 
-def _to_response(row: LivenessCheck) -> LivenessResponse:
+def _to_response(row: LivenessCheck, attack_analysis: dict = None) -> LivenessResponse:
     return LivenessResponse(
         check_id=row.check_id,
         verdict=row.verdict.value,
@@ -66,11 +66,10 @@ def _to_response(row: LivenessCheck) -> LivenessResponse:
         spoof_type=row.spoof_type.value if row.spoof_type else None,
         threshold_used=row.threshold_used,
         mode=row.mode,
-        challenge_type=row.challenge_type,
-        challenge_passed=row.challenge_passed,
         frame_count=row.frame_count,
         processing_time_ms=row.processing_time_ms,
         model_version=row.model_version,
+        attack_analysis=attack_analysis,
         image_width=row.image_width,
         image_height=row.image_height,
         created_at=row.created_at,

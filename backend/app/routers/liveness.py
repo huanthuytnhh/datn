@@ -60,6 +60,7 @@ async def detect_liveness_passive(
     file: UploadFile = File(...),
     threshold: Optional[float] = Query(default=None, ge=0.0, le=1.0,
         description="Ngưỡng LIVE/SPOOF override (0-1). Bỏ trống => dùng LIVENESS_THRESHOLD ở config."),
+    debug: bool = Query(default=False, description="Trả thêm attack_analysis (print/screen) để giải thích"),
     api_key: ApiKeyModel = Depends(get_api_key_auth),
     db: AsyncSession = Depends(get_db),
 ):
@@ -75,7 +76,7 @@ async def detect_liveness_passive(
         db, tenant_id=api_key.tenant_id, api_key_id=api_key.id,
         result=result, mode="passive", request=request,
     )
-    return _to_response(row)
+    return _to_response(row, attack_analysis=result.attack_analysis if debug else None)
 
 
 @api_router.get("/liveness/challenge", response_model=LivenessChallengeResponse)
@@ -100,6 +101,7 @@ async def detect_liveness_active(
     files: list[UploadFile] = File(...),
     challenge_type: str = Form(...),
     challenge_passed: bool = Form(...),
+    debug: bool = Query(default=False, description="Trả thêm attack_analysis (print/screen)"),
     api_key: ApiKeyModel = Depends(get_api_key_auth),
     db: AsyncSession = Depends(get_db),
 ):
@@ -123,7 +125,7 @@ async def detect_liveness_active(
         db, tenant_id=api_key.tenant_id, api_key_id=api_key.id,
         result=result, mode="active", request=request,
     )
-    return _to_response(row)
+    return _to_response(row, attack_analysis=result.attack_analysis if debug else None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -193,8 +195,6 @@ async def get_liveness_detail(
         spoof_type=row.spoof_type.value if row.spoof_type else None,
         threshold_used=row.threshold_used,
         mode=row.mode,
-        challenge_type=row.challenge_type,
-        challenge_passed=row.challenge_passed,
         frame_count=row.frame_count,
         processing_time_ms=row.processing_time_ms,
         model_version=row.model_version,

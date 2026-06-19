@@ -61,6 +61,7 @@ class LivenessResult:
     frame_count: int = 1
     challenge_type: Optional[str] = None
     challenge_passed: Optional[bool] = None
+    attack_analysis: Optional[dict] = None   # scores + evidence print/screen (heuristic) — debug
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,13 +115,22 @@ def _real_liveness(image_bytes: bytes, threshold: float = None) -> LivenessResul
         )
         r.raise_for_status()
         j = r.json()
-    except Exception:
+        print("DEBUG LIVENESS SERVER RESPONSE:", j)
+    except Exception as e:
+        print("DEBUG LIVENESS EXCEPTION:", e)
         return _mock_liveness(image_bytes)
 
     score = float(j.get("liveness_score", 0.5))
     threshold = settings.LIVENESS_THRESHOLD if threshold is None else threshold
     verdict, confidence = _verdict_from_score(score, threshold)
-    spoof_type = None if verdict == "LIVE" else "unknown"
+    # Đọc attack_type từ heuristic classifier (attack_analysis) nếu có
+    attack_info = j.get("attack_analysis")
+    if verdict == "LIVE":
+        spoof_type = None
+    elif attack_info and attack_info.get("attack_type") and attack_info["attack_type"] != "unknown":
+        spoof_type = attack_info["attack_type"]   # "print" | "screen"
+    else:
+        spoof_type = "unknown"
     elapsed = int((time.perf_counter() - start) * 1000)
 
     return LivenessResult(
@@ -135,6 +145,7 @@ def _real_liveness(image_bytes: bytes, threshold: float = None) -> LivenessResul
         image_height=h,
         image_hash=image_hash,
         image_thumb=_encode_thumb(image_bytes),
+        attack_analysis=attack_info,
     )
 
 
@@ -232,6 +243,7 @@ def _aggregate_frames(
         frame_count=len(frame_results),
         challenge_type=challenge_type,
         challenge_passed=challenge_passed,
+        attack_analysis=repr_frame.attack_analysis,
     )
 
 

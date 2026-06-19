@@ -13,11 +13,10 @@ class LivenessResponse(BaseModel):
     spoof_type: Optional[str] = None      # print | screen | mask_3d | deepfake | unknown
     threshold_used: float
     mode: str                             # passive | active
-    challenge_type: Optional[str] = None
-    challenge_passed: Optional[bool] = None
     frame_count: int
     processing_time_ms: int
     model_version: str
+    attack_analysis: Optional[dict] = None   # debug: scores + evidence print/screen (chỉ khi ?debug=true)
     image_width: Optional[int] = None
     image_height: Optional[int] = None
     created_at: datetime
