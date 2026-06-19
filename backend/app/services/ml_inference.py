@@ -40,7 +40,7 @@ class InferenceResult:
     heatmap: Optional[str] = None      # base64 Grad-CAM overlay (data URL) — từ microservice SFDCT
 
 
-def _real_inference(image_bytes: bytes) -> InferenceResult:
+def _real_inference(image_bytes: bytes, threshold: float = None) -> InferenceResult:
     import torch
     import cv2
 
@@ -63,7 +63,8 @@ def _real_inference(image_bytes: bytes) -> InferenceResult:
         face = img_rgb
 
     preds = _predict_face(face, model, val_tf, flip_tf, device)
-    verdict, confidence = _verdict_from_prob(preds["prob_fake"], settings.MODEL_THRESHOLD)
+    thr = settings.MODEL_THRESHOLD if threshold is None else threshold
+    verdict, confidence = _verdict_from_prob(preds["prob_fake"], thr)
 
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     return InferenceResult(
@@ -73,7 +74,7 @@ def _real_inference(image_bytes: bytes) -> InferenceResult:
         prob_cnn=round(preds["prob_cnn"], 4),
         spatial_score=round(preds["spatial_score"], 4),
         frequency_score=round(preds["frequency_score"], 4),
-        threshold_used=settings.MODEL_THRESHOLD,
+        threshold_used=thr,
         face_detected=face_detected,
         processing_time_ms=elapsed_ms,
         model_version=settings.MODEL_VERSION,
@@ -84,7 +85,7 @@ def _real_inference(image_bytes: bytes) -> InferenceResult:
     )
 
 
-def _mock_inference(image_bytes: bytes) -> InferenceResult:
+def _mock_inference(image_bytes: bytes, threshold: float = None) -> InferenceResult:
     image_hash = hashlib.sha256(image_bytes).hexdigest()
     seed = int(image_hash[:8], 16)
     rng  = random.Random(seed)
@@ -95,7 +96,8 @@ def _mock_inference(image_bytes: bytes) -> InferenceResult:
     freq_combined   = (spatial_score + frequency_score) / 2.0
     prob_fake       = prob_cnn * (1 - FREQ_WEIGHT) + freq_combined * FREQ_WEIGHT
 
-    verdict, confidence = _verdict_from_prob(prob_fake, settings.MODEL_THRESHOLD)
+    thr = settings.MODEL_THRESHOLD if threshold is None else threshold
+    verdict, confidence = _verdict_from_prob(prob_fake, thr)
 
     thumb = _encode_image_thumb(image_bytes)
     # Try to read real dimensions from the input
@@ -113,7 +115,7 @@ def _mock_inference(image_bytes: bytes) -> InferenceResult:
         prob_cnn=round(prob_cnn, 4),
         spatial_score=round(spatial_score, 4),
         frequency_score=round(frequency_score, 4),
-        threshold_used=settings.MODEL_THRESHOLD,
+        threshold_used=thr,
         face_detected=True,
         processing_time_ms=rng.randint(50, 250),
         model_version=settings.MODEL_VERSION,
@@ -124,7 +126,7 @@ def _mock_inference(image_bytes: bytes) -> InferenceResult:
     )
 
 
-def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True) -> InferenceResult:
+def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True, threshold: float = None) -> InferenceResult:
     """Gọi microservice SFDCT (DeepfakeBench) qua HTTP -> map sang InferenceResult (kèm Grad-CAM).
     include_heatmap=False -> serving bỏ backward Grad-CAM, nhanh ~2x. Service down -> fallback mock."""
     import httpx
@@ -141,9 +143,10 @@ def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True) -> Infere
         r.raise_for_status()
         j = r.json()
     except Exception:
-        return _mock_inference(image_bytes)
+        return _mock_inference(image_bytes, threshold)
     prob_fake = float(j.get("prob_fake", 0.0))
-    verdict, confidence = _verdict_from_prob(prob_fake, settings.MODEL_THRESHOLD)
+    thr = settings.MODEL_THRESHOLD if threshold is None else threshold
+    verdict, confidence = _verdict_from_prob(prob_fake, thr)
     try:
         thumb = _encode_image_thumb(image_bytes)
     except Exception:
@@ -152,7 +155,7 @@ def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True) -> Infere
         verdict=verdict, confidence=confidence,
         prob_fake=round(prob_fake, 4), prob_cnn=round(prob_fake, 4),
         spatial_score=None, frequency_score=None,
-        threshold_used=settings.MODEL_THRESHOLD, face_detected=True,
+        threshold_used=thr, face_detected=True,
         processing_time_ms=int((time.perf_counter() - start) * 1000),
         model_version=j.get("model_version", settings.MODEL_VERSION),
         image_width=width, image_height=height, image_hash=image_hash,
@@ -161,12 +164,12 @@ def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True) -> Infere
 
 
 # ── Public entry points ──
-async def run_inference(image_bytes: bytes, include_heatmap: bool = True) -> InferenceResult:
+async def run_inference(image_bytes: bytes, include_heatmap: bool = True, threshold: float = None) -> InferenceResult:
     if settings.SFDCT_INFER_URL:                     # ưu tiên microservice SFDCT (model thật của thesis)
-        return _sfdct_inference(image_bytes, include_heatmap)
+        return _sfdct_inference(image_bytes, include_heatmap, threshold)
     if settings.MOCK_ML or not settings.MODEL_PATH:
-        return _mock_inference(image_bytes)
-    return _real_inference(image_bytes)
+        return _mock_inference(image_bytes, threshold)
+    return _real_inference(image_bytes, threshold)
 
 
 async def run_video_inference(video_bytes: bytes, sample_rate: int = 3) -> dict:

@@ -50,7 +50,7 @@ async def playground_detect_image(
     if len(image_bytes) > MAX_IMAGE_SIZE:
         raise bad_request("File size exceeds 10 MB limit")
 
-    result = await run_inference(image_bytes, include_heatmap=include_heatmap)
+    result = await run_inference(image_bytes, include_heatmap=include_heatmap, threshold=threshold)
 
     risk = to_risk_score(result.prob_fake)
     band = risk_band(risk)
@@ -109,9 +109,6 @@ async def playground_detect_image(
         verdict=result.verdict,
         confidence=result.confidence,
         prob_fake=result.prob_fake,
-        prob_cnn=result.prob_cnn,
-        spatial_score=result.spatial_score,
-        frequency_score=result.frequency_score,
         threshold_used=result.threshold_used,
         face_detected=result.face_detected,
         processing_time_ms=result.processing_time_ms,

@@ -18,9 +18,6 @@ class DetectionResponse(BaseModel):
     verdict: str
     confidence: float
     prob_fake: float
-    prob_cnn: float
-    spatial_score: Optional[float] = None
-    frequency_score: Optional[float] = None
     threshold_used: float
     face_detected: bool
     processing_time_ms: int
@@ -51,9 +48,6 @@ class DetectionDetail(BaseModel):
     verdict: str
     confidence: float
     prob_fake: float
-    prob_cnn: float
-    spatial_score: Optional[float] = None
-    frequency_score: Optional[float] = None
     threshold_used: float
     image_hash: str
     image_width: Optional[int] = None

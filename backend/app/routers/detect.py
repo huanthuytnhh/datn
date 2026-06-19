@@ -43,7 +43,7 @@ async def detect_image(
     if len(image_bytes) > MAX_IMAGE_SIZE:
         raise bad_request("File size exceeds 10 MB limit")
 
-    result = await run_inference(image_bytes)
+    result = await run_inference(image_bytes, threshold=threshold)
 
     # ── Tín hiệu rủi ro (định vị eKYC) — calibrate prob_fake → risk_score + band + gợi ý ──
     risk = to_risk_score(result.prob_fake)
@@ -113,9 +113,6 @@ async def detect_image(
         verdict=detection.verdict.value,
         confidence=detection.confidence,
         prob_fake=detection.prob_fake,
-        prob_cnn=detection.prob_cnn,
-        spatial_score=detection.spatial_score,
-        frequency_score=detection.frequency_score,
         threshold_used=detection.threshold_used,
         face_detected=result.face_detected,
         processing_time_ms=detection.processing_time_ms,
@@ -267,9 +264,6 @@ async def get_result(
         verdict=detection.verdict.value,
         confidence=detection.confidence,
         prob_fake=detection.prob_fake,
-        prob_cnn=detection.prob_cnn,
-        spatial_score=detection.spatial_score,
-        frequency_score=detection.frequency_score,
         threshold_used=detection.threshold_used,
         face_detected=True,
         processing_time_ms=detection.processing_time_ms,
