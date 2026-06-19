@@ -31,6 +31,7 @@ ENV/
 backend/.env
 deepguard_db/.env
 serving/serving.env
+ekyc_demo/.env
 
 # Request log + CloudWatch forwarder state (Phase 2)
 backend/app.log*
