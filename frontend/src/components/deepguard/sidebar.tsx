@@ -144,7 +144,7 @@ export default function Sidebar() {
             {initials}
           </div>
           <div className="overflow-hidden flex-1 min-w-0">
-            <p className="text-[12px] font-semibold truncate text-slate-700">{user?.email ?? 'dev@vietbank.vn'}</p>
+            <p className="text-[12px] font-semibold truncate text-slate-700">{user?.email ?? 'you@example.com'}</p>
             <p className="text-[10px] text-slate-400 font-medium mt-0.5">
               {role ? ROLE_LABEL[role] : (user?.role ?? 'Developer')}
               {tenant?.plan ? ` · ${tenant.plan}` : ''}

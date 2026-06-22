@@ -1,0 +1,213 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="usecase-overview" name="Use Case Overview">
+    <mxGraphModel dx="1433" dy="890" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1560" pageHeight="1010" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fillColor=none;strokeColor=none;" value="DeepGuard Platform — Use Case Overview (RBAC-accurate)" vertex="1">
+          <mxGeometry height="40" width="820" x="330" y="18" as="geometry" />
+        </mxCell>
+        <mxCell id="sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8FAFF;strokeColor=#5B8DEF;strokeWidth=2;verticalAlign=top;fontStyle=1;fontSize=16;fontColor=#1F6FEB;spacingTop=8;arcSize=4;" value="DeepGuard Platform" vertex="1">
+          <mxGeometry height="905" width="830" x="320" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F4F6F8;strokeColor=#8A96A3;verticalAlign=top;fontStyle=1;fontColor=#5B6B7B;fontSize=13;spacingTop=4;" value="Organisation Onboarding" vertex="1">
+          <mxGeometry height="110" width="780" x="345" y="115" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_reg" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8A96A3;fontSize=12;" value="Register&#xa;organisation" vertex="1">
+          <mxGeometry height="62" width="160" x="395" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEFAF2;strokeColor=#3FAE6B;verticalAlign=top;fontStyle=1;fontColor=#2E8B57;fontSize=13;spacingTop=4;" value="Detection Services" vertex="1">
+          <mxGeometry height="135" width="780" x="345" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_di" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3FAE6B;fontSize=12;" value="Detect image" vertex="1">
+          <mxGeometry height="66" width="170" x="395" y="278" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_dv" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3FAE6B;fontSize=12;" value="Detect video" vertex="1">
+          <mxGeometry height="66" width="170" x="650" y="278" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_lv" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3FAE6B;fontSize=12;" value="Liveness check" vertex="1">
+          <mxGeometry height="66" width="170" x="905" y="278" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F7FF;strokeColor=#5B8DEF;verticalAlign=top;fontStyle=1;fontColor=#1F6FEB;fontSize=13;spacingTop=4;" value="Analytics &amp; Review" vertex="1">
+          <mxGeometry height="160" width="780" x="345" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_ha" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5B8DEF;fontSize=12;" value="View detections&#xa;&amp; analytics" vertex="1">
+          <mxGeometry height="78" width="180" x="470" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_rn" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5B8DEF;fontSize=12;" value="Review &amp;&#xa;add note" vertex="1">
+          <mxGeometry height="78" width="180" x="780" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="p4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E9;strokeColor=#E08A2B;verticalAlign=top;fontStyle=1;fontColor=#C97F1E;fontSize=13;spacingTop=4;" value="Organisation Management" vertex="1">
+          <mxGeometry height="150" width="780" x="345" y="565" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_key" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E08A2B;fontSize=12;" value="Manage API&#xa;keys" vertex="1">
+          <mxGeometry height="72" width="170" x="395" y="608" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_team" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E08A2B;fontSize=12;" value="Manage team /&#xa;invite" vertex="1">
+          <mxGeometry height="72" width="170" x="750" y="614" as="geometry" />
+        </mxCell>
+        <mxCell id="p5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F2FE;strokeColor=#9B6AD6;verticalAlign=top;fontStyle=1;fontColor=#7D3C98;fontSize=13;spacingTop=4;" value="Platform Governance" vertex="1">
+          <mxGeometry height="150" width="780" x="345" y="730" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_aud" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B6AD6;fontSize=12;" value="View&#xa;audit log" vertex="1">
+          <mxGeometry height="72" width="170" x="395" y="773" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_ten" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B6AD6;fontSize=12;" value="Approve /&#xa;manage tenants" vertex="1">
+          <mxGeometry height="72" width="170" x="765" y="775" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_mv" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B6AD6;fontSize=12;" value="Manage model&#xa;versions" vertex="1">
+          <mxGeometry height="72" width="170" x="960" y="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-3" edge="1" parent="1" source="a_anon" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_reg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a_anon" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;labelPosition=center;verticalAlign=top;html=1;strokeColor=#5A5A5A;fillColor=none;fontSize=11;fontStyle=1;" value="Anonymous&#xa;(Unauthenticated)" vertex="1">
+          <mxGeometry height="72" width="40" x="80" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-10" edge="1" parent="1" source="a_dev" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_di">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="480" y="267" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-11" edge="1" parent="1" source="a_dev" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_dv">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="735" y="266" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-12" edge="1" parent="1" source="a_dev" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="uc_lv">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="990" y="266" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-13" edge="1" parent="1" source="a_dev" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_key">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="200" y="276" />
+              <mxPoint x="200" y="644" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a_dev" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;labelPosition=center;verticalAlign=top;html=1;strokeColor=#2E8B57;fillColor=none;fontSize=11;fontStyle=1;" value="Developer&#xa;(developer)" vertex="1">
+          <mxGeometry height="72" width="40" x="80" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-6" edge="1" parent="1" source="a_view" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_ha">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a_view" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;labelPosition=center;verticalAlign=top;html=1;strokeColor=#1F6FEB;fillColor=none;fontSize=11;fontStyle=1;" value="Viewer&#xa;(viewer)" vertex="1">
+          <mxGeometry height="72" width="40" x="80" y="375" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-16" edge="1" parent="1" source="a_comp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_rn">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="860" y="546" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a_comp" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;labelPosition=center;verticalAlign=top;html=1;strokeColor=#E08A2B;fillColor=none;fontSize=11;fontStyle=1;" value="Compliance&#xa;(compliance)" vertex="1">
+          <mxGeometry height="72" width="40" x="80" y="510" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-17" edge="1" parent="1" source="a_admin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_team">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="835" y="705" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a_admin" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;labelPosition=center;verticalAlign=top;html=1;strokeColor=#C0392B;fillColor=none;fontSize=11;fontStyle=1;" value="Admin&#xa;(admin)" vertex="1">
+          <mxGeometry height="72" width="40" x="80" y="645" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-19" edge="1" parent="1" source="a_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_aud">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-20" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="234" y="1471.037037037037" as="sourcePoint" />
+            <mxPoint x="939" y="1278" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a_sys" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;labelPosition=center;verticalAlign=top;html=1;strokeColor=#7D3C98;fillColor=none;fontSize=11;fontStyle=1;" value="Sysadmin /&#xa;Platform operator&#xa;(sysadmin)" vertex="1">
+          <mxGeometry height="72" width="40" x="80" y="780" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-7" edge="1" parent="1" source="a_client" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_di">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="480" y="370" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-8" edge="1" parent="1" source="a_client" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_dv">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="735" y="370" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-9" edge="1" parent="1" source="a_client" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="uc_lv">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="978" y="370" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a_client" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;labelPosition=center;verticalAlign=top;html=1;strokeColor=#138D90;fillColor=none;fontSize=11;fontStyle=1;" value="External eKYC Client&#xa;(API key)" vertex="1">
+          <mxGeometry height="72" width="40" x="1340" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="leg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CCCCCC;verticalAlign=top;align=center;fontStyle=1;fontSize=12;spacingTop=6;" value="Legend (Actors)" vertex="1">
+          <mxGeometry height="210" width="280" x="1255" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1" parent="1" style="text;html=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=11;fontColor=#5A5A5A;" value="● Anonymous — Public" vertex="1">
+          <mxGeometry height="20" width="250" x="1270" y="498" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" parent="1" style="text;html=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=11;fontColor=#2E8B57;" value="● Developer (developer)" vertex="1">
+          <mxGeometry height="20" width="250" x="1270" y="522" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" parent="1" style="text;html=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=11;fontColor=#1F6FEB;" value="● Viewer (viewer)" vertex="1">
+          <mxGeometry height="20" width="250" x="1270" y="546" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" parent="1" style="text;html=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=11;fontColor=#E08A2B;" value="● Compliance (compliance)" vertex="1">
+          <mxGeometry height="20" width="250" x="1270" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" parent="1" style="text;html=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=11;fontColor=#C0392B;" value="● Admin (admin)" vertex="1">
+          <mxGeometry height="20" width="250" x="1270" y="594" as="geometry" />
+        </mxCell>
+        <mxCell id="lg6" parent="1" style="text;html=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=11;fontColor=#7D3C98;" value="● Sysadmin / Platform operator" vertex="1">
+          <mxGeometry height="20" width="250" x="1270" y="618" as="geometry" />
+        </mxCell>
+        <mxCell id="lg7" parent="1" style="text;html=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=11;fontColor=#138D90;" value="● External client (API key)" vertex="1">
+          <mxGeometry height="20" width="250" x="1270" y="642" as="geometry" />
+        </mxCell>
+        <mxCell id="notes" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CCCCCC;verticalAlign=top;align=center;fontStyle=1;fontSize=12;spacingTop=6;" value="Notes" vertex="1">
+          <mxGeometry height="160" width="280" x="1873" y="633" as="geometry" />
+        </mxCell>
+        <mxCell id="ntxt" parent="1" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;fontSize=11;" value="• Use cases grouped by domain package; access governed by RBAC (require_role).&#xa;&#xa;• External eKYC client reaches Detection Services via API key.&#xa;&#xa;• Role → use-case mapping reflects the corrected RBAC." vertex="1">
+          <mxGeometry height="126" width="256" x="1772" y="786" as="geometry" />
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-4" edge="1" parent="1" source="a_admin" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;" target="uc_key" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <Array as="points">
+              <mxPoint x="169" y="655" />
+            </Array>
+            <mxPoint x="841" y="530" as="sourcePoint" />
+            <mxPoint x="891" y="480" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_BiHxhbigb77Dafp2Akc-5" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="uc_ten" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <Array as="points">
+              <mxPoint x="193" y="893.87" />
+              <mxPoint x="663" y="889" />
+            </Array>
+            <mxPoint x="129" y="841.2985714285713" as="sourcePoint" />
+            <mxPoint x="663.1629614216599" y="828.998215700395" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

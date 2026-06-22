@@ -12,6 +12,8 @@ import os
 import sys
 import time
 
+import numpy as np
+import cv2
 import torch
 import torch.nn.functional as F
 from fastapi import FastAPI, File, UploadFile
@@ -20,7 +22,13 @@ from PIL import Image
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "liveness"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # cho `import face_crop`
 from model_liveness import B4Liveness, NORM_MEAN, NORM_STD, RESOLUTION  # noqa: E402
+from face_crop import crop_face_bgr  # noqa: E402
+
+# Crop mặt về dạng LCC-FASD (mặt đầy khung) TRƯỚC khi resize — khớp train/serve.
+# Tắt bằng LIVENESS_FACE_CROP=0 nếu input đã là mặt crop sẵn.
+FACE_CROP = os.environ.get("LIVENESS_FACE_CROP", "1") == "1"
 
 import torchvision.transforms as T  # noqa: E402
 
@@ -73,8 +81,17 @@ def health():
 async def predict(file: UploadFile = File(...)):
     start = time.perf_counter()
     image_bytes = await file.read()
+    face_found = False
     try:
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        if FACE_CROP:
+            bgr = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+            if bgr is not None:
+                crop, face_found = crop_face_bgr(bgr)
+                img = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+            else:
+                img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        else:
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         x = _transform(img).unsqueeze(0).to(DEVICE)   # [1,3,256,256]
         with torch.no_grad():
             logits = _get_model()(x)                   # [1,2]
@@ -84,10 +101,24 @@ async def predict(file: UploadFile = File(...)):
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
-    return {
+    # --- Heuristic attack-type classification (chỉ khi spoof) ---
+    attack_info = None
+    if prob_spoof > 0.5:
+        try:
+            from attack_classifier import classify_attack_type
+            rgb_np = np.array(img)   # PIL → numpy HxWx3 RGB
+            attack_info = classify_attack_type(rgb_np)
+        except Exception as exc:
+            attack_info = {"error": str(exc)}
+
+    result = {
         "liveness_score": round(prob_live, 4),
         "prob_spoof": round(prob_spoof, 4),
+        "face_cropped": face_found,
         "processing_time_ms": int((time.perf_counter() - start) * 1000),
         "model_version": MODEL_VERSION,
         "device": DEVICE,
     }
+    if attack_info is not None:
+        result["attack_analysis"] = attack_info
+    return result

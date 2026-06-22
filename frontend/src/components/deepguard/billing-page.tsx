@@ -25,8 +25,8 @@ interface Plan {
 
 const PLANS: Plan[] = [
   { name: 'Starter', price: 0, unit: 'miễn phí', quota: '1K req/tháng', rpm: 60, features: ['1 API key', 'Image detection', 'Community support'], current: false },
-  { name: 'Pro', price: 4_900_000, unit: '₫/tháng', quota: '50K req/tháng', rpm: 200, features: ['10 API keys', 'Image + Video + Liveness', 'Webhooks', 'Email support'], current: false },
-  { name: 'Enterprise', price: null, unit: 'liên hệ', quota: 'Không giới hạn', rpm: 1000, features: ['Unlimited keys', 'SSO/SAML', 'SLA 99.99%', 'Dedicated support', 'On-prem option'], current: true },
+  { name: 'Pro', price: 4_900_000, unit: '₫/tháng', quota: '50K req/tháng', rpm: 200, features: ['10 API keys', 'Image + Video + Liveness', 'Email support'], current: false },
+  { name: 'Enterprise', price: null, unit: 'liên hệ', quota: 'Không giới hạn', rpm: 1000, features: ['Unlimited keys', 'On-prem option', 'Audit log', 'Dedicated support'], current: true },
 ];
 
 interface Invoice {

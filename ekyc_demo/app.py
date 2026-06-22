@@ -81,6 +81,12 @@ if input_key.strip():
         st.sidebar.success("Đã lưu vào .env — lần sau reload tự nạp, khỏi nhập lại.")
 
 mode = st.sidebar.radio("Mode", ["Liveness", "Deepfake", "eKYC (cascade)"], index=2)
+model_choice = st.sidebar.selectbox(
+    "Model deepfake", ["sfdct", "b4", "hff"],
+    format_func=lambda m: {"sfdct": "SFDCT · B4+block-DCT (0.7572)",
+                           "b4": "B4 · spatial baseline (0.7497)",
+                           "hff": "SFDCT-HFF · R3 (0.7695)"}[m],
+    help="Áp dụng cho deepfake ẢNH; video dùng model mặc định của server.")
 n_frames = st.sidebar.slider("Số khung lấy từ video (liveness)", 3, 12, 6)
 use_threshold = st.sidebar.checkbox("Tự đặt threshold (override server)", value=False)
 threshold = st.sidebar.slider("Threshold", 0.0, 1.0, 0.35, 0.01,
@@ -107,7 +113,7 @@ def call_liveness(img_bytes, filename, mime):
 def call_deepfake(img_bytes, filename, mime):
     r = requests.post(f"{api_url}/v1/detect/image", headers=_headers(),
                       files={"file": (filename, img_bytes, mime)},
-                      params=_params(), timeout=120)
+                      params={**_params(), "model": model_choice}, timeout=120)
     r.raise_for_status()
     return r.json()
 

@@ -1,0 +1,87 @@
+@startuml DeepGuard-UseCase
+left to right direction
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ArrowColor #555555
+skinparam packageStyle rectangle
+skinparam DefaultFontName "DejaVu Sans"
+skinparam usecase {
+  BackgroundColor #EEF3FB
+  BorderColor #33558A
+  FontSize 12
+}
+skinparam actor {
+  BorderColor #222222
+  BackgroundColor #FDFDFD
+}
+skinparam rectangle {
+  BorderColor #999999
+  FontColor #555555
+  FontStyle bold
+}
+
+' ===================== actors =====================
+actor "Anonymous\nvisitor" as anon
+actor "Viewer" as viewer
+actor "Developer" as dev
+actor "Compliance" as comp
+actor "Admin\n(tenant)" as admin
+actor "Sysadmin\n(platform)" as sys
+actor "External\neKYC client" as client
+actor "Model serving\n(SFDCT)" as serving
+
+' ===================== use cases =====================
+rectangle "Deepfake detection & liveness" {
+  usecase "Detect deepfake (image)\n(UC-01)" as img
+  usecase "Detect deepfake (video)\n(UC-02)" as vid
+  usecase "Liveness check\n(UC-03)" as live
+  usecase "Crop & align face\n(MTCNN)" as crop
+  usecase "View Grad-CAM\n& spectrum" as cam
+  usecase "Identify\nattack type" as atk
+  usecase "Manage API keys" as keys
+  usecase "View history\n& analytics" as hist
+}
+
+rectangle "Tenant administration & review" {
+  usecase "Register\norganisation" as reg
+  usecase "Approve tenant" as appr
+  usecase "Manage team" as team
+  usecase "Review & add note" as review
+}
+
+' ===================== associations =====================
+' detection / integration
+dev    --> img
+dev    --> vid
+dev    --> live
+dev    --> keys
+admin  --> img
+admin  --> keys
+client --> img
+client --> vid
+client --> live
+viewer --> hist
+comp   --> review
+comp   --> hist
+
+' administration
+anon  --> reg
+sys   --> appr
+admin --> team
+
+' ===================== include / extend =====================
+img ..> crop : <<include>>
+vid ..> crop : <<include>>
+cam ..> img  : <<extend>>
+atk ..> live : <<extend>>
+
+' ===================== secondary system =====================
+img  --> serving
+vid  --> serving
+live --> serving
+
+' ===================== cascade note =====================
+note "eKYC cascade: the external client runs\nLiveness check first and forwards only a\nlive capture to the deepfake stage." as N1
+live .. N1
+
+@enduml

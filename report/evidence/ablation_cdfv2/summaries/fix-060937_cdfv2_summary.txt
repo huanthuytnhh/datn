@@ -1,0 +1,7 @@
+============== Celeb-DF-v2 cross-test AUC (run fix-20260606-060937) ==============
+fix1_sign_droplow1_s1024           CDFv2 AUC = 0.7522913042045604
+fix2_fca_s1024                     CDFv2 AUC = 0.7523180522604455
+----------------------------------------------------------------
+Bars to beat:  B4 = 0.7497   |   naive SFDCT = 0.7572 (current best/safety-net method)
+A real win = a fix row's AUC STRICTLY above 0.7572.
+================================================================

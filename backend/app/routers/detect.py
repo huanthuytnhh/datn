@@ -33,6 +33,7 @@ async def detect_image(
     request: Request,
     file: UploadFile = File(...),
     threshold: float = Query(default=None, ge=0.0, le=1.0, description="Override detection threshold"),
+    model: str = Query(default=None, description="Model deepfake: sfdct|b4|hff (mặc định sfdct)"),
     api_key: ApiKey = Depends(get_api_key_auth),
     db: AsyncSession = Depends(get_db),
 ):
@@ -43,7 +44,7 @@ async def detect_image(
     if len(image_bytes) > MAX_IMAGE_SIZE:
         raise bad_request("File size exceeds 10 MB limit")
 
-    result = await run_inference(image_bytes, threshold=threshold)
+    result = await run_inference(image_bytes, threshold=threshold, model=model)
 
     # ── Tín hiệu rủi ro (định vị eKYC) — calibrate prob_fake → risk_score + band + gợi ý ──
     risk = to_risk_score(result.prob_fake)

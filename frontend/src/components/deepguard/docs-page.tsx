@@ -90,8 +90,8 @@ const ENDPOINTS: Endpoint[] = [
     auth: 'Bearer JWT',
     params: [],
     response: {
-      user: { id: 'u_91', email: 'admin@vietbank.vn', name: 'Nguyễn Văn A', role: 'admin', tenant_id: 't_01', is_active: true, last_login_at: '2026-05-29T08:12:00Z' },
-      tenant: { id: 't_01', name: 'VietBank', plan: 'pro', status: 'active', monthly_quota: 50000, current_usage: 12847, admin_email: 'admin@vietbank.vn' },
+      user: { id: 'u_91', email: 'admin@example.com', name: 'Demo Admin', role: 'admin', tenant_id: 't_01', is_active: true, last_login_at: '2026-05-29T08:12:00Z' },
+      tenant: { id: 't_01', name: 'Demo Bank', plan: 'pro', status: 'active', monthly_quota: 50000, current_usage: 12847, admin_email: 'admin@example.com' },
     },
   },
 
@@ -236,7 +236,7 @@ const ENDPOINTS: Endpoint[] = [
       { name: 'request_id', in: 'path', type: 'string', req: true, desc: 'ID request' },
       { name: 'note', in: 'body', type: 'string', req: true, desc: 'Nội dung ghi chú' },
     ],
-    response: { request_id: 'req_a8f2c1', verdict: 'FAKE', audit_notes: [{ note: 'Đã xác nhận face-swap.', author_email: 'analyst@vietbank.vn', author_id: 'u_91', created_at: '2026-05-29T08:20:00Z' }] },
+    response: { request_id: 'req_a8f2c1', verdict: 'FAKE', audit_notes: [{ note: 'Đã xác nhận face-swap.', author_email: 'analyst@example.com', author_id: 'u_91', created_at: '2026-05-29T08:20:00Z' }] },
   },
   {
     id: 'list-liveness',
@@ -284,7 +284,7 @@ const ENDPOINTS: Endpoint[] = [
       { name: 'limit', in: 'query', type: 'int', req: false, desc: 'Số bản ghi/trang' },
     ],
     response: {
-      items: [{ id: 1041, action: 'api_key.create', resource_type: 'api_key', resource_id: 'k_91', user_email: 'admin@vietbank.vn', metadata: {}, ip_address: '14.169.1.2', created_at: '2026-05-29T08:12:00Z' }],
+      items: [{ id: 1041, action: 'api_key.create', resource_type: 'api_key', resource_id: 'k_91', user_email: 'admin@example.com', metadata: {}, ip_address: '14.169.1.2', created_at: '2026-05-29T08:12:00Z' }],
       total: 894,
       page: 1,
       limit: 20,
@@ -578,10 +578,10 @@ const ROLE_GUIDES: Record<Role, RoleGuide> = {
 
 const DEMO_ACCOUNTS: { email: string; role: Role; note: string }[] = [
   { email: 'sysadmin@deepguard.vn', role: 'sysadmin', note: 'DeepGuard Ops — quản trị nền tảng' },
-  { email: 'admin@vietbank.vn', role: 'admin', note: 'Tenant Admin của VietBank' },
-  { email: 'dev@vietbank.vn', role: 'developer', note: 'Kỹ sư tích hợp' },
-  { email: 'compliance@vietbank.vn', role: 'compliance', note: 'Kiểm toán / tuân thủ' },
-  { email: 'viewer@vietbank.vn', role: 'viewer', note: 'Chỉ xem' },
+  { email: 'admin@example.com', role: 'admin', note: 'Tenant Admin của VietBank' },
+  { email: 'dev@example.com', role: 'developer', note: 'Kỹ sư tích hợp' },
+  { email: 'compliance@example.com', role: 'compliance', note: 'Kiểm toán / tuân thủ' },
+  { email: 'viewer@example.com', role: 'viewer', note: 'Chỉ xem' },
 ];
 
 /* Pages shown in the role guide / matrix (exclude public landing/login). */

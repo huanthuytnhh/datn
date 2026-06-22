@@ -129,7 +129,7 @@ export default function LoginPage() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="dev@vietbank.vn"
+            placeholder="you@example.com"
             className={`lg-inp${isError ? ' lg-err' : ''}`}
           />
         </div>
@@ -209,20 +209,6 @@ export default function LoginPage() {
         </button>
       </div>
 
-      {/* Divider */}
-      <div style={{ display:'flex',alignItems:'center',gap:12,margin:'0' }}>
-        <div style={{ flex:1,height:1,background:'rgba(0,0,0,.07)' }} />
-        <span style={{ fontSize:10,fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.1em' }}>hoặc</span>
-        <div style={{ flex:1,height:1,background:'rgba(0,0,0,.07)' }} />
-      </div>
-
-      {/* SSO */}
-      <div className="lg-s4">
-        <button type="button" className="lg-sso" style={{ width:'100%',justifyContent:'center',padding:'13px 16px' }}>
-          <Icon name="fingerprint" style={{ fontSize:18,color:DG.primary }} />
-          Đăng nhập bằng VietBank SSO
-        </button>
-      </div>
 
       {/* Register link */}
       <div style={{ textAlign:'center',fontSize:13.5,color:'#64748b' }}>
@@ -297,9 +283,9 @@ export default function LoginPage() {
             {/* Stats — double-bezel tiles */}
             <div style={{ display:'flex',flexDirection:'column',gap:9,marginBottom:28 }}>
               {[
-                { icon:'monitoring', label:'AUC Score', value:'0.91' },
-                { icon:'verified_user', label:'False Positive Rate', value:'≤5%' },
-                { icon:'speed', label:'API Latency', value:'<150ms' },
+                { icon:'monitoring', label:'AUC cross-dataset', value:'0.77' },
+                { icon:'verified_user', label:'FPR eKYC', value:'≤5%' },
+                { icon:'speed', label:'Tốc độ/ảnh (CPU)', value:'~1s' },
               ].map((s) => (
                 <div key={s.label} style={{ padding:'2px',borderRadius:16,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.14)' }}>
                   <div style={{ display:'flex',alignItems:'center',gap:12,padding:'11px 14px',borderRadius:14,background:'rgba(255,255,255,.08)',boxShadow:'inset 0 1px 0 rgba(255,255,255,.18)' }}>
@@ -395,7 +381,7 @@ export default function LoginPage() {
           {/* Trust badges */}
           <div style={{ marginTop:22 }}>
             <div style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:18,marginBottom:10 }}>
-              {([['shield','SOC2 Ready'],['verified_user','TT17/2024'],['lock','TLS 1.3']] as [string,string][]).map(([icon,label]) => (
+              {([['shield','RBAC'],['verified_user','TT17/2024'],['lock','TLS 1.3']] as [string,string][]).map(([icon,label]) => (
                 <div key={label} style={{ display:'flex',alignItems:'center',gap:4,fontSize:11,fontWeight:600,color:'#94a3b8' }}>
                   <Icon name={icon} style={{ fontSize:12,color:'#b0bfd1' }} />
                   {label}

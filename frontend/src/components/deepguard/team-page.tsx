@@ -1028,7 +1028,7 @@ export default function TeamPage() {
                 type="email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
-                placeholder="ten@vietbank.vn"
+                placeholder="ten@example.com"
                 className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
               />
             </Field>

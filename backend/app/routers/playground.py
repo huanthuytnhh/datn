@@ -41,6 +41,7 @@ async def playground_detect_image(
     file: UploadFile = File(...),
     threshold: float = Query(default=None, ge=0.0, le=1.0, description="Override detection threshold"),
     include_heatmap: bool = Query(default=True, description="Tắt để bỏ Grad-CAM (nhanh ~2x)"),
+    model: str = Query(default=None, description="Model deepfake: sfdct|b4|hff (mặc định sfdct)"),
     current_user: User = Depends(_playground_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -50,7 +51,7 @@ async def playground_detect_image(
     if len(image_bytes) > MAX_IMAGE_SIZE:
         raise bad_request("File size exceeds 10 MB limit")
 
-    result = await run_inference(image_bytes, include_heatmap=include_heatmap, threshold=threshold)
+    result = await run_inference(image_bytes, include_heatmap=include_heatmap, threshold=threshold, model=model)
 
     risk = to_risk_score(result.prob_fake)
     band = risk_band(risk)

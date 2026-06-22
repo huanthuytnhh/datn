@@ -126,7 +126,7 @@ def _mock_inference(image_bytes: bytes, threshold: float = None) -> InferenceRes
     )
 
 
-def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True, threshold: float = None) -> InferenceResult:
+def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True, threshold: float = None, model: str = None) -> InferenceResult:
     """Gọi microservice SFDCT (DeepfakeBench) qua HTTP -> map sang InferenceResult (kèm Grad-CAM).
     include_heatmap=False -> serving bỏ backward Grad-CAM, nhanh ~2x. Service down -> fallback mock."""
     import httpx
@@ -137,8 +137,11 @@ def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True, threshold
     except Exception:
         width = height = None
     try:
+        _q = {"gradcam": str(include_heatmap).lower()}
+        if model:
+            _q["model"] = model
         r = httpx.post(settings.SFDCT_INFER_URL.rstrip("/") + "/predict",
-                       params={"gradcam": str(include_heatmap).lower()},
+                       params=_q,
                        files={"file": ("upload.jpg", image_bytes, "image/jpeg")}, timeout=60.0)
         r.raise_for_status()
         j = r.json()
@@ -164,9 +167,9 @@ def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True, threshold
 
 
 # ── Public entry points ──
-async def run_inference(image_bytes: bytes, include_heatmap: bool = True, threshold: float = None) -> InferenceResult:
+async def run_inference(image_bytes: bytes, include_heatmap: bool = True, threshold: float = None, model: str = None) -> InferenceResult:
     if settings.SFDCT_INFER_URL:                     # ưu tiên microservice SFDCT (model thật của thesis)
-        return _sfdct_inference(image_bytes, include_heatmap, threshold)
+        return _sfdct_inference(image_bytes, include_heatmap, threshold, model)
     if settings.MOCK_ML or not settings.MODEL_PATH:
         return _mock_inference(image_bytes, threshold)
     return _real_inference(image_bytes, threshold)

@@ -1,0 +1,5 @@
+============== Celeb-DF-v2 cross-test AUC (run improved-20260605-161956) ==============
+row1_sfdct_s1024               CDFv2 AUC = <none>
+row2_sfdct_v2_s1024            CDFv2 AUC = <none>
+================================================================
+B4 baseline (reused) bar ~0.7487. A real win = a Row's AUC strictly above your own B4 number.

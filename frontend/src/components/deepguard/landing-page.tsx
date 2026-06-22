@@ -318,7 +318,7 @@ function V3Hero({ onLogin, onDocs }: { onLogin:()=>void; onDocs:()=>void }) {
 
           {/* subtext */}
           <motion.p variants={itemVariants} style={{ fontSize:17.5,color:'#3d5070',lineHeight:1.78,marginBottom:40,maxWidth:'52ch',textWrap:'pretty' } as CSSProperties}>
-            API bảo mật sinh trắc học cho ngân hàng Việt Nam. Tích hợp 1 dòng code, bảo vệ hàng triệu giao dịch.
+            API phát hiện deepfake & liveness cho luồng định danh eKYC. Tích hợp REST đơn giản, chạy được trên CPU.
           </motion.p>
 
           {/* CTAs — button-in-button pattern */}
@@ -358,10 +358,10 @@ function V3Hero({ onLogin, onDocs }: { onLogin:()=>void; onDocs:()=>void }) {
 /* ── Trust strip — raw horizontal numbers ───────────────── */
 function V3TrustStrip() {
   const stats = [
-    { value:'1M+', label:'Requests mỗi ngày' },
-    { value:'99.9%', label:'Uptime SLA' },
-    { value:'<150ms', label:'Latency P99' },
-    { value:'0.91', label:'AUC Score' },
+    { value:'0.77', label:'AUC cross-dataset' },
+    { value:'0.98', label:'Liveness AUC' },
+    { value:'~1s', label:'Tốc độ/ảnh (CPU)' },
+    { value:'≤5%', label:'FPR eKYC' },
   ];
   return (
     <SectionReveal>
@@ -386,11 +386,11 @@ function V3TrustStrip() {
 /* ── Ticker ─────────────────────────────────────────────── */
 function V3Ticker() {
   const items = [
-    { label:'AUC Score', value:'0.91', icon:'analytics' },
-    { label:'Latency', value:'<150ms', icon:'speed' },
-    { label:'FPR', value:'≤5%', icon:'verified_user' },
-    { label:'API Uptime', value:'99.9%', icon:'cloud_done' },
-    { label:'Requests/ngày', value:'1M+', icon:'bolt' },
+    { label:'AUC cross-dataset', value:'0.77', icon:'analytics' },
+    { label:'Tốc độ/ảnh', value:'~1s (CPU)', icon:'speed' },
+    { label:'FPR eKYC', value:'≤5%', icon:'verified_user' },
+    { label:'Liveness AUC', value:'0.98', icon:'cloud_done' },
+    { label:'Dataset', value:'FF++→Celeb-DF', icon:'bolt' },
     { label:'Model', value:'EfficientNet-B4', icon:'psychology' },
     { label:'Format', value:'JSON REST', icon:'code' },
     { label:'Heatmap', value:'DCT', icon:'local_fire_department' },
@@ -452,7 +452,7 @@ function V3Features() {
             <pre style={{ padding:15,fontSize:12,fontFamily:'Fira Code,monospace',lineHeight:1.75,color:'#e2e8f0',margin:0,overflowX:'auto' }}>{CODE_SNIP}</pre>
           </div>
           <div style={{ display:'flex',gap:7,marginTop:14,flexWrap:'wrap' }}>
-            {['REST · JSON','<150ms','JPG · PNG · WebP'].map((t) => (
+            {['REST · JSON','~1s CPU','JPG · PNG · WebP'].map((t) => (
               <span key={t} style={{ padding:'4px 10px',borderRadius:999,background:'rgba(0,80,203,.09)',border:'1px solid rgba(0,80,203,.15)',fontSize:11,fontWeight:700,color:DG.primary }}>{t}</span>
             ))}
           </div>
@@ -506,7 +506,7 @@ function V3Features() {
           <h3 style={{ fontSize:18,fontWeight:900,color:'#08142a',marginBottom:8,letterSpacing:'-0.028em' }}>eKYC Ready</h3>
           <p style={{ fontSize:14,color:'#3d5070',lineHeight:1.65 }}>Threshold calibrated FPR &lt;= 5% theo TT17/2024/TT-NHNN.</p>
           <div style={{ marginTop:13,display:'flex',gap:6,flexWrap:'wrap' }}>
-            {['FPR ≤5%','AML ready','FATF'].map((t) => (
+            {['FPR ≤5%','ISO 30107-3','TT17/2024'].map((t) => (
               <span key={t} style={{ padding:'4px 9px',borderRadius:999,background:'rgba(46,125,50,.09)',border:'1px solid rgba(46,125,50,.18)',fontSize:11,fontWeight:700,color:DG.real }}>{t}</span>
             ))}
           </div>
@@ -522,7 +522,7 @@ function V3Features() {
                 <circle className={inView ? 'v3-arc' : ''} cx={40} cy={40} r={30} stroke={DG.primary} strokeWidth={6} fill="none" strokeDasharray="0 188" strokeLinecap="round" transform="rotate(-90 40 40)" />
               </svg>
               <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center' }}>
-                <span style={{ fontSize:14,fontWeight:900,color:DG.primary,letterSpacing:'-0.04em' }}>0.91</span>
+                <span style={{ fontSize:14,fontWeight:900,color:DG.primary,letterSpacing:'-0.04em' }}>0.77</span>
               </div>
             </div>
             <div>
@@ -534,7 +534,7 @@ function V3Features() {
           <div>
             <div style={{ display:'flex',justifyContent:'space-between',marginBottom:6 }}>
               <span style={{ fontSize:10,fontWeight:700,color:'#8498b4',textTransform:'uppercase',letterSpacing:'.07em' }}>Latency</span>
-              <span style={{ fontSize:12,fontWeight:900,color:DG.real,letterSpacing:'-0.03em' }}>&lt;150ms</span>
+              <span style={{ fontSize:12,fontWeight:900,color:DG.real,letterSpacing:'-0.03em' }}>~1s</span>
             </div>
             <div style={{ height:4,background:'rgba(0,0,0,.07)',borderRadius:99,overflow:'hidden' }}>
               <div style={{ height:'100%',width:'72%',background:`linear-gradient(90deg,${DG.real},#4ade80)`,borderRadius:99 }} />
@@ -550,7 +550,7 @@ function V3Features() {
 function V3HowItWorks() {
   const steps = [
     { n:'01', icon:'upload_file', title:'Upload ảnh', desc:'Gửi ảnh chân dung qua REST API. Hỗ trợ JPG, PNG, WebP ở mọi độ phân giải.', tags:['REST · JSON','JPG · PNG · WebP'], color:DG.primary },
-    { n:'02', icon:'psychology', title:'AI phân tích', desc:'EfficientNet-B4 + DCT Stream phân tích tần số không gian trong dưới 150ms.', tags:['DCT Frequency','<150ms'], color:DG.uncertain },
+    { n:'02', icon:'psychology', title:'AI phân tích', desc:'EfficientNet-B4 + nhánh block-DCT phân tích tần số không gian, chạy được trên CPU.', tags:['DCT Frequency','~1s CPU'], color:DG.uncertain },
     { n:'03', icon:'verified', title:'Nhận verdict', desc:'REAL / FAKE + confidence score chi tiết. DCT heatmap tuỳ chọn cho forensics.', tags:['Confidence Score','Heatmap'], color:DG.real },
   ];
   return (
@@ -601,7 +601,7 @@ interface Plan { name:string; sub:string; price:string; per?:string; feats:strin
 function V3Pricing({ onLogin }: { onLogin:()=>void }) {
   const plans: Plan[] = [
     { name:'Starter', sub:'Dùng thử và tích hợp', price:'Miễn phí', feats:['100 req/tháng','Detection API','Verdict + Confidence','Email support'], cta:'Bắt đầu', star:false },
-    { name:'Pro', sub:'Production workload', price:'$99', per:'/tháng', feats:['10,000 req/tháng','Detection + DCT Heatmap','Priority support','SLA 99.9%','Webhooks'], cta:'Chọn Pro', star:true },
+    { name:'Pro', sub:'Production workload', price:'$99', per:'/tháng', feats:['10,000 req/tháng','Detection + DCT Heatmap','Liveness check','Priority support'], cta:'Chọn Pro', star:true },
     { name:'Enterprise', sub:'Ngân hàng và tổ chức', price:'Custom', feats:['Unlimited requests','On-prem deployment','Custom threshold','Dedicated manager','Audit log'], cta:'Liên hệ sales', star:false },
   ];
   return (
@@ -727,7 +727,7 @@ function V3CTABottom({ onLogin }: { onLogin:()=>void }) {
 
           {/* trust badges */}
           <div style={{ display:'flex',justifyContent:'center',gap:28,marginTop:36,flexWrap:'wrap' }}>
-            {([['verified_user','TT17/2024'],['lock','SOC2 Ready'],['speed','99.9% SLA']] as [string,string][]).map(([icon,label]) => (
+            {([['verified_user','TT17/2024'],['speed','CPU ~1s/ảnh'],['psychology','Cross-dataset eval']] as [string,string][]).map(([icon,label]) => (
               <div key={label} style={{ display:'flex',alignItems:'center',gap:6,fontSize:12,fontWeight:700,color:'rgba(255,255,255,.5)' }}>
                 <Icon name={icon} style={{ fontSize:14,color:'rgba(255,255,255,.4)' }} />
                 {label}
@@ -760,7 +760,7 @@ function V3Footer({ onDocs, onLogin }: { onDocs:()=>void; onLogin:()=>void }) {
           ))}
         </div>
         <div style={{ display:'flex',alignItems:'center',gap:6 }}>
-          {(['TT17/2024','SOC2','FATF'] as string[]).map((tag) => (
+          {(['TT17/2024','ISO 30107-3','Cross-dataset'] as string[]).map((tag) => (
             <span key={tag} style={{ padding:'2px 8px',borderRadius:6,background:'rgba(0,80,203,.07)',border:'1px solid rgba(0,80,203,.12)',fontSize:10,fontWeight:700,color:DG.primary,letterSpacing:'.06em' }}>{tag}</span>
           ))}
         </div>

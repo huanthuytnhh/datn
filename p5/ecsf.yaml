@@ -1,0 +1,71 @@
+# ecsf.yaml — DeepfakeBench config for ECSF-Fast
+# PLACE AT: DeepfakeBench/training/config/detector/ecsf.yaml
+# Run:  python training/train.py --detector_path ./training/config/detector/ecsf.yaml
+
+# ---- detector ----
+model_name: ecsf
+backbone_name: efficientnetb4          # DeepfakeBench built-in backbone
+pretrained: ./training/pretrained/efficientnet-b4-6ed6700e.pth   # ImageNet weights (actual file name)
+
+backbone_config:
+  num_classes: 2
+  mode: original
+  inc: 3
+  dropout: false
+  pretrained: ./training/pretrained/efficientnet-b4-6ed6700e.pth   # REQUIRED: EfficientNetB4.__init__ reads this key
+
+# ---- ECSF-specific (read by ecsf_detector.py) ----
+spatial_feat_dim: 1792
+unfreeze_last_blocks: 2                 # PEFT: freeze backbone except last blocks
+use_ema: true                           # EMA of weights (model-side, protocol-safe)
+num_classes: 2
+# ABLATION SWITCH — the core thesis experiment:
+#   use_frequency: true   -> full ECSF (B4 spatial + block-DCT branch)   [contribution]
+#   use_frequency: false  -> spatial-only baseline (SAME head, no block-DCT)
+#   Δ AUC = AUC(true) − AUC(false) under IDENTICAL protocol = the result.
+#   Copy this file to ecsf_nofreq.yaml with use_frequency:false to run the baseline.
+use_frequency: true
+# de-normalize back toward pixel space for the DCT branch.
+# MUST match the `mean`/`std` below (DeepfakeBench convention = 0.5/0.5, same as
+# efficientnetb4.yaml / hfdct.yaml) so ECSF is fair-comparable to baseline/HF-DCT.
+denorm_mean: [0.5, 0.5, 0.5]
+denorm_std:  [0.5, 0.5, 0.5]
+
+# ---- loss / optim (KEEP DeepfakeBench defaults for comparability) ----
+loss_func: cross_entropy
+optimizer:
+  type: adam
+  adam:
+    lr: 0.0002
+    weight_decay: 0.0005
+    betas: [0.9, 0.999]
+lr_scheduler: null                      # keep standard; do NOT add custom schedule here
+
+# ---- STANDARD PROTOCOL (do not change for the comparable main result) ----
+train_dataset: [FaceForensics++]        # FF++ c23
+test_dataset: [Celeb-DF-v2, DFDCP]      # add DFDC/DFD/CDFv1 if storage allows
+compression: c23
+train_batchSize: 32
+test_batchSize: 32
+resolution: 256
+frame_num:
+  train: 32                             # DeepfakeBench standard (do not change)
+  test: 32
+nEpochs: 10
+# AMP (mixed precision) is precision-only and protocol-safe:
+amp: true
+
+# ---- preprocessing (DeepfakeBench standard: 0.5/0.5, same as baseline & HF-DCT) ----
+mean: [0.5, 0.5, 0.5]
+std: [0.5, 0.5, 0.5]
+use_data_augmentation: true
+data_aug:
+  flip_prob: 0.5
+  rotate_prob: 0.0
+  blur_prob: 0.0
+  jpeg_prob: 0.0
+
+# ---- logging / metric ----
+metric_scoring: auc
+save_ckpt: true
+save_feat: false

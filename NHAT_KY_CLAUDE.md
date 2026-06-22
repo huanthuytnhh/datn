@@ -143,3 +143,17 @@
 - 2026-06-20 — ekyc_demo: thay ô text API URL bằng selectbox Môi trường (Local localhost:8000 / Deploy https://deepguard.ddns.net/api / Custom). Cảnh báo deploy cần prefix /api + key tạo trên deploy. compile + smoke OK.
 
 - 2026-06-20 — ekyc_demo: thêm panel "🔍 Vì sao?" trên màn Streamlit (mở sẵn) cho deepfake (prob_fake vs threshold_used ±0.10 → verdict; risk_score vs band 0.3/0.7 → decision_hint) và liveness (P(live) vs threshold, margin 0 → LIVE/SPOOF). Gỡ 3 log server tạm thêm trước đó (user muốn hiện trên screen). compile + smoke OK.
+
+- 2026-06-20 — Expose attack_analysis (print/screen scores+evidence) sau cờ ?debug=true (LivenessResult+LivenessResponse+_to_response+router passive/active; dọn challenge kwargs chết ở _to_response). Demo gửi debug=true + hiện trong panel "Vì sao?". Restart backend, verify service trả scores print/screen + evidence. Commit 5 nhóm nhỏ (KHÔNG co-author) + push origin newfe_2: detect-cleanup+threshold, liveness-challenge+attack_analysis, web-align, streamlit-demo, docs.
+
+- 2026-06-20 — Multi-model serving (Option A): infer_server.py đa-model (registry sfdct/b4/hff, lazy-load cache, ?model=); dựng serving/b4 + serving/hff (config detector pretrained=null + copy ckpt). HFF: phát hiện copy nhầm R1(0.7553)→sửa thành R3(0.7695, run 17-30-34, proj+rsa, 0 missing keys). Nối model qua backend (_sfdct_inference/run_inference/detect+playground ?model=) + demo selectbox. Test 3 model load sạch + HTTP + run_inference end-to-end OK. (.pth gitignore, configs commit được.)
+
+- 2026-06-20 — Fix print/screen bị ngược: chạy classifier trên 6 ảnh CÓ NHÃN thật của user → phát hiện texture_variance tách sạch (screen <600, print >1000) nhưng rule cũ ĐẢO chiều (texture thấp→print). Re-tune attack_classifier.py: texture là tín hiệu chính (>=700→print, else screen) + moiré>3000→screen. Test 6/6 đúng (trước 1/6). Restart liveness serving. Caveat: tune trên ~6 mẫu, best-effort.
+
+- 2026-06-20 — print/screen v2: user xác nhận ảnh 8,10 = screen (moire 12722/18762 cực cao nhưng texture cũng cao→rule v1 nhầm print). Thêm override "moire>3000→screen (đè texture)". Test qua module: 8/8 đúng (6 screen+2 print). Restart liveness serving.
+
+- 2026-06-20 — print/screen v3: thêm 2 print phẳng (11 ok, 12 sai do texture thấp 441). Dump full feature 10 ảnh → mọi print moire<1000, screen khó moire>=1400. Rule mới: moire>=1100→screen, elif texture>=300→print, else screen → 10/10. Restart liveness.
+
+- 2026-06-20 — Dọn UI web cho khỏi overclaim/lộ account: docs-page ẩn danh email demo (@vietbank.vn→@example.com, VietBank→Demo Bank); landing+login thay số ảo bằng số thật (AUC 0.91→0.77 cross-dataset, <150ms→~1s CPU, bỏ 1M+ req/ngày + 99.9% SLA + SOC2/FATF; badge→TT17/ISO30107-3/RBAC); bỏ nút SSO chết ở login; bỏ Webhooks khỏi pricing. tsc 0 lỗi.
+
+- 2026-06-20 — Tạo report_prepare/mt24_walkthrough_multi.py: bản mt16 TỔNG QUÁT + TIẾNG ANH, chạy step-by-step (inputs→zoom 8x8 block→DCT từng bước→HFF) trên NHIỀU cặp: FF++ Deepfakes 001, FF++ Face2Face 002, Celeb-DF (real id0_0000 vs synthesis id0_id1_0000). Celeb không mask → chọn khối theo |diff| lớn nhất; ghép real↔fake theo quy ước idA_NNNN ↔ idA_idB_NNNN cùng frame. Ra fig_walkthrough_{ffpp_df_001,ffpp_f2f_002,celeb_id0}.png. (Bỏ mt23 thống kê do sai hướng.)

@@ -65,9 +65,9 @@ export function AuthShell({
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {[
-              { icon: 'analytics', label: 'AUC Score', value: '0.91' },
-              { icon: 'verified_user', label: 'FPR', value: '≤5%' },
-              { icon: 'speed', label: 'Latency', value: '<150ms' },
+              { icon: 'analytics', label: 'AUC cross-dataset', value: '0.77' },
+              { icon: 'verified_user', label: 'FPR eKYC', value: '≤5%' },
+              { icon: 'speed', label: 'Tốc độ/ảnh (CPU)', value: '~1s' },
             ].map((s) => (
               <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 14px', borderRadius: 11, background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.15)' }}>
                 <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
