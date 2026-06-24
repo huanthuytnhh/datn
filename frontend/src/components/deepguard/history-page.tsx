@@ -214,6 +214,14 @@ export default function HistoryPage() {
       .finally(() => setLoading(false));
   }, [dateParams, refreshTick]);
 
+  // Normalize liveness verdicts so the REAL/FAKE/UNCERTAIN filter chips include them:
+  // LIVE → REAL, SPOOF → FAKE (F3 fix — only used in predicate, data is not mutated).
+  const normalizeVerdict = (v: string): string => {
+    if (v === 'LIVE') return 'REAL';
+    if (v === 'SPOOF') return 'FAKE';
+    return v;
+  };
+
   // Client-side filters over the merged list: date range + record kind + verdict chip +
   // confidence threshold + text search.
   const filtered = useMemo(() => {
@@ -222,7 +230,7 @@ export default function HistoryPage() {
       (r) =>
         (startMs == null || new Date(r.created_at).getTime() >= startMs) &&
         (kindFilter === '' || r.kind === kindFilter) &&
-        (verdictFilter === '' || r.verdict === verdictFilter) &&
+        (verdictFilter === '' || normalizeVerdict(r.verdict) === verdictFilter) &&
         (confidenceFilter === 0 || r.confidence >= confidenceFilter) &&
         (q === '' ||
           r.request_id.toLowerCase().includes(q) ||
@@ -233,6 +241,14 @@ export default function HistoryPage() {
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  // F9: clamp currentPage to totalPages whenever filter/data shrinks the page count.
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(1);
+    }
+  }, [totalPages]);
+
   const paged = useMemo(
     () => filtered.slice((currentPage - 1) * limit, currentPage * limit),
     [filtered, currentPage],

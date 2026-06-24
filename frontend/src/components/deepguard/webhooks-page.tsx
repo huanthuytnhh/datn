@@ -11,6 +11,8 @@ import {
   webhooksDelete,
   type WebhookOut,
 } from '@/lib/api';
+import { useAuthStore } from '@/store/auth';
+import { canEdit, type Role } from '@/lib/rbac';
 
 /* ──────────────────────────────────────────────
    EVENT CONFIG
@@ -132,6 +134,9 @@ function ActionMenu({
    WEBHOOKS PAGE
    ────────────────────────────────────────────── */
 export default function WebhooksPage() {
+  const userRole = useAuthStore((s) => s.user?.role as Role | undefined);
+  const canWrite = canEdit(userRole, 'webhooks');
+
   const [webhooks, setWebhooks] = useState<WebhookOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -252,13 +257,15 @@ export default function WebhooksPage() {
           <p className="text-sm text-slate-500 mt-1">Quản lý webhook endpoints cho hệ thống</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setShowCreateForm((prev) => !prev); resetForm(); }}
-            className="px-5 py-2.5 bg-[#0050cb] text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-[#0050cb]/20 hover:shadow-xl hover:shadow-[#0050cb]/30 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
-          >
-            <Icon name="add" className="text-[16px]" />
-            Thêm webhook
-          </button>
+          {canWrite && (
+            <button
+              onClick={() => { setShowCreateForm((prev) => !prev); resetForm(); }}
+              className="px-5 py-2.5 bg-[#0050cb] text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-[#0050cb]/20 hover:shadow-xl hover:shadow-[#0050cb]/30 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
+            >
+              <Icon name="add" className="text-[16px]" />
+              Thêm webhook
+            </button>
+          )}
         </div>
       </motion.div>
 
@@ -282,7 +289,7 @@ export default function WebhooksPage() {
           CREATE FORM
           ══════════════════════════════════════ */}
       <AnimatePresence>
-        {showCreateForm && (
+        {canWrite && showCreateForm && (
           <motion.div
             initial={{ opacity: 0, y: -12, height: 0 }}
             animate={{ opacity: 1, y: 0, height: 'auto' }}
@@ -421,13 +428,15 @@ export default function WebhooksPage() {
           <p className="text-sm text-slate-400 mb-6 max-w-sm mx-auto">
             Thêm webhook đầu tiên để nhận thông báo real-time khi có sự kiện trong hệ thống DeepGuard.
           </p>
-          <button
-            onClick={() => { setShowCreateForm(true); resetForm(); }}
-            className="px-6 py-3 bg-[#0050cb] text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-[#0050cb]/20 hover:shadow-xl hover:scale-[1.03] active:scale-[0.97] transition-all inline-flex items-center gap-2"
-          >
-            <Icon name="add" className="text-[16px]" />
-            Thêm webhook đầu tiên
-          </button>
+          {canWrite && (
+            <button
+              onClick={() => { setShowCreateForm(true); resetForm(); }}
+              className="px-6 py-3 bg-[#0050cb] text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-[#0050cb]/20 hover:shadow-xl hover:scale-[1.03] active:scale-[0.97] transition-all inline-flex items-center gap-2"
+            >
+              <Icon name="add" className="text-[16px]" />
+              Thêm webhook đầu tiên
+            </button>
+          )}
         </motion.div>
       )}
 
@@ -506,14 +515,16 @@ export default function WebhooksPage() {
                               Test
                               <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-500 text-[8px] tracking-wider">SẮP CÓ</span>
                             </button>
-                            <ActionMenu
-                              status={isActive ? 'active' : 'paused'}
-                              onAction={(action) => {
-                                if (action === 'edit') handleEdit(webhook);
-                                else if (action === 'toggle') handleToggleStatus(webhook);
-                                else if (action === 'delete') handleDelete(webhook);
-                              }}
-                            />
+                            {canWrite && (
+                              <ActionMenu
+                                status={isActive ? 'active' : 'paused'}
+                                onAction={(action) => {
+                                  if (action === 'edit') handleEdit(webhook);
+                                  else if (action === 'toggle') handleToggleStatus(webhook);
+                                  else if (action === 'delete') handleDelete(webhook);
+                                }}
+                              />
+                            )}
                           </div>
                         </td>
                       </tr>

@@ -12,6 +12,8 @@ import { Icon, Sparkline, StatPill, RangeToggle } from '@/components/deepguard/s
 import { DG, fmtInt, timeAgo } from '@/lib/dg';
 import { apiKeysList, apiKeysCreate, apiKeysRevoke, type ApiKeyOut } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { canEdit } from '@/lib/rbac';
+import type { Role } from '@/lib/rbac';
 
 /* ──────────────────────────────────────────────
    LOCAL VIEW MODEL
@@ -198,6 +200,8 @@ function Modal({ onClose, children, max = 'max-w-lg' }: { onClose: () => void; c
    ────────────────────────────────────────────── */
 export default function ApiKeysPage() {
   const setApiKey = useAuthStore((s) => s.setApiKey);
+  const userRole = useAuthStore((s) => s.user?.role as Role | undefined);
+  const canWrite = canEdit(userRole, 'apikeys');
 
   const [keys, setKeys] = useState<KeyRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -340,13 +344,15 @@ export default function ApiKeysPage() {
               { id: 'cards', label: 'Thẻ' },
             ]}
           />
-          <button
-            data-tour="ak-create"
-            onClick={openCreate}
-            className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
-          >
-            <Icon name="add" className="text-[16px]" /> Tạo key mới
-          </button>
+          {canWrite && (
+            <button
+              data-tour="ak-create"
+              onClick={openCreate}
+              className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
+            >
+              <Icon name="add" className="text-[16px]" /> Tạo key mới
+            </button>
+          )}
         </div>
       </div>
 
@@ -443,8 +449,8 @@ export default function ApiKeysPage() {
               ? 'Tạo API key đầu tiên để bắt đầu tích hợp DeepGuard Detection API vào ứng dụng của bạn.'
               : 'Thử đổi bộ lọc trạng thái hoặc tạo API key mới để bắt đầu tích hợp.'
           }
-          action="Tạo key đầu tiên"
-          onAction={openCreate}
+          action={canWrite ? 'Tạo key đầu tiên' : undefined}
+          onAction={canWrite ? openCreate : undefined}
         />
       ) : view === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -466,7 +472,7 @@ export default function ApiKeysPage() {
                       <code className="text-[10px] font-mono text-slate-400">{k.prefix}</code>
                     </div>
                   </div>
-                  <ActionMenu canRevoke={k.status !== 'revoked'} onAction={(l) => l === 'Thu hồi' && handleRevoke(k)} />
+                  <ActionMenu canRevoke={canWrite && k.status !== 'revoked'} onAction={(l) => l === 'Thu hồi' && handleRevoke(k)} />
                 </div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Quota · {k.rpm} RPM</span>
@@ -546,7 +552,7 @@ export default function ApiKeysPage() {
                       <td className="px-4 py-4 text-[11px] text-slate-500 font-medium">{createdLabel(k.created)}</td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end">
-                          <ActionMenu canRevoke={k.status !== 'revoked'} onAction={(l) => l === 'Thu hồi' && handleRevoke(k)} />
+                          <ActionMenu canRevoke={canWrite && k.status !== 'revoked'} onAction={(l) => l === 'Thu hồi' && handleRevoke(k)} />
                         </div>
                       </td>
                     </tr>
