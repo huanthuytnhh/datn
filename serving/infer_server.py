@@ -132,11 +132,26 @@ async def predict(file: UploadFile = File(...), gradcam: bool = Query(default=Tr
     if bgr is None:
         return JSONResponse({"error": "cannot decode image"}, status_code=400)
     face_found = False
+    bgr_orig = bgr
     if FACE_CROP:
         bgr, face_found = crop_face_bgr(bgr)
     mdl, cfg = _get_model(name)
     mean = cfg.get("mean", [0.5, 0.5, 0.5]); std = cfg.get("std", [0.5, 0.5, 0.5])
     res = int(cfg.get("resolution", 256))
+
+    # --- expand sweep (debug) ---
+    if FACE_CROP and face_found:
+        _summary = []
+        for _e in [round(1.0 + 0.05 * i, 2) for i in range(11)]:  # 1.00 → 1.50
+            _c, _f = crop_face_bgr(bgr_orig, expand=_e)
+            _sz = f"{_c.shape[1]}x{_c.shape[0]}" if _f else "no-face"
+            _rgb = cv2.cvtColor(cv2.resize(_c, (res, res), interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)
+            _x = ((_rgb.astype(np.float32) / 255.0 - np.array(mean)) / np.array(std)).transpose(2, 0, 1)
+            _pf = _prob_only(mdl, torch.from_numpy(_x).float().unsqueeze(0))
+            _summary.append(f"e{_e:.2f}={int(_pf*100)}")
+            print(f"[expand] e={_e:.2f}  crop={_sz}  prob={_pf:.4f}  ({int(_pf*100)}/100)", flush=True)
+        print(f"[expand] ── {' │ '.join(_summary)}", flush=True)
+
     rgb = cv2.cvtColor(cv2.resize(bgr, (res, res), interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)
     x = ((rgb.astype(np.float32) / 255.0 - np.array(mean)) / np.array(std)).transpose(2, 0, 1)
     x = torch.from_numpy(x).float().unsqueeze(0)

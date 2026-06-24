@@ -43,7 +43,9 @@ app = FastAPI(title="Liveness Inference Service", version="1.0")
 
 _model: B4Liveness | None = None
 _transform = T.Compose([
-    T.Resize((RESOLUTION, RESOLUTION)),
+    # T.Resize đã bỏ: path cv2 resize bằng INTER_CUBIC trước khi tạo PIL Image
+    # Path PIL fallback dùng T.Resize với BICUBIC ≈ INTER_CUBIC
+    T.Resize((RESOLUTION, RESOLUTION), interpolation=T.InterpolationMode.BICUBIC),
     T.ToTensor(),
     T.Normalize(mean=NORM_MEAN, std=NORM_STD),
 ])
@@ -87,6 +89,8 @@ async def predict(file: UploadFile = File(...)):
             bgr = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
             if bgr is not None:
                 crop, face_found = crop_face_bgr(bgr)
+                # INTER_CUBIC khớp pipeline eval (gen_fig_liveness_roc.py:30)
+                crop = cv2.resize(crop, (RESOLUTION, RESOLUTION), interpolation=cv2.INTER_CUBIC)
                 img = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
             else:
                 img = Image.open(io.BytesIO(image_bytes)).convert("RGB")

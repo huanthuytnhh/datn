@@ -1,32 +1,34 @@
-"""face_crop.py — crop khuôn mặt vuông + lề, khớp phân phối LCC-FASD (mặt đầy khung).
+"""face_crop.py — crop khuôn mặt vuông + lề cho SFDCT (:8501) và liveness (:8502).
 
-Dùng chung cho liveness_server (:8502) và script test. LCC-FASD phát hành mặt ĐÃ crop vuông
-(mặt chiếm ~70-90% khung). Khi serving nhận frame webcam đầy đủ (mặt nhỏ + nền + vai), phải crop
-về cùng dạng; nếu không phân phối lệch train/serve -> AUC 0.98 trên benchmark KHÔNG giữ được lúc demo.
+Detector priority: MTCNN (facenet-pytorch) → OpenCV Haar cascade → trả nguyên ảnh.
+MTCNN là primary (xử lý mặt nghiêng, mắt nhắm, nhiều góc tốt hơn).
+Haar là fallback khi MTCNN không khả dụng.
 
-Detector ưu tiên OFFLINE (mạng công ty chặn tải model):
-  1) dlib HOG frontal detector   2) OpenCV Haar cascade   3) fallback: trả nguyên ảnh.
-Hệ số mở rộng mặc định 1.3x = khớp extract_face_MTCNN của DeepfakeBench (expand_scale=1.3).
+Hệ số mở rộng 1.3x = khớp extract_face_MTCNN của DeepfakeBench (expand_scale=1.3).
 """
 import os
 import cv2
 
 _EXPAND = float(os.environ.get("LIVENESS_CROP_EXPAND", "1.3"))
-_dlib_detector = None
-_dlib_tried = False
+
+_mtcnn = None
+_mtcnn_tried = False
 _haar = None
 
 
-def _get_dlib():
-    global _dlib_detector, _dlib_tried
-    if _dlib_detector is None and not _dlib_tried:
-        _dlib_tried = True
+def _get_mtcnn():
+    global _mtcnn, _mtcnn_tried
+    if _mtcnn is None and not _mtcnn_tried:
+        _mtcnn_tried = True
         try:
-            import dlib
-            _dlib_detector = dlib.get_frontal_face_detector()
+            from facenet_pytorch import MTCNN
+            # keep_all=True: detect tất cả mặt, ta chọn lớn nhất sau
+            # min_face_size=40: bỏ qua mặt quá nhỏ (< 40px), nhất quán với Haar minSize
+            # post_process=False: trả box tọa độ gốc, không scale
+            _mtcnn = MTCNN(keep_all=True, device="cpu", min_face_size=40, post_process=False)
         except Exception:
-            _dlib_detector = None
-    return _dlib_detector
+            pass
+    return _mtcnn
 
 
 def _get_haar():
@@ -38,24 +40,38 @@ def _get_haar():
 
 
 def _detect_boxes(bgr):
-    """Trả list (x, y, w, h). dlib trước, Haar dự phòng."""
-    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    det = _get_dlib()
-    if det is not None:
+    """Trả list (x, y, w, h). MTCNN trước, Haar dự phòng."""
+    # --- MTCNN (primary) ---
+    mtcnn = _get_mtcnn()
+    if mtcnn is not None:
         try:
-            rects = det(gray, 1)
-            if rects:
-                return [(r.left(), r.top(), r.width(), r.height()) for r in rects]
+            from PIL import Image
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            boxes, probs = mtcnn.detect(Image.fromarray(rgb))
+            if boxes is not None and len(boxes):
+                result = []
+                for box, prob in zip(boxes, probs if probs is not None else [1.0] * len(boxes)):
+                    if (prob or 0) < 0.9:
+                        continue
+                    x1, y1, x2, y2 = box
+                    w, h = int(x2 - x1), int(y2 - y1)
+                    if w > 0 and h > 0:
+                        result.append((int(x1), int(y1), w, h))
+                if result:
+                    return result
         except Exception:
             pass
+
+    # --- Haar cascade (fallback) ---
     haar = _get_haar()
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     faces = haar.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
     return [tuple(int(v) for v in f) for f in faces] if len(faces) else []
 
 
 def crop_face_bgr(bgr, expand=None):
-    """Trả (cropped_bgr, found:bool). Crop VUÔNG quanh mặt lớn nhất, mở rộng `expand`x.
-    Không thấy mặt -> trả nguyên ảnh + found=False (giữ hành vi cũ, không vỡ pipeline)."""
+    """Trả (cropped_bgr, found:bool). Crop VUÔNG quanh mặt lớn nhất, mở rộng expand×.
+    Không thấy mặt → trả nguyên ảnh + found=False (không crash pipeline)."""
     if expand is None:
         expand = _EXPAND
     h, w = bgr.shape[:2]

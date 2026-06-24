@@ -15,3 +15,4 @@ pillow>=10.0
 fastapi>=0.110              # tested 0.115
 uvicorn>=0.29               # tested 0.32
 python-multipart>=0.0.9     # FastAPI UploadFile
+facenet-pytorch>=1.0.1      # MTCNN face detector — khớp DeepfakeBench training pipeline
