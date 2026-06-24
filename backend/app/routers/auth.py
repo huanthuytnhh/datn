@@ -9,7 +9,7 @@ from deepguard_db.app.db import crud
 from app.core.audit import audit
 
 from app.core.security import hash_password, verify_password, create_access_token
-from app.core.exceptions import conflict, unauthorized, not_found, bad_request
+from app.core.exceptions import conflict, unauthorized, not_found, bad_request, forbidden
 from app.dependencies import get_current_user
 from app.schemas.auth import (
     RegisterRequest, RegisterPendingResponse, LoginRequest, TokenResponse,
@@ -82,6 +82,10 @@ async def accept_invite(body: AcceptInviteRequest, db: AsyncSession = Depends(ge
     reason = _invitation_state(inv)
     if reason:
         raise bad_request(reason)
+
+    # B1: cùng cổng duyệt như login — tenant chưa active (pending/suspended) thì không cho vào
+    if inv.tenant is None or inv.tenant.status != TenantStatus.ACTIVE:
+        raise forbidden("Tenant chưa được kích hoạt. Liên hệ admin.")
 
     if await crud.get_user_by_email(db, inv.email):
         raise conflict("Email đã có tài khoản")

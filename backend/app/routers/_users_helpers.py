@@ -1,5 +1,6 @@
 """_users_helpers.py — RBAC/role helpers + temp password cho users router (tách <=250)."""
 import secrets
+import string
 
 from deepguard_db.app.db.models import User
 from app.core.exceptions import forbidden
@@ -46,14 +47,13 @@ def _require_admin(user: User):
 def _gen_temp_password(n: int = 12) -> str:
     """Temporary password for new/reset accounts (tenant create, invite, reset).
 
-    DEMO override: returns a fixed, easy-to-type password for the defense demo.
+    Random, ≥12 chars with at least one uppercase, one digit and one special char.
     The account is still forced to change it on first login (must_change_password).
-    For production, delete the DEMO line and restore the strong random generator below.
     """
-    return "123456"  # DEMO ONLY — weak fixed temp password
-    import string  # noqa: E402  (strong generator kept for production)
-    alphabet = string.ascii_letters + string.digits
+    alphabet = string.ascii_letters + string.digits + "!@#$"
     while True:
         pw = "".join(secrets.choice(alphabet) for _ in range(n))
-        if any(c.islower() for c in pw) and any(c.isupper() for c in pw) and any(c.isdigit() for c in pw):
+        if (any(c.isupper() for c in pw)
+                and any(c.isdigit() for c in pw)
+                and any(c in "!@#$" for c in pw)):
             return pw

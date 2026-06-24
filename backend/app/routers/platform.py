@@ -17,7 +17,7 @@ from deepguard_db.app.db.database import get_db
 from deepguard_db.app.db import crud
 from deepguard_db.app.db.models import User, ApiKey, TenantPlan, TenantStatus, UserRole
 
-from app.core.exceptions import bad_request, conflict, not_found
+from app.core.exceptions import bad_request, conflict, not_found, forbidden
 from app.core.security import hash_password
 from app.core.audit import audit
 from app.dependencies import require_sysadmin
@@ -249,6 +249,9 @@ async def update_tenant_user(
         raise not_found("User")
     if user.id == current_user.id:
         raise bad_request("Dùng trang Tài khoản để tự đổi thông tin của mình")
+    # B7: không cho sysadmin này hạ cấp/khóa một sysadmin khác qua console
+    if user.role == UserRole.SYSADMIN:
+        raise forbidden("Không thể sửa tài khoản sysadmin qua endpoint này.")
 
     if body.role is not None:
         if body.role not in {r.value for r in UserRole}:
