@@ -83,6 +83,11 @@ def health():
 async def predict(file: UploadFile = File(...)):
     start = time.perf_counter()
     image_bytes = await file.read()
+    # B4: ảnh rác/rỗng → 400 ngay (không để lọt xuống inference rồi 500 → client dịch 503 che lỗi input)
+    try:
+        Image.open(io.BytesIO(image_bytes)).verify()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Ảnh không hợp lệ (không giải mã được)."})
     face_found = False
     try:
         if FACE_CROP:

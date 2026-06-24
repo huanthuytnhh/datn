@@ -11,7 +11,7 @@ from deepguard_db.app.db.database import get_db
 from deepguard_db.app.db import crud
 from deepguard_db.app.db.models import User, DetectionVerdict, Detection, ApiKey, Tenant
 
-from app.core.exceptions import not_found
+from app.core.exceptions import not_found, bad_request
 from app.core.audit import audit
 from app.dependencies import require_role
 from app.schemas.detect import (
@@ -36,7 +36,10 @@ async def list_detections(
     current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer", "sysadmin")),
     db: AsyncSession = Depends(get_db),
 ):
-    verdict_enum = DetectionVerdict(verdict) if verdict else None
+    try:
+        verdict_enum = DetectionVerdict(verdict) if verdict else None
+    except ValueError:
+        raise bad_request(f"verdict không hợp lệ: {verdict!r} (REAL/FAKE/UNCERTAIN)")
     items, total = await crud.list_detections(
         db,
         tenant_id=current_user.tenant_id,
