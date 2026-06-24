@@ -85,32 +85,54 @@ def classify_attack_type(rgb_image: np.ndarray) -> dict:
         "texture_variance": round(float(texture_var), 2),
     }
 
-    # --- Scoring (re-tuned trên mẫu print/screen THẬT — best-effort) ---
-    # Quy tắc: moiré CỰC CAO = lưới điểm ảnh MÀN HÌNH, bằng chứng screen áp đảo (đè texture);
-    # còn lại dùng texture_variance: tấm IN chụp thực tế nhiều vân giấy/nền -> texture cao,
-    # ảnh phát lại màn hình mịn hơn -> texture thấp. (Bản cũ đảo chiều -> print<->screen lộn.)
-    scores = {"print": 0.0, "screen": 0.0}
-    if moire_peaks >= 1100:
-        scores["screen"] += 0.6     # moiré cao = lưới điểm ảnh màn hình
-    elif texture_var >= 300:
-        scores["print"] += 0.5      # moiré thấp + có vân = giấy in
-    else:
-        scores["screen"] += 0.4     # moiré thấp + mịn = màn hình sạch
+    # --- Scoring ĐỘC LẬP: print & screen chấm riêng từ nhiều dấu hiệu, rồi chuẩn hoá.
+    # (Fix B5: bản cũ chỉ 1 nhánh if/elif/else có điểm → total=best → confidence luôn ≈1.0,
+    #  vô nghĩa. Nay mỗi loại cộng điểm độc lập → label VÀ confidence đều phản ánh bằng chứng.)
+    # Ngưỡng heuristic best-effort — nên tune lại trên tập print/screen THẬT (xem test harness).
+    print_s = 0.0
+    screen_s = 0.0
 
-    # --- Quyết định ---
+    # 1) Moiré (lưới điểm ảnh màn hình) → screen
+    if moire_peaks >= 1100:
+        screen_s += 0.45
+    elif moire_peaks >= 600:
+        screen_s += 0.25
+
+    # 2) Texture: vân giấy in nhiều → print; bề mặt phát lại mịn → screen
+    if texture_var >= 300:
+        print_s += 0.40
+    elif texture_var < 120:
+        screen_s += 0.30
+
+    # 3) Color banding: entropy thấp = ít mức màu (bit-depth màn hình) → screen;
+    #    phổ màu giàu = ảnh in/chụp thực → print
+    if color_entropy < 6.5:
+        screen_s += 0.20
+    elif color_entropy >= 7.3:
+        print_s += 0.20
+
+    # 4) Bão hoà thấp/bạc màu = đặc trưng giấy in → print
+    if sat_mean < 60:
+        print_s += 0.20
+
+    # 5) Tần số cao bất thường → nghiêng artifact in/moiré → print
+    if freq_ratio > 0.6:
+        print_s += 0.10
+
+    scores = {"print": round(print_s, 3), "screen": round(screen_s, 3)}
+
+    # --- Quyết định + confidence CÓ NGHĨA (tỉ lệ winner/tổng, không còn luôn =1) ---
+    total = print_s + screen_s
     best_type = max(scores, key=scores.get)
     best_score = scores[best_type]
-
-    if best_score < 0.25:
+    # Quá ít bằng chứng, hoặc 2 loại sát nhau → không đủ chắc để gán nhãn
+    if total < 0.25 or abs(print_s - screen_s) < 0.12:
         best_type = "unknown"
-        confidence = 0.0
-    else:
-        total = sum(scores.values()) + 1e-6
-        confidence = best_score / total
+    confidence = round(best_score / (total + 1e-6), 3) if total > 0 else 0.0
 
     return {
         "attack_type": best_type,
-        "confidence": round(float(confidence), 3),
-        "scores": {k: round(v, 3) for k, v in scores.items()},
+        "confidence": confidence,
+        "scores": scores,
         "evidence": evidence,
     }
