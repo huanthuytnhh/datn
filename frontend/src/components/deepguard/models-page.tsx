@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Icon, StatPill } from '@/components/deepguard/shared';
 import { DG, fmtInt, timeAgo } from '@/lib/dg';
-import { modelsList, modelUpdate, modelsCheckUpdate, type ModelOut } from '@/lib/api';
+import { modelsList, modelUpdate, type ModelOut } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { canEdit, type Role } from '@/lib/rbac';
 
@@ -12,7 +12,6 @@ import { canEdit, type Role } from '@/lib/rbac';
    Wired to the real backend (model_versions table) via:
      • modelsList()         → ModelOut[]
      • modelUpdate(id, …)   → ModelOut   (admin / sysadmin only)
-     • modelsCheckUpdate()  → { status, latest_version, message }
    Light mode only, Vietnamese.
    ────────────────────────────────────────────── */
 
@@ -101,7 +100,6 @@ export default function ModelsPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
 
-  const [checking, setChecking] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
   // per-model "saving" flag (id → true while a PATCH is in flight)
@@ -158,20 +156,6 @@ export default function ModelsPage() {
     [models, patchLocal],
   );
 
-  const checkUpdate = async () => {
-    setChecking(true);
-    setUpdateMsg(null);
-    setActionError(null);
-    try {
-      const res = await modelsCheckUpdate();
-      setUpdateMsg(res.message);
-    } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : 'Không thể kiểm tra cập nhật');
-    } finally {
-      setChecking(false);
-    }
-  };
-
   const active = models.find((m) => m.id === selected) ?? models[0] ?? null;
   const activeCount = models.filter((m) => m.is_active).length;
 
@@ -193,14 +177,6 @@ export default function ModelsPage() {
         </div>
         <div className="flex items-center gap-3">
           <StatPill icon="hub" label="Đang chạy" value={`${activeCount}/${fmtInt(models.length)}`} />
-          <button
-            onClick={checkUpdate}
-            disabled={checking}
-            className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm disabled:opacity-60"
-          >
-            <Icon name="sync" className={`text-[18px] ${checking ? 'animate-spin' : ''}`} />
-            {checking ? 'Đang kiểm tra…' : 'Kiểm tra cập nhật'}
-          </button>
         </div>
       </div>
 

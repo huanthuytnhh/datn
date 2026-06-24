@@ -421,8 +421,6 @@ export interface ModelOut {
 export const modelsList = () => req<ModelOut[]>("/models");
 export const modelUpdate = (id: string, data: { threshold?: number; is_active?: boolean; traffic_percent?: number }) =>
   req<ModelOut>(`/models/${id}`, { method: "PATCH", body: JSON.stringify(data) });
-export const modelsCheckUpdate = () =>
-  req<{ status: string; latest_version: string | null; message: string }>("/models/check-update", { method: "POST" });
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 export interface NotificationOut {

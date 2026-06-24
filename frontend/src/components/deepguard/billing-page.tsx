@@ -145,6 +145,18 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-5">
+      {/* DỮ LIỆU MẪU — chưa có billing endpoint ở backend. Hoá đơn / phương thức
+          thanh toán / lịch sử bên dưới là số liệu prototype, KHÔNG phải giao dịch thật.
+          Chỉ Gói + quota là đọc thật từ tenant. Banner để minh bạch khi demo/bảo vệ. */}
+      <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-[12.5px] font-semibold text-amber-700 dg-rise">
+        <Icon name="info" className="text-[18px] mt-px shrink-0" fill />
+        <span>
+          <b>Dữ liệu mẫu.</b> Backend chưa có module thanh toán — hoá đơn, phương thức thanh toán
+          và lịch sử dưới đây là số liệu minh hoạ (prototype), không phải giao dịch thật.
+          Chỉ <b>gói cước &amp; hạn mức</b> được đọc thật từ tài khoản.
+        </span>
+      </div>
+
       {/* header */}
       <div className="flex flex-wrap items-end justify-between gap-4 dg-rise">
         <div>

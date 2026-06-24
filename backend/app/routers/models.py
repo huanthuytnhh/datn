@@ -70,11 +70,3 @@ async def update_model(
     await db.commit()
     await db.refresh(m)
     return ModelOut.model_validate(m)
-
-
-@router.post("/check-update")
-async def check_update(
-    current_user: User = Depends(require_sysadmin),
-):
-    """Stub: chưa kết nối registry model. Trả trạng thái mặc định."""
-    return {"status": "up_to_date", "latest_version": None, "message": "Đang dùng model mới nhất"}
