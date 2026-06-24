@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     MODEL_PATH: str = ""
-    MODEL_VERSION: str = "b4-baseline-v1"
+    MODEL_VERSION: str = "SFDCT · B4+block-DCT (cdfv2 0.7572)"  # canonical — khớp serving + báo cáo
     MODEL_THRESHOLD: float = 0.35
     MOCK_ML: bool = True
     # Khi set -> backend gọi microservice SFDCT (DeepfakeBench) thay vì model nội bộ.
