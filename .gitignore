@@ -94,3 +94,8 @@ frontend/next
 frontend/nextjs_tailwind_shadcn_ts@*
 frontend/dashboard-sample.*
 frontend/package-lock.json
+
+# session 2026-06-24
+.venv310/
+*.bak
+=1.0.1
