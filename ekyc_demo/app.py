@@ -4,6 +4,34 @@ import os, base64, tempfile, requests, streamlit as st, cv2
 from datetime import datetime
 from dotenv import load_dotenv
 
+# ════════════════════════════════════════════════════════════════════════════
+# I18N — bounded keys only (sidebar, mode names, run button, result headers)
+# ════════════════════════════════════════════════════════════════════════════
+T: dict[str, dict[str, str]] = {
+    # sidebar section labels
+    "sidebar.config":           {"vi": "⚙️ Cấu hình",             "en": "⚙️ Config"},
+    "sidebar.mode":             {"vi": "🎯 Chế độ",                "en": "🎯 Mode"},
+    # mode names (used as radio options)
+    "mode.liveness":            {"vi": "🧬 Liveness",              "en": "🧬 Liveness"},
+    "mode.deepfake":            {"vi": "🔍 Deepfake",              "en": "🔍 Deepfake"},
+    "mode.ekyc":                {"vi": "🏛️ eKYC Cascade",         "en": "🏛️ eKYC Cascade"},
+    # run button
+    "btn.run":                  {"vi": "▶  Chạy kiểm tra",         "en": "▶  Run check"},
+    # result section headers
+    "result.header":            {"vi": "Kết quả",                  "en": "Results"},
+    "result.liveness":          {"vi": "Kết quả Liveness",         "en": "Liveness Result"},
+    "result.deepfake":          {"vi": "Kết quả Deepfake",         "en": "Deepfake Result"},
+    "result.step1":             {"vi": "**Bước 1 · Liveness**",    "en": "**Step 1 · Liveness**"},
+    "result.step2":             {"vi": "**Bước 2 · Deepfake**",    "en": "**Step 2 · Deepfake**"},
+    # language toggle label
+    "lang.toggle":              {"vi": "🌐 Ngôn ngữ",              "en": "🌐 Language"},
+}
+
+def tr(key: str) -> str:
+    """Translate key using current session locale. Falls back to key."""
+    loc = st.session_state.get("locale", "vi")
+    return T.get(key, {}).get(loc, key)
+
 load_dotenv(override=True)
 DEFAULT_API_URL = os.getenv("DEEPGUARD_API_URL", "http://localhost:8000")
 ENV_API_KEY     = os.getenv("DEEPGUARD_API_KEY", "")
@@ -16,6 +44,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Initialise locale default (must run before any tr() call)
+st.session_state.setdefault("locale", "vi")
 
 # ════════════════════════════════════════════════════════════════════════════
 # DESIGN TOKENS
@@ -408,9 +439,22 @@ with st.sidebar:
     )
     st.divider()
 
+    # ── Language toggle ──
+    _lang_options = ["VI", "EN"]
+    _lang_idx = 0 if st.session_state.get("locale", "vi") == "vi" else 1
+    _lang_sel = st.radio(
+        tr("lang.toggle"),
+        _lang_options,
+        index=_lang_idx,
+        horizontal=True,
+    )
+    st.session_state["locale"] = "vi" if _lang_sel == "VI" else "en"
+
+    st.divider()
+
     st.markdown(
         f"<div style='color:{MUTED};font-size:11px;font-weight:700;text-transform:uppercase;"
-        f"letter-spacing:0.08em;margin-bottom:8px'>⚙️ Cấu hình</div>",
+        f"letter-spacing:0.08em;margin-bottom:8px'>{tr('sidebar.config')}</div>",
         unsafe_allow_html=True,
     )
     ENV_PRESETS = {
@@ -456,10 +500,16 @@ with st.sidebar:
     st.divider()
     st.markdown(
         f"<div style='color:{MUTED};font-size:11px;font-weight:700;text-transform:uppercase;"
-        f"letter-spacing:0.08em;margin-bottom:8px'>🎯 Chế độ</div>",
+        f"letter-spacing:0.08em;margin-bottom:8px'>{tr('sidebar.mode')}</div>",
         unsafe_allow_html=True,
     )
-    mode = st.radio("Mode", ["🧬 Liveness", "🔍 Deepfake", "🏛️ eKYC Cascade"], index=2, label_visibility="collapsed")
+    _mode_options = [tr("mode.liveness"), tr("mode.deepfake"), tr("mode.ekyc")]
+    _mode_sel = st.radio("Mode", _mode_options, index=2, label_visibility="collapsed")
+    # stable mode key independent of locale display string
+    _mode_idx = _mode_options.index(_mode_sel) if _mode_sel in _mode_options else 2
+    _MODE_KEYS = ["Liveness", "Deepfake", "eKYC"]
+    mode = _mode_sel           # keep original for display uses
+    mode_key = _MODE_KEYS[_mode_idx]   # stable English key for logic
 
     model_choice = st.selectbox(
         "Model deepfake",
@@ -477,7 +527,7 @@ with st.sidebar:
     st.divider()
     st.caption("🔬 Face crop MTCNN chạy tại backend")
 
-mode_clean = mode.split()[-1]
+mode_clean = mode_key   # stable display name for header
 
 # ════════════════════════════════════════════════════════════════════════════
 # API LAYER
@@ -608,7 +658,7 @@ def render_live(res, pf=None):
                 else ""
             )
         ),
-        title="Kết quả Liveness",
+        title=tr("result.liveness"),
         accent=SEM[sem],
     )
     if pf:
@@ -645,7 +695,7 @@ def render_df(res):
                 kind="ok" if sem == "success" else "err" if sem == "danger" else "warn",
             )
         ),
-        title="Kết quả Deepfake",
+        title=tr("result.deepfake"),
         accent=SEM[sem],
     )
     if res.get("heatmap") or res.get("frequency"):
@@ -757,7 +807,7 @@ with left:
             unsafe_allow_html=True,
         )
 
-    run = st.button("▶  Chạy kiểm tra", type="primary", disabled=not (api_key and up), use_container_width=True)
+    run = st.button(tr("btn.run"), type="primary", disabled=not (api_key and up), use_container_width=True)
     if not api_key:
         _r(info_box("Cần API key để chạy.", kind="warn"))
     elif not up:
@@ -767,7 +817,7 @@ with left:
 with right:
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:12px'>"
-        f"<div style='color:{PRIMARY};font-weight:700;font-size:14px'>02 · KẾT QUẢ PHÂN TÍCH</div>"
+        f"<div style='color:{PRIMARY};font-weight:700;font-size:14px'>02 · {tr('result.header').upper()}</div>"
         f"<div style='flex:1;height:1px;background:{LINE}'></div></div>",
         unsafe_allow_html=True,
     )
@@ -777,7 +827,7 @@ with right:
         mime = up.type or ("video/mp4" if is_video else "image/jpeg")
         try:
             with st.spinner("Đang phân tích…"):
-                if "Liveness" in mode:
+                if mode_key == "Liveness":
                     if is_video:
                         res, pf = live_video(data, n_frames, up.name)
                         render_live(res, pf)
@@ -787,7 +837,7 @@ with right:
                         render_live(res)
                         _hist("Liveness", res.get("check_id"), res.get("verdict"), res.get("liveness_score"))
 
-                elif "Deepfake" in mode:
+                elif mode_key == "Deepfake":
                     res = call_dfv(data, up.name, mime) if is_video else call_df(data, up.name, mime)
                     render_any(res)
                     _hist("Deepfake", res.get("request_id") or res.get("job_id"),
@@ -828,10 +878,10 @@ with right:
                     ), unsafe_allow_html=True)
                     _r(vbadge(f"eKYC: {final}", sub=reason))
                     st.divider()
-                    st.markdown("**Bước 1 · Liveness**")
+                    st.markdown(tr("result.step1"))
                     render_live(lr, pf)
                     st.divider()
-                    st.markdown("**Bước 2 · Deepfake**")
+                    st.markdown(tr("result.step2"))
                     if stopped or unc:
                         _r(info_box("⏭️ Bỏ qua — đã chặn ở bước liveness.", kind="warn"))
                     elif dr:
@@ -897,10 +947,10 @@ with lc:
 
 # ─── cURL ────────────────────────────────────────────────────────────────────
 ep = {
-    "🧬 Liveness": "/v1/detect/liveness",
-    "🔍 Deepfake": "/v1/detect/image",
-    "🏛️ eKYC Cascade": "/v1/detect/cascade",
-}[mode]
+    "Liveness": "/v1/detect/liveness",
+    "Deepfake": "/v1/detect/image",
+    "eKYC":     "/v1/detect/cascade",
+}[mode_key]
 with st.expander("💻 cURL tương đương"):
     st.code(
         f"curl -X POST '{api_url}{ep.split()[0]}' \\\n"

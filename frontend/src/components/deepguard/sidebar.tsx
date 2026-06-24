@@ -4,52 +4,53 @@ import { useNavigation, type Page } from '@/store/navigation';
 import { useAuthStore } from '@/store/auth';
 import { Icon } from '@/components/deepguard/shared';
 import { canAccess, ROLE_LABEL, type Role } from '@/lib/rbac';
+import { useT } from '@/lib/i18n';
 
 interface NavEntry {
   icon: string;
-  label: string;
+  labelKey: string;
   page: Page;
   soon?: boolean;
 }
 
-const NAV: { title: string; items: NavEntry[] }[] = [
+const NAV: { titleKey: string; items: NavEntry[] }[] = [
   {
-    title: 'Workspace',
+    titleKey: 'nav.group.workspace',
     items: [
-      { icon: 'dashboard', label: 'Dashboard', page: 'dashboard' },
-      { icon: 'terminal', label: 'API Playground', page: 'playground' },
-      { icon: 'face_6', label: 'Liveness Check', page: 'liveness' },
-      { icon: 'analytics', label: 'Analytics', page: 'analytics' },
-      { icon: 'key', label: 'API Keys', page: 'apikeys' },
-      { icon: 'webhook', label: 'Webhooks', page: 'webhooks' },
-      { icon: 'menu_book', label: 'API Docs', page: 'docs' },
+      { icon: 'dashboard',     labelKey: 'nav.dashboard',  page: 'dashboard' },
+      { icon: 'terminal',      labelKey: 'nav.playground', page: 'playground' },
+      { icon: 'face_6',        labelKey: 'nav.liveness',   page: 'liveness' },
+      { icon: 'analytics',     labelKey: 'nav.analytics',  page: 'analytics' },
+      { icon: 'key',           labelKey: 'nav.apikeys',    page: 'apikeys' },
+      { icon: 'webhook',       labelKey: 'nav.webhooks',   page: 'webhooks' },
+      { icon: 'menu_book',     labelKey: 'nav.docs',       page: 'docs' },
     ],
   },
   {
-    title: 'AI Models',
-    items: [{ icon: 'model_training', label: 'Models & Thresholds', page: 'models' }],
+    titleKey: 'nav.group.ai_models',
+    items: [{ icon: 'model_training', labelKey: 'nav.models', page: 'models' }],
   },
   {
-    title: 'Compliance',
+    titleKey: 'nav.group.compliance',
     items: [
-      { icon: 'history', label: 'Lịch sử phát hiện', page: 'history' },
-      { icon: 'gavel', label: 'Audit Logs', page: 'audit' },
-      { icon: 'monitor_heart', label: 'Status & Compliance', page: 'status' },
+      { icon: 'history',       labelKey: 'nav.history', page: 'history' },
+      { icon: 'gavel',         labelKey: 'nav.audit',   page: 'audit' },
+      { icon: 'monitor_heart', labelKey: 'nav.status',  page: 'status' },
     ],
   },
   {
-    title: 'Admin',
+    titleKey: 'nav.group.admin',
     items: [
-      { icon: 'domain', label: 'Quản lý Tenants', page: 'tenants' },
-      { icon: 'group', label: 'Team & Roles', page: 'team' },
+      { icon: 'domain', labelKey: 'nav.tenants', page: 'tenants' },
+      { icon: 'group',  labelKey: 'nav.team',    page: 'team' },
     ],
   },
   {
-    title: 'Account',
+    titleKey: 'nav.group.account',
     items: [
-      { icon: 'person', label: 'Tài khoản', page: 'account' },
-      { icon: 'credit_card', label: 'Billing & Usage', page: 'billing' },
-      { icon: 'settings', label: 'Cài đặt', page: 'settings' },
+      { icon: 'person',      labelKey: 'nav.account',  page: 'account' },
+      { icon: 'credit_card', labelKey: 'nav.billing',  page: 'billing' },
+      { icon: 'settings',    labelKey: 'nav.settings', page: 'settings' },
     ],
   },
 ];
@@ -58,6 +59,7 @@ export default function Sidebar() {
   const { currentPage, navigate } = useNavigation();
   const { user, tenant, logout } = useAuthStore();
   const role = useAuthStore((s) => s.user?.role) as Role | undefined;
+  const t = useT();
 
   // Filter nav by role: hide inaccessible items, then drop empty groups.
   const visibleNav = NAV.map((group) => ({
@@ -105,9 +107,9 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto custom-scrollbar -mr-1.5 pr-1.5">
         {visibleNav.map((group) => (
-          <div key={group.title}>
+          <div key={group.titleKey}>
             <div className="px-4 pt-5 pb-1.5 text-[10px] font-semibold text-slate-400 tracking-widest uppercase select-none">
-              {group.title}
+              {t(group.titleKey)}
             </div>
             {group.items.map((it) => {
               const active = isActive(it.page);
@@ -121,7 +123,7 @@ export default function Sidebar() {
                   style={active ? { background: 'rgba(0,71,204,0.07)', color: '#0047cc' } : {}}
                 >
                   <Icon name={it.icon} className="text-[18px]" fill={active} />
-                  <span className="flex-1 text-left">{it.label}</span>
+                  <span className="flex-1 text-left">{t(it.labelKey)}</span>
                   {it.soon && (
                     <span className="text-[8px] font-bold text-slate-300 uppercase tracking-wide opacity-0 group-hover:opacity-100 transition-opacity">
                       soon

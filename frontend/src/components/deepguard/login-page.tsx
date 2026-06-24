@@ -7,6 +7,7 @@ import { authLogin, authMe } from '@/lib/api';
 import { defaultPageFor, type Role } from '@/lib/rbac';
 import { Icon } from '@/components/deepguard/shared';
 import { DG } from '@/lib/dg';
+import { useT } from '@/lib/i18n';
 
 /* ── Scoped CSS ─────────────────────────────────────────── */
 const V3_CSS = `
@@ -68,6 +69,7 @@ const V3_CSS = `
 export default function LoginPage() {
   const navigate = useNavigation((s) => s.navigate);
   const setAuth = useAuthStore((s) => s.setAuth);
+  const t = useT();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -85,7 +87,7 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) { triggerError('Vui lòng nhập email và mật khẩu.'); return; }
+    if (!email || !password) { triggerError(t('login.error.empty')); return; }
     setError('');
     setStatus('loading');
     try {
@@ -96,7 +98,7 @@ export default function LoginPage() {
       setStatus('success');
       setTimeout(() => navigate(defaultPageFor(user.role as Role)), 900);
     } catch (err: unknown) {
-      triggerError(err instanceof Error ? err.message : 'Đăng nhập thất bại');
+      triggerError(err instanceof Error ? err.message : t('login.error.failed'));
     }
   };
 
@@ -110,8 +112,8 @@ export default function LoginPage() {
       <div style={{ width:72,height:72,borderRadius:'50%',background:'rgba(46,125,50,.1)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',border:'2px solid rgba(46,125,50,.2)' }}>
         <Icon name="check_circle" fill style={{ fontSize:36,color:DG.real }} />
       </div>
-      <div style={{ fontSize:20,fontWeight:900,color:'#08142a',marginBottom:8,letterSpacing:'-0.03em' }}>Đăng nhập thành công</div>
-      <div style={{ fontSize:14,color:'#64748b',marginBottom:24 }}>Đang chuyển hướng đến Dashboard...</div>
+      <div style={{ fontSize:20,fontWeight:900,color:'#08142a',marginBottom:8,letterSpacing:'-0.03em' }}>{t('login.success')}</div>
+      <div style={{ fontSize:14,color:'#64748b',marginBottom:24 }}>{t('login.redirect')}</div>
       <div style={{ height:3,borderRadius:99,background:'#e2e8f0',overflow:'hidden' }}>
         <div className="v3-bgrow" style={{ height:'100%',background:'linear-gradient(90deg,#2e7d32,#4ade80)',borderRadius:99 }} />
       </div>
@@ -122,7 +124,7 @@ export default function LoginPage() {
     <form onSubmit={handleLogin} style={{ display:'flex',flexDirection:'column',gap:16 }}>
       {/* Email */}
       <div className="lg-s0">
-        <label style={{ display:'block',fontSize:10,fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.13em',marginBottom:8 }}>Email</label>
+        <label style={{ display:'block',fontSize:10,fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.13em',marginBottom:8 }}>{t('login.email')}</label>
         <div style={{ position:'relative' }}>
           <Icon name="mail" style={{ position:'absolute',left:14,top:'50%',transform:'translateY(-50%)',pointerEvents:'none',fontSize:17,color:'#b0bfd1' }} />
           <input
@@ -138,11 +140,11 @@ export default function LoginPage() {
       {/* Password */}
       <div className="lg-s1">
         <div style={{ display:'flex',justifyContent:'space-between',marginBottom:8 }}>
-          <label style={{ fontSize:10,fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.13em' }}>Mật khẩu</label>
+          <label style={{ fontSize:10,fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.13em' }}>{t('login.password')}</label>
           <button type="button" style={{ fontSize:11,fontWeight:700,color:DG.primary,background:'transparent',border:'none',cursor:'pointer',padding:0,transition:'opacity .2s ease',fontFamily:'inherit' }}
             onMouseEnter={(e) => { e.currentTarget.style.opacity='.72'; }}
             onMouseLeave={(e) => { e.currentTarget.style.opacity='1'; }}
-          >Quên mật khẩu?</button>
+          >{t('login.forgot')}</button>
         </div>
         <div style={{ position:'relative' }}>
           <Icon name="lock" style={{ position:'absolute',left:14,top:'50%',transform:'translateY(-50%)',pointerEvents:'none',fontSize:17,color:'#b0bfd1' }} />
@@ -150,7 +152,7 @@ export default function LoginPage() {
             type={showPass ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Nhập mật khẩu"
+            placeholder={t('login.pw_placeholder')}
             className={`lg-inp${isError ? ' lg-err' : ''}`}
             style={{ paddingRight:44 }}
           />
@@ -170,7 +172,7 @@ export default function LoginPage() {
               <div key={l} style={{ flex:1,height:3,borderRadius:99,background:password.length >= l*2 ? pwColor : 'rgba(0,0,0,.09)',transition:'all .28s cubic-bezier(.32,.72,0,1)' }} />
             ))}
             <span style={{ fontSize:10,color:pwColor,fontWeight:800,marginLeft:5,minWidth:52,transition:'color .28s ease' }}>
-              {password.length < 4 ? 'Yếu' : password.length < 8 ? 'Trung bình' : 'Mạnh'}
+              {password.length < 4 ? t('login.pw_weak') : password.length < 8 ? t('login.pw_medium') : t('login.pw_strong')}
             </span>
           </div>
         )}
@@ -179,7 +181,7 @@ export default function LoginPage() {
       {/* Remember */}
       <div className="lg-s2" style={{ display:'flex',alignItems:'center',gap:8 }}>
         <input type="checkbox" id="lg-rem" style={{ width:15,height:15,accentColor:DG.primary,cursor:'pointer' }} />
-        <label htmlFor="lg-rem" style={{ fontSize:13.5,color:'#475569',cursor:'pointer' }}>Ghi nhớ đăng nhập</label>
+        <label htmlFor="lg-rem" style={{ fontSize:13.5,color:'#475569',cursor:'pointer' }}>{t('login.remember')}</label>
       </div>
 
       {/* Error message */}
@@ -196,11 +198,11 @@ export default function LoginPage() {
           {isLoading ? (
             <>
               <span className="v3-spin" style={{ width:17,height:17,border:'2.5px solid rgba(255,255,255,.28)',borderTopColor:'white',borderRadius:'50%',display:'inline-block' }} />
-              Đang xác thực...
+              {t('login.submitting')}
             </>
           ) : (
             <>
-              Đăng nhập
+              {t('login.submit')}
               <span className="lg-btn-ic">
                 <Icon name="arrow_forward" style={{ fontSize:16,color:'white' }} />
               </span>
@@ -212,12 +214,12 @@ export default function LoginPage() {
 
       {/* Register link */}
       <div style={{ textAlign:'center',fontSize:13.5,color:'#64748b' }}>
-        Chưa có tổ chức?{' '}
+        {t('login.register_cta')}{' '}
         <button type="button" onClick={() => navigate('register')} style={{ color:DG.primary,fontWeight:700,background:'transparent',border:'none',cursor:'pointer',padding:0,fontFamily:'inherit',transition:'opacity .2s ease' }}
           onMouseEnter={(e) => { e.currentTarget.style.opacity='.7'; }}
           onMouseLeave={(e) => { e.currentTarget.style.opacity='1'; }}
         >
-          Đăng ký dùng thử
+          {t('login.register_link')}
         </button>
       </div>
     </form>
@@ -353,8 +355,8 @@ export default function LoginPage() {
           {/* Form header */}
           {status !== 'success' && (
             <div className="lg-s0" style={{ marginBottom:28 }}>
-              <h2 style={{ fontSize:24,fontWeight:900,color:'#08142a',letterSpacing:'-0.042em',marginBottom:6 }}>Đăng nhập</h2>
-              <p style={{ fontSize:14,color:'#64748b' }}>Truy cập hệ thống phát hiện deepfake</p>
+              <h2 style={{ fontSize:24,fontWeight:900,color:'#08142a',letterSpacing:'-0.042em',marginBottom:6 }}>{t('login.title')}</h2>
+              <p style={{ fontSize:14,color:'#64748b' }}>{t('login.subtitle')}</p>
             </div>
           )}
 
@@ -391,7 +393,7 @@ export default function LoginPage() {
             <div style={{ textAlign:'center',fontSize:11,color:'#b0bfd1',marginBottom:6 }}>© 2025 VietBank DeepGuard v2.1</div>
             <div style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6 }}>
               <span className="v3-bp" style={{ width:6,height:6,borderRadius:'50%',background:'#22c55e',display:'inline-block' }} />
-              <span style={{ fontSize:10,fontWeight:700,color:'#22c55e',textTransform:'uppercase',letterSpacing:'.06em' }}>Hệ thống hoạt động bình thường</span>
+              <span style={{ fontSize:10,fontWeight:700,color:'#22c55e',textTransform:'uppercase',letterSpacing:'.06em' }}>{t('login.status_ok')}</span>
             </div>
           </div>
         </div>

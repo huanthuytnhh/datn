@@ -11,6 +11,8 @@ import { Icon } from '@/components/deepguard/shared';
 import { RadiusModeSelector } from '@/components/deepguard/radius-switcher';
 import { useAuthStore } from '@/store/auth';
 import { tenantGet, tenantUpdate, type TenantInfo } from '@/lib/api';
+import { useT } from '@/lib/i18n';
+import { useLocale, type Locale } from '@/store/locale';
 
 /* ── shared input styling (no global dg-input class) ── */
 const INPUT_CLASS =
@@ -80,6 +82,8 @@ type TabId = 'org' | 'security' | 'notif' | 'appearance';
 export default function SettingsPage() {
   const seedTenant = useAuthStore((s) => s.tenant);
   const currentUser = useAuthStore((s) => s.user);
+  const t = useT();
+  const { locale, setLocale } = useLocale();
 
   const [tab, setTab] = useState<TabId>('org');
 
@@ -198,6 +202,36 @@ export default function SettingsPage() {
         <p className="text-sm text-slate-500 mt-0.5">
           Quản lý tổ chức, bảo mật &amp; tùy chọn thông báo
         </p>
+      </div>
+
+      {/* ── Language toggle (always visible, above tabs) ── */}
+      <div className="glass-panel rounded-2xl p-4 shadow-sm border border-white/60 dg-rise">
+        <SettingRow
+          icon="translate"
+          title={t('settings.language')}
+          desc={t('settings.language_desc')}
+        >
+          <div
+            className="flex items-center rounded-lg overflow-hidden"
+            style={{ border: '1px solid rgba(0,0,0,0.10)', background: 'rgba(248,250,252,0.9)' }}
+          >
+            {(['vi', 'en'] as Locale[]).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => setLocale(l)}
+                className="h-8 px-3.5 text-[11px] font-bold transition-colors"
+                style={
+                  locale === l
+                    ? { background: '#0050cb', color: 'white' }
+                    : { color: '#64748b' }
+                }
+              >
+                {l === 'vi' ? 'VI' : 'EN'}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
       </div>
 
       {/* tabs */}

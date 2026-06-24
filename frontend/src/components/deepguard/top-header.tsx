@@ -6,32 +6,68 @@ import { Icon } from '@/components/deepguard/shared';
 import { RadiusQuickToggle } from '@/components/deepguard/radius-switcher';
 import { useOnboardingStore } from '@/store/onboarding';
 import { notificationsList } from '@/lib/api';
+import { useT } from '@/lib/i18n';
+import { useLocale, type Locale } from '@/store/locale';
 
-const META: Record<string, { title: string; sub?: string }> = {
-  dashboard: { title: 'Dashboard', sub: 'Tổng quan' },
-  playground: { title: 'API Playground', sub: 'Workbench v2.1' },
-  history: { title: 'Lịch sử phát hiện', sub: 'Compliance' },
-  detail: { title: 'Chi tiết phát hiện', sub: 'Forensic' },
-  tenants: { title: 'Quản lý Tenants', sub: 'Admin Panel' },
-  audit: { title: 'Audit Logs', sub: 'Compliance' },
-  apikeys: { title: 'API Keys', sub: 'Quản lý khóa' },
-  docs: { title: 'API Documentation', sub: 'v2.1' },
-  analytics: { title: 'Analytics', sub: 'Thống kê sâu' },
-  webhooks: { title: 'Webhooks', sub: 'Cấu hình callback' },
-  liveness: { title: 'Liveness Check', sub: 'Workspace' },
-  team: { title: 'Team & Roles', sub: 'Admin' },
-  billing: { title: 'Billing & Usage', sub: 'Account' },
-  notifications: { title: 'Thông báo', sub: 'Inbox' },
-  settings: { title: 'Cài đặt', sub: 'Account' },
-  models: { title: 'Models & Thresholds', sub: 'AI' },
-  status: { title: 'Status & Compliance', sub: 'Trust' },
-  account: { title: 'Tài khoản cá nhân', sub: 'Account' },
+/* Page key → i18n key prefix (title = header.<page>.title, sub = header.<page>.sub) */
+const META_KEYS: Record<string, string> = {
+  dashboard:     'header.dashboard',
+  playground:    'header.playground',
+  history:       'header.history',
+  detail:        'header.detail',
+  tenants:       'header.tenants',
+  audit:         'header.audit',
+  apikeys:       'header.apikeys',
+  docs:          'header.docs',
+  analytics:     'header.analytics',
+  webhooks:      'header.webhooks',
+  liveness:      'header.liveness',
+  team:          'header.team',
+  billing:       'header.billing',
+  notifications: 'header.notifications',
+  settings:      'header.settings',
+  models:        'header.models',
+  status:        'header.status',
+  account:       'header.account',
 };
+
+/* Small segmented VI/EN toggle */
+function LangToggle() {
+  const { locale, setLocale } = useLocale();
+  const options: { value: Locale; label: string }[] = [
+    { value: 'vi', label: 'VI' },
+    { value: 'en', label: 'EN' },
+  ];
+  return (
+    <div
+      className="flex items-center rounded-lg overflow-hidden"
+      style={{ border: '1px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)' }}
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => setLocale(opt.value)}
+          className="h-8 px-2.5 text-[11px] font-bold transition-colors"
+          style={
+            locale === opt.value
+              ? { background: '#0050cb', color: 'white' }
+              : { color: '#64748b' }
+          }
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function TopHeader() {
   const { currentPage, navigate } = useNavigation();
   const openTip = useOnboardingStore((s) => s.openTip);
-  const meta = META[currentPage] ?? { title: 'DeepGuard' };
+  const t = useT();
+  const metaPrefix = META_KEYS[currentPage as string];
+  const metaTitle = metaPrefix ? t(`${metaPrefix}.title`) : 'DeepGuard';
+  const metaSub   = metaPrefix ? t(`${metaPrefix}.sub`)   : undefined;
 
   // Số thông báo chưa đọc — chỉ hiện chấm đỏ khi > 0 (thay vì hardcode luôn sáng).
   const [unread, setUnread] = useState(0);
@@ -65,13 +101,13 @@ export default function TopHeader() {
           title="Bấm để xem hướng dẫn trang này"
           className="group flex items-center gap-1.5 hover:text-dgblue transition-colors"
         >
-          <span className="text-[13.5px] font-semibold text-slate-800 group-hover:text-dgblue">{meta.title}</span>
+          <span className="text-[13.5px] font-semibold text-slate-800 group-hover:text-dgblue">{metaTitle}</span>
           <Icon name="info" className="text-[14px] text-slate-300 group-hover:text-dgblue/70 transition-colors" />
         </button>
-        {meta.sub && (
+        {metaSub && (
           <>
             <span className="text-slate-300 text-sm select-none">/</span>
-            <span className="text-[11.5px] text-slate-400 font-medium">{meta.sub}</span>
+            <span className="text-[11.5px] text-slate-400 font-medium">{metaSub}</span>
           </>
         )}
       </div>
@@ -98,6 +134,8 @@ export default function TopHeader() {
         </div>
 
         <RadiusQuickToggle />
+
+        <LangToggle />
 
         <button
           onClick={openTip}
