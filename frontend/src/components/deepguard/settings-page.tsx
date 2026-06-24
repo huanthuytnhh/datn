@@ -139,8 +139,21 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    void loadTenant();
-  }, [loadTenant]);
+    let alive = true;
+    setOrgLoading(true);
+    setOrgError(null);
+    tenantGet()
+      .then((t) => {
+        if (!alive) return;
+        setTenant(t);
+        setOrgForm({ name: t.name, billing_email: t.billing_email ?? '' });
+      })
+      .catch((e) => {
+        if (alive) setOrgError(e instanceof Error ? e.message : 'Không tải được thông tin tổ chức');
+      })
+      .finally(() => { if (alive) setOrgLoading(false); });
+    return () => { alive = false; };
+  }, []);
 
   const onSaveOrg = async () => {
     setOrgSaving(true);

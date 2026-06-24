@@ -16,7 +16,9 @@ import {
   usersUpdate,
   usersDelete,
   usersResetPassword,
+  usersInvite,
   type UserListItem,
+  type InviteUserResponse,
 } from '@/lib/api';
 
 /* ──────────────────────────────────────────────
@@ -497,6 +499,14 @@ export default function TeamPage() {
   const [resetInfo, setResetInfo] = useState<{ id: string; name: string; tempPassword: string } | null>(null);
   /* Member pending a reset confirmation, if any. */
   const [resetConfirm, setResetConfirm] = useState<UserListItem | null>(null);
+  /* Invite-link flow */
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteForm, setInviteForm] = useState<{ email: string; name: string; role: RoleName }>({
+    email: '', name: '', role: 'developer',
+  });
+  const [inviteResult, setInviteResult] = useState<InviteUserResponse | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -578,6 +588,26 @@ export default function TeamPage() {
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const sendInvite = async () => {
+    if (inviteBusy) return;
+    const name = inviteForm.name.trim();
+    const email = inviteForm.email.trim();
+    if (!name) return setInviteError('Vui lòng nhập họ tên.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setInviteError('Email không hợp lệ.');
+    setInviteBusy(true);
+    setInviteError(null);
+    setInviteResult(null);
+    try {
+      const res = await usersInvite(email, name, inviteForm.role);
+      setInviteResult(res);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      setInviteError(/409|exist|tồn tại/i.test(msg) ? 'Email này đã tồn tại trong tổ chức.' : msg || 'Gửi lời mời thất bại.');
+    } finally {
+      setInviteBusy(false);
     }
   };
 
@@ -683,13 +713,21 @@ export default function TeamPage() {
             Thành viên trong tổ chức này · {members.length} người · {activeCount} đang hoạt động
           </p>
         </div>
-        <button
-          data-tour="tm-add"
-          onClick={openCreate}
-          className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
-        >
-          <Icon name="person_add" className="text-[16px]" /> Thêm nhân viên
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setShowInvite(true); setInviteResult(null); setInviteError(null); setInviteForm({ email: '', name: '', role: 'developer' }); }}
+            className="px-4 h-9 bg-white border border-dgblue text-dgblue rounded-xl font-bold text-xs tracking-wide hover:bg-dgblue/5 transition-all flex items-center gap-2"
+          >
+            <Icon name="mail" className="text-[16px]" /> Mời qua link
+          </button>
+          <button
+            data-tour="tm-add"
+            onClick={openCreate}
+            className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
+          >
+            <Icon name="person_add" className="text-[16px]" /> Thêm nhân viên
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -1142,6 +1180,95 @@ export default function TeamPage() {
               <Icon name={busy ? 'progress_activity' : 'lock_reset'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
               {busy ? 'Đang xử lý…' : 'Đặt lại mật khẩu'}
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {showInvite && (
+        <Modal onClose={() => setShowInvite(false)}>
+          <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-dgblue/[0.06] flex items-center justify-center">
+              <Icon name="mail" className="text-[20px] text-dgblue" />
+            </div>
+            <div>
+              <h2 className="text-base font-black text-slate-900">Mời qua link</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">Tạo link mời — người nhận đặt mật khẩu lần đầu</p>
+            </div>
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            {inviteError && (
+              <div className="rounded-xl px-3 py-2.5 border border-red-200 bg-red-50/70 flex items-center gap-2">
+                <Icon name="error" className="text-[16px] text-dgfake" />
+                <span className="text-[11px] font-semibold text-dgfake">{inviteError}</span>
+              </div>
+            )}
+            {inviteResult ? (
+              <div className="space-y-3">
+                <p className="text-[12px] font-bold text-dgreal flex items-center gap-1.5">
+                  <Icon name="check_circle" className="text-[16px]" fill /> Lời mời đã được tạo
+                </p>
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-2">
+                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-wide">Link mời (tuyệt đối)</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-[11px] font-mono text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-2 break-all select-all">
+                      {typeof window !== 'undefined' ? `${window.location.origin}${inviteResult.invite_url}` : inviteResult.invite_url}
+                    </code>
+                    <CopyButton value={typeof window !== 'undefined' ? `${window.location.origin}${inviteResult.invite_url}` : inviteResult.invite_url} />
+                  </div>
+                  <p className="text-[10px] text-slate-400">Hết hạn: {new Date(inviteResult.expires_at).toLocaleString('vi-VN')}</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <Field label="Họ tên" req>
+                  <input
+                    value={inviteForm.name}
+                    onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })}
+                    placeholder="Nguyễn Văn A"
+                    autoFocus
+                    className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
+                  />
+                </Field>
+                <Field label="Email" req>
+                  <input
+                    type="email"
+                    value={inviteForm.email}
+                    onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                    placeholder="ten@example.com"
+                    className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
+                  />
+                </Field>
+                <Field label="Vai trò">
+                  <select
+                    value={inviteForm.role}
+                    onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value as RoleName })}
+                    className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
+                  >
+                    {assignRoles.map((r) => (
+                      <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                    ))}
+                  </select>
+                </Field>
+              </>
+            )}
+          </div>
+          <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-end gap-3">
+            <button
+              onClick={() => setShowInvite(false)}
+              className="px-5 py-2.5 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all"
+            >
+              {inviteResult ? 'Đóng' : 'Hủy'}
+            </button>
+            {!inviteResult && (
+              <button
+                onClick={sendInvite}
+                disabled={!inviteForm.name.trim() || !inviteForm.email.trim() || inviteBusy}
+                className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              >
+                <Icon name={inviteBusy ? 'progress_activity' : 'mail'} className={`text-[14px] ${inviteBusy ? 'animate-spin' : ''}`} />
+                {inviteBusy ? 'Đang tạo…' : 'Tạo link mời'}
+              </button>
+            )}
           </div>
         </Modal>
       )}

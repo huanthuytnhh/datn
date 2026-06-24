@@ -18,7 +18,7 @@ import { canEdit, type Role } from '@/lib/rbac';
 /* ── Display helpers for a ModelOut ── */
 function modelStatus(m: ModelOut): 'active' | 'canary' | 'inactive' {
   if (!m.is_active) return 'inactive';
-  return m.traffic_percent < 100 ? 'canary' : 'active';
+  return (m.traffic_percent ?? 0) < 100 ? 'canary' : 'active';
 }
 
 /** AUC (0–1) → percentage string, "—" when null. */
@@ -115,7 +115,7 @@ export default function ModelsPage() {
       .then((rows) => {
         setModels(rows);
         setSelected((prev) => prev ?? rows[0]?.id ?? null);
-        setDraftThreshold(Object.fromEntries(rows.map((m) => [m.id, m.threshold])));
+        setDraftThreshold(Object.fromEntries(rows.map((m) => [m.id, m.threshold ?? 0])));
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải danh sách model'))
       .finally(() => setLoading(false));
@@ -128,7 +128,7 @@ export default function ModelsPage() {
   /* Patch one model in local state from a fresh ModelOut. */
   const patchLocal = useCallback((m: ModelOut) => {
     setModels((rows) => rows.map((x) => (x.id === m.id ? m : x)));
-    setDraftThreshold((d) => ({ ...d, [m.id]: m.threshold }));
+    setDraftThreshold((d) => ({ ...d, [m.id]: m.threshold ?? 0 }));
   }, []);
 
   /* Generic field update → modelUpdate(id, …). Handles 403 gracefully. */
@@ -147,7 +147,7 @@ export default function ModelsPage() {
         // re-sync draft from server-known value (revert optimistic slider)
         setDraftThreshold((d) => {
           const m = models.find((x) => x.id === id);
-          return m ? { ...d, [id]: m.threshold } : d;
+          return m ? { ...d, [id]: m.threshold ?? 0 } : d;
         });
       } finally {
         setSaving((s) => ({ ...s, [id]: false }));
@@ -159,7 +159,7 @@ export default function ModelsPage() {
   const active = models.find((m) => m.id === selected) ?? models[0] ?? null;
   const activeCount = models.filter((m) => m.is_active).length;
 
-  const activeDraft = active ? (draftThreshold[active.id] ?? active.threshold) : 0.5;
+  const activeDraft = active ? (draftThreshold[active.id] ?? active.threshold ?? 0) : 0.5;
   const thresholdHint =
     activeDraft < 0.35
       ? 'Bắt nhiều fake hơn, có thể tăng báo nhầm (false positive).'
@@ -250,7 +250,7 @@ export default function ModelsPage() {
                   ) : status === 'canary' ? (
                     <span className="inline-flex items-center gap-1 text-[9px] font-black text-dgwarn bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
                       <Icon name="science" className="text-[11px]" />
-                      CANARY {m.traffic_percent}%
+                      CANARY {m.traffic_percent ?? 0}%
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-[9px] font-black text-slate-400 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
@@ -269,7 +269,7 @@ export default function ModelsPage() {
                   <div className="text-right">
                     <p className="text-[9px] font-bold text-slate-400 uppercase">Ngưỡng</p>
                     <p className="text-lg font-black tabular-nums" style={{ color: DG.primary }}>
-                      {m.threshold.toFixed(2)}
+                      {(m.threshold ?? 0).toFixed(2)}
                     </p>
                   </div>
                 </div>
@@ -298,8 +298,8 @@ export default function ModelsPage() {
               {([
                 ['AUC Celeb-DF', aucPct(active.auc_celeb), DG.real],
                 ['AUC FF++', aucPct(active.auc_ffpp), DG.primary],
-                ['Ngưỡng', active.threshold.toFixed(2), DG.uncertain],
-                ['Traffic', `${active.traffic_percent}%`, DG.real],
+                ['Ngưỡng', (active.threshold ?? 0).toFixed(2), DG.uncertain],
+                ['Traffic', `${active.traffic_percent ?? 0}%`, DG.real],
               ] as const).map(([l, v, c]) => (
                 <div key={l} className="p-3 rounded-xl bg-slate-50/70 border border-slate-100">
                   <p className="text-[9px] font-black text-slate-400 uppercase">{l}</p>
@@ -329,7 +329,7 @@ export default function ModelsPage() {
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[11px] font-black text-slate-700">Phân bổ traffic (A/B)</p>
                   <span className="text-[12px] font-mono font-bold text-dgblue bg-dgblue/5 px-2 py-0.5 rounded border border-dgblue/10 tabular-nums">
-                    {active.traffic_percent}%
+                    {active.traffic_percent ?? 0}%
                   </span>
                 </div>
                 <input
@@ -337,7 +337,7 @@ export default function ModelsPage() {
                   min={0}
                   max={100}
                   step={5}
-                  value={active.traffic_percent}
+                  value={active.traffic_percent ?? 0}
                   disabled={!editable || !!saving[active.id]}
                   onChange={(e) =>
                     // optimistic local update; committed on release
@@ -444,7 +444,7 @@ export default function ModelsPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black text-slate-400 uppercase">Ngưỡng</span>
                     <span className="text-[12px] font-mono font-bold text-dgblue bg-dgblue/5 px-2 py-0.5 rounded border border-dgblue/10 tabular-nums">
-                      {m.threshold.toFixed(2)}
+                      {(m.threshold ?? 0).toFixed(2)}
                     </span>
                   </div>
                   <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1.5">
@@ -453,7 +453,7 @@ export default function ModelsPage() {
                   </span>
                   <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1.5">
                     <Icon name="alt_route" className="text-[15px] text-slate-400" />
-                    Traffic {m.traffic_percent}%
+                    Traffic {m.traffic_percent ?? 0}%
                   </span>
                   <div className="ml-auto flex items-center gap-3">
                     {status === 'active' ? (

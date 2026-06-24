@@ -30,24 +30,24 @@ export const PAGE_ACCESS: Record<Page, Role[]> = {
 
   dashboard: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
   account: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
-  notifications: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
+  notifications: [], // DEMO: ẩn khỏi nav (OUT scope)
   docs: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
 
   history: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
   detail: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
-  analytics: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
+  analytics: [], // DEMO: ẩn (dùng dashboard làm landing)
   status: ['sysadmin', 'admin', 'developer', 'compliance', 'viewer'],
 
   playground: ['admin', 'developer'], // cần API key để chạy detect → chỉ vai trò tích hợp
   liveness: ['admin', 'developer'],
   apikeys: ['admin', 'developer'],
-  webhooks: ['admin', 'developer'],
+  webhooks: [], // DEMO: ẩn (chưa có dispatcher)
   models: ['sysadmin', 'admin', 'developer', 'compliance'], // edit gated separately by canEdit
 
-  audit: ['sysadmin', 'admin', 'compliance'],
+  audit: [], // DEMO: ẩn (OUT scope)
 
   team: ['admin', 'sysadmin'],
-  billing: ['admin'],
+  billing: [], // DEMO: ẩn (dữ liệu mẫu)
   settings: ['admin', 'sysadmin'],
 
   tenants: ['sysadmin'], // cross-tenant platform admin only

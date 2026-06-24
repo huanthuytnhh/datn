@@ -57,10 +57,11 @@ export default function DetailPage() {
   const canNote = canEdit(role, 'detail'); // admin + compliance only
 
   useEffect(() => {
+    let alive = true;
     if (!selectedRequestId) {
       setError('Chưa chọn request — vào trang Lịch sử để chọn một bản ghi.');
       setLoading(false);
-      return;
+      return () => { alive = false; };
     }
     setLoading(true);
     setError('');
@@ -70,14 +71,15 @@ export default function DetailPage() {
 
     if (selectedKind === 'liveness') {
       livenessGet(selectedRequestId)
-        .then((d) => setLiveness(d))
-        .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'))
-        .finally(() => setLoading(false));
-      return;
+        .then((d) => { if (alive) setLiveness(d); })
+        .catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'); })
+        .finally(() => { if (alive) setLoading(false); });
+      return () => { alive = false; };
     }
 
     detectionsGet(selectedRequestId)
       .then((d) => {
+        if (!alive) return undefined;
         setDetection(d);
         setShowHeatmap(d.verdict !== 'REAL');
         const end = new Date();
@@ -90,10 +92,11 @@ export default function DetailPage() {
         });
       })
       .then((page) => {
-        if (page) setRelated(page.items.filter((it) => it.request_id !== selectedRequestId).slice(0, 3));
+        if (alive && page) setRelated(page.items.filter((it) => it.request_id !== selectedRequestId).slice(0, 3));
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'))
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
   }, [selectedRequestId, selectedKind]);
 
   const handleSaveNote = async () => {
