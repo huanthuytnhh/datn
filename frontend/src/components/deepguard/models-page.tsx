@@ -6,6 +6,7 @@ import { DG, fmtInt, timeAgo } from '@/lib/dg';
 import { modelsList, modelUpdate, type ModelOut } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { canEdit, type Role } from '@/lib/rbac';
+import { useT } from '@/lib/i18n';
 
 /* ──────────────────────────────────────────────
    DeepGuard — Models & Thresholds
@@ -26,10 +27,10 @@ function aucPct(v: number | null): string {
   return v == null ? '—' : `${(v * 100).toFixed(1)}%`;
 }
 
-/** Best-effort relative deploy label. */
-function deployLabel(m: ModelOut): string {
+/** Best-effort relative deploy label (localised in component; this default is a fallback). */
+function deployLabelRaw(m: ModelOut): string {
   const iso = m.deployed_at ?? m.created_at;
-  return iso ? timeAgo(iso) : 'chưa deploy';
+  return iso ? timeAgo(iso) : '';
 }
 
 /* ── Local toggle switch (prototype Switch) ── */
@@ -59,7 +60,7 @@ function Switch({
 }
 
 /* ── Local radial gauge (prototype Gauge) ── */
-function Gauge({ value, color, size = 130 }: { value: number; color: string; size?: number }) {
+function Gauge({ value, color, size = 130, label = 'Ngưỡng' }: { value: number; color: string; size?: number; label?: string }) {
   const stroke = 11;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
@@ -85,15 +86,21 @@ function Gauge({ value, color, size = 130 }: { value: number; color: string; siz
         <span className="text-2xl font-black text-slate-900 tabular-nums" style={{ color }}>
           {(value / 100).toFixed(2)}
         </span>
-        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Ngưỡng</span>
+        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{label}</span>
       </div>
     </div>
   );
 }
 
 export default function ModelsPage() {
+  const t = useT();
   const role = useAuthStore((s) => s.user?.role) as Role | undefined;
   const editable = canEdit(role, 'models');
+
+  const deployLabel = (m: ModelOut): string => {
+    const raw = deployLabelRaw(m);
+    return raw || t('models.detail_not_deployed');
+  };
 
   const [models, setModels] = useState<ModelOut[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,7 +124,7 @@ export default function ModelsPage() {
         setSelected((prev) => prev ?? rows[0]?.id ?? null);
         setDraftThreshold(Object.fromEntries(rows.map((m) => [m.id, m.threshold ?? 0])));
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải danh sách model'))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : t('models.error_load')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -139,11 +146,11 @@ export default function ModelsPage() {
       try {
         const updated = await modelUpdate(id, data);
         patchLocal(updated);
-        setUpdateMsg('Đã lưu thay đổi model.');
+        setUpdateMsg(t('models.saved_msg'));
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Không thể cập nhật model';
+        const msg = e instanceof Error ? e.message : t('models.cannot_update');
         // Backend returns 403 for non-admin/sysadmin — surface a clear note.
-        setActionError(/403|forbidden|permission|quyền/i.test(msg) ? 'Chỉ admin / sysadmin mới được chỉnh model.' : msg);
+        setActionError(/403|forbidden|permission|quyền/i.test(msg) ? t('models.admin_only_error') : msg);
         // re-sync draft from server-known value (revert optimistic slider)
         setDraftThreshold((d) => {
           const m = models.find((x) => x.id === id);
@@ -162,21 +169,21 @@ export default function ModelsPage() {
   const activeDraft = active ? (draftThreshold[active.id] ?? active.threshold ?? 0) : 0.5;
   const thresholdHint =
     activeDraft < 0.35
-      ? 'Bắt nhiều fake hơn, có thể tăng báo nhầm (false positive).'
+      ? t('models.threshold_hint_low')
       : activeDraft > 0.55
-        ? 'Giảm báo nhầm nhưng có thể bỏ sót fake tinh vi.'
-        : 'Cân bằng giữa độ nhạy và độ chính xác.';
+        ? t('models.threshold_hint_high')
+        : t('models.threshold_hint_mid');
 
   return (
     <div className="space-y-5 dg-fade">
       {/* header */}
       <div className="flex flex-wrap items-end justify-between gap-4 dg-rise">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">Models &amp; Thresholds</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Quản lý phiên bản model, hiệu năng &amp; ngưỡng phát hiện</p>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">{t('models.title')}</h1>
+          <p className="text-sm text-slate-500 mt-0.5">{t('models.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
-          <StatPill icon="hub" label="Đang chạy" value={`${activeCount}/${fmtInt(models.length)}`} />
+          <StatPill icon="hub" label={t('models.pill_running')} value={`${activeCount}/${fmtInt(models.length)}`} />
         </div>
       </div>
 
@@ -184,7 +191,7 @@ export default function ModelsPage() {
       {!editable && (
         <div className="dg-fade flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[12px] font-semibold text-slate-500">
           <Icon name="lock" className="text-[16px]" />
-          Chế độ chỉ xem — chỉ admin / sysadmin mới chỉnh được ngưỡng &amp; trạng thái model.
+          {t('models.readonly_banner')}
         </div>
       )}
 
@@ -220,14 +227,14 @@ export default function ModelsPage() {
               onClick={load}
               className="px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all"
             >
-              Thử lại
+              {t('models.retry')}
             </button>
           </div>
         ) : models.length === 0 ? (
           <div className="md:col-span-2 xl:col-span-4 glass-panel rounded-2xl p-10 border border-white/60 flex flex-col items-center gap-2 text-center">
             <Icon name="model_training" className="text-[40px] text-slate-300" />
-            <p className="text-sm font-bold text-slate-600">Chưa có model nào</p>
-            <p className="text-xs text-slate-400">Danh sách phiên bản model sẽ hiển thị ở đây khi được triển khai.</p>
+            <p className="text-sm font-bold text-slate-600">{t('models.empty_title')}</p>
+            <p className="text-xs text-slate-400">{t('models.empty_desc')}</p>
           </div>
         ) : (
           models.map((m) => {
@@ -263,11 +270,11 @@ export default function ModelsPage() {
                 <p className="text-[10px] font-mono text-slate-400 mb-2">{m.version}</p>
                 <div className="flex items-end justify-between">
                   <div>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase">AUC (Celeb-DF)</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase">{t('models.card_auc')}</p>
                     <p className="text-lg font-black text-slate-900 tabular-nums">{aucPct(m.auc_celeb)}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[9px] font-bold text-slate-400 uppercase">Ngưỡng</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase">{t('models.card_threshold')}</p>
                     <p className="text-lg font-black tabular-nums" style={{ color: DG.primary }}>
                       {(m.threshold ?? 0).toFixed(2)}
                     </p>
@@ -289,16 +296,16 @@ export default function ModelsPage() {
                   {active.architecture} <span className="text-slate-400 font-mono text-sm">{active.version}</span>
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {active.training_dataset ? `Tập huấn luyện: ${active.training_dataset}` : 'Tập huấn luyện: —'}
+                  {t('models.detail_training')} {active.training_dataset ?? '—'}
                 </p>
               </div>
-              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">Deploy: {deployLabel(active)}</span>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">{t('models.detail_deploy')} {deployLabel(active)}</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
               {([
                 ['AUC Celeb-DF', aucPct(active.auc_celeb), DG.real],
                 ['AUC FF++', aucPct(active.auc_ffpp), DG.primary],
-                ['Ngưỡng', (active.threshold ?? 0).toFixed(2), DG.uncertain],
+                [t('models.card_threshold'), (active.threshold ?? 0).toFixed(2), DG.uncertain],
                 ['Traffic', `${active.traffic_percent ?? 0}%`, DG.real],
               ] as const).map(([l, v, c]) => (
                 <div key={l} className="p-3 rounded-xl bg-slate-50/70 border border-slate-100">
@@ -312,11 +319,11 @@ export default function ModelsPage() {
             <div className="rounded-xl bg-slate-50/70 border border-slate-100 p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[11px] font-black text-slate-700">Kích hoạt model</p>
-                  <p className="text-[10px] text-slate-400">Bật để đưa phiên bản này vào phục vụ traffic.</p>
+                  <p className="text-[11px] font-black text-slate-700">{t('models.activate_title')}</p>
+                  <p className="text-[10px] text-slate-400">{t('models.activate_desc')}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold text-slate-500">{active.is_active ? 'Đang bật' : 'Đang tắt'}</span>
+                  <span className="text-[11px] font-bold text-slate-500">{active.is_active ? t('models.active_on') : t('models.active_off')}</span>
                   <Switch
                     on={active.is_active}
                     disabled={!editable || !!saving[active.id]}
@@ -327,7 +334,7 @@ export default function ModelsPage() {
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] font-black text-slate-700">Phân bổ traffic (A/B)</p>
+                  <p className="text-[11px] font-black text-slate-700">{t('models.traffic_title')}</p>
                   <span className="text-[12px] font-mono font-bold text-dgblue bg-dgblue/5 px-2 py-0.5 rounded border border-dgblue/10 tabular-nums">
                     {active.traffic_percent ?? 0}%
                   </span>
@@ -345,19 +352,19 @@ export default function ModelsPage() {
                   }
                   onMouseUp={(e) => saveModel(active.id, { traffic_percent: parseInt((e.target as HTMLInputElement).value, 10) })}
                   onTouchEnd={(e) => saveModel(active.id, { traffic_percent: parseInt((e.target as HTMLInputElement).value, 10) })}
-                  aria-label="Phân bổ traffic"
+                  aria-label={t('models.traffic_title')}
                   className="w-full accent-dgblue disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <div className="flex justify-between text-[9px] text-slate-400 font-bold uppercase tracking-wide">
-                  <span>0% (canary tắt)</span>
-                  <span>100% (toàn bộ)</span>
+                  <span>{t('models.traffic_canary_off')}</span>
+                  <span>{t('models.traffic_full')}</span>
                 </div>
               </div>
 
               {!editable && (
                 <p className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
                   <Icon name="lock" className="text-[13px]" />
-                  Chỉ admin chỉnh được
+                  {t('models.admin_only')}
                 </p>
               )}
             </div>
@@ -365,10 +372,10 @@ export default function ModelsPage() {
 
           {/* per-model threshold gauge + slider */}
           <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
-            <h2 className="text-base font-black text-slate-900 mb-1">Ngưỡng của model</h2>
-            <p className="text-xs text-slate-400 mb-5">Áp dụng cho phiên bản đang chọn</p>
+            <h2 className="text-base font-black text-slate-900 mb-1">{t('models.threshold_title')}</h2>
+            <p className="text-xs text-slate-400 mb-5">{t('models.threshold_sub')}</p>
             <div className="flex flex-col items-center mb-5">
-              <Gauge value={activeDraft * 100} color={DG.primary} size={130} />
+              <Gauge value={activeDraft * 100} color={DG.primary} size={130} label={t('models.threshold_gauge_label')} />
             </div>
             <input
               type="range"
@@ -382,12 +389,12 @@ export default function ModelsPage() {
               }
               onMouseUp={(e) => saveModel(active.id, { threshold: parseFloat((e.target as HTMLInputElement).value) })}
               onTouchEnd={(e) => saveModel(active.id, { threshold: parseFloat((e.target as HTMLInputElement).value) })}
-              aria-label="Ngưỡng của model"
+              aria-label={t('models.threshold_title')}
               className="w-full mb-2 accent-dgblue disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <div className="flex justify-between text-[9px] text-slate-400 font-bold uppercase tracking-wide mb-4">
-              <span>Nhạy (ít bỏ sót)</span>
-              <span>Chặt (ít báo nhầm)</span>
+              <span>{t('models.threshold_sensitive')}</span>
+              <span>{t('models.threshold_strict')}</span>
             </div>
             <div className="p-3 rounded-xl bg-blue-50/60 border border-blue-100">
               <p className="text-[11px] text-slate-600 leading-relaxed">
@@ -402,10 +409,10 @@ export default function ModelsPage() {
               {saving[active.id] ? (
                 <>
                   <Icon name="sync" className="text-[15px] animate-spin" />
-                  Đang lưu…
+                  {t('models.saving')}
                 </>
               ) : (
-                'Lưu ngưỡng'
+                t('models.save_threshold')
               )}
             </button>
             {!editable && (
@@ -422,8 +429,8 @@ export default function ModelsPage() {
       {!loading && !error && models.length > 0 && (
         <div className="glass-panel rounded-2xl shadow-sm border border-white/60 overflow-hidden dg-rise">
           <div className="px-6 py-4 border-b border-slate-100">
-            <h2 className="text-base font-black text-slate-900">Ngưỡng theo từng model</h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">Tổng quan ngưỡng &amp; trạng thái của các phiên bản model</p>
+            <h2 className="text-base font-black text-slate-900">{t('models.table_title')}</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">{t('models.table_sub')}</p>
           </div>
           <div className="divide-y divide-slate-50 custom-scrollbar">
             {models.map((m) => {
@@ -442,7 +449,7 @@ export default function ModelsPage() {
                     <p className="text-[10px] font-mono text-slate-400">{m.version}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black text-slate-400 uppercase">Ngưỡng</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase">{t('models.card_threshold')}</span>
                     <span className="text-[12px] font-mono font-bold text-dgblue bg-dgblue/5 px-2 py-0.5 rounded border border-dgblue/10 tabular-nums">
                       {(m.threshold ?? 0).toFixed(2)}
                     </span>

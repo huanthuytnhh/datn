@@ -15,6 +15,7 @@ import {
   type DetectionListItem,
   type LivenessDetail,
 } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 
 // Same small uppercase pill style used on the History page TYPE badge.
 function TypeBadge({ kind }: { kind: 'deepfake' | 'liveness' }) {
@@ -42,6 +43,7 @@ function fmtDateTime(iso: string): string {
 }
 
 export default function DetailPage() {
+  const t = useT();
   const { selectedRequestId, selectedKind, navigate, setSelectedRequestId } = useNavigation();
   const [detection, setDetection] = useState<DetectionDetail | null>(null);
   const [liveness, setLiveness] = useState<LivenessDetail | null>(null);
@@ -59,7 +61,7 @@ export default function DetailPage() {
   useEffect(() => {
     let alive = true;
     if (!selectedRequestId) {
-      setError('Chưa chọn request — vào trang Lịch sử để chọn một bản ghi.');
+      setError(t('detail.no_request'));
       setLoading(false);
       return () => { alive = false; };
     }
@@ -72,7 +74,7 @@ export default function DetailPage() {
     if (selectedKind === 'liveness') {
       livenessGet(selectedRequestId)
         .then((d) => { if (alive) setLiveness(d); })
-        .catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'); })
+        .catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : t('detail.load_error')); })
         .finally(() => { if (alive) setLoading(false); });
       return () => { alive = false; };
     }
@@ -94,7 +96,7 @@ export default function DetailPage() {
       .then((page) => {
         if (alive && page) setRelated(page.items.filter((it) => it.request_id !== selectedRequestId).slice(0, 3));
       })
-      .catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'); })
+      .catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : t('detail.load_error')); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [selectedRequestId, selectedKind]);
@@ -107,7 +109,7 @@ export default function DetailPage() {
       setDetection(updated);
       setNoteText('');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Lưu ghi chú thất bại');
+      setError(e instanceof Error ? e.message : t('detail.save_note_failed'));
     } finally {
       setSavingNote(false);
     }
@@ -125,7 +127,7 @@ export default function DetailPage() {
       <div className="flex items-center justify-center h-[calc(100vh-12rem)]">
         <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
           <Icon name="progress_activity" className="text-[18px] animate-spin" />
-          Đang tải chi tiết phát hiện…
+          {t('detail.loading')}
         </div>
       </div>
     );
@@ -136,13 +138,13 @@ export default function DetailPage() {
       <span className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
         <Icon name="touch_app" className="text-[28px] text-slate-400" />
       </span>
-      <h3 className="text-sm font-black text-slate-800 mb-1">Không thể hiển thị</h3>
-      <p className="text-xs text-slate-500 mb-5">{error || 'Không tìm thấy bản ghi.'}</p>
+      <h3 className="text-sm font-black text-slate-800 mb-1">{t('detail.not_found_title')}</h3>
+      <p className="text-xs text-slate-500 mb-5">{error || t('detail.not_found_desc')}</p>
       <button
         onClick={() => navigate('history')}
         className="px-5 py-2 bg-dgblue text-white rounded-xl text-xs font-bold shadow-lg shadow-dgblue/25 hover:bg-dgblue/90 transition-all"
       >
-        Quay lại Lịch sử
+        {t('detail.back_to_history')}
       </button>
     </div>
   );
@@ -173,7 +175,7 @@ export default function DetailPage() {
           </button>
           <div className="min-w-0">
             <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-black tracking-tight text-slate-900">Chi tiết phát hiện</h1>
+              <h1 className="text-xl font-black tracking-tight text-slate-900">{t('detail.heading')}</h1>
               <VerdictBadge verdict={detection.verdict} size="lg" />
               <TypeBadge kind="deepfake" />
             </div>
@@ -187,7 +189,7 @@ export default function DetailPage() {
             onClick={() => navigator.clipboard?.writeText(detection.request_id)}
             className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
           >
-            <Icon name="content_copy" className="text-[16px]" /> Copy ID
+            <Icon name="content_copy" className="text-[16px]" /> {t('detail.copy_id')}
           </button>
         </div>
       </div>
@@ -198,13 +200,13 @@ export default function DetailPage() {
         <div className="lg:col-span-5 space-y-5">
           <section className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Forensic Visualizer</h3>
+              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">{t('detail.forensic_title')}</h3>
               <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] text-slate-500 font-mono">{dimensionsLabel}</span>
             </div>
 
             {/* view mode tabs */}
             <div className="inline-flex p-0.5 rounded-lg bg-slate-100 border border-white mb-4">
-              {([['overlay', 'Overlay'], ['split', 'Split'], ['original', 'Gốc']] as const).map(([m, l]) => (
+              {([['overlay', t('detail.view_overlay')], ['split', t('detail.view_split')], ['original', t('detail.view_original')]] as const).map(([m, l]) => (
                 <button
                   key={m}
                   onClick={() => setViewMode(m)}
@@ -222,8 +224,8 @@ export default function DetailPage() {
                 <div className="text-center px-6">
                   <Icon name="image_not_supported" className="text-[60px] text-slate-600" />
                   <p className="text-[11px] text-slate-400 mt-2 leading-snug">
-                    Không có ảnh để hiển thị.
-                    <br />Hash SHA-256 vẫn được giữ làm chứng cứ audit.
+                    {t('detail.no_image')}
+                    <br />{t('detail.no_image_hash')}
                   </p>
                 </div>
               ) : !detection.image_thumb ? (
@@ -231,12 +233,12 @@ export default function DetailPage() {
                 <div className="relative w-full h-full">
                   <img src={detection.heatmap_url!} className="w-full h-full object-cover" alt="Grad-CAM" />
                   <span className="absolute bottom-2 left-2 text-[9px] font-black text-white bg-black/60 px-2 py-0.5 rounded">GRAD-CAM</span>
-                  <span className="absolute top-2 left-2 text-[9px] text-white/85 bg-black/50 px-2 py-0.5 rounded">Ảnh gốc ẩn theo quyền</span>
+                  <span className="absolute top-2 left-2 text-[9px] text-white/85 bg-black/50 px-2 py-0.5 rounded">{t('detail.pii_masked')}</span>
                 </div>
               ) : viewMode === 'split' ? (
                 <div className="grid grid-cols-2 h-full w-full">
                   <div className="relative border-r-2 border-white/40">
-                    <img src={detection.image_thumb!} className="w-full h-full object-cover" alt="Ảnh gốc" />
+                    <img src={detection.image_thumb!} className="w-full h-full object-cover" alt={t('detail.view_original')} />
                     <span className="absolute bottom-2 left-2 text-[9px] font-black text-white bg-black/60 px-2 py-0.5 rounded">GỐC</span>
                   </div>
                   <div className="relative">
@@ -276,9 +278,9 @@ export default function DetailPage() {
                 <div className="flex items-center gap-3">
                   <Icon name="layers" className="text-[20px] text-dgblue" fill />
                   <div>
-                    <p className="text-xs font-bold text-slate-700">DCT Heatmap Overlay</p>
+                    <p className="text-xs font-bold text-slate-700">{t('detail.heatmap_overlay_title')}</p>
                     <p className="text-[10px] text-slate-400">
-                      {detection.heatmap_url ? 'Heatmap thật từ model' : isFake ? 'Mô phỏng vùng artifact' : 'Không có artifact'}
+                      {detection.heatmap_url ? t('detail.heatmap_label') : isFake ? t('detail.heatmap_simulated') : t('detail.heatmap_none')}
                     </p>
                   </div>
                 </div>
@@ -294,11 +296,11 @@ export default function DetailPage() {
                 </label>
               </div>
               <div className="flex items-center justify-between pt-1">
-                <span className="text-[9px] font-bold text-slate-400 uppercase">Artifact intensity</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase">{t('detail.artifact_intensity')}</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-[9px] text-blue-500 font-bold uppercase">Cold</span>
+                  <span className="text-[9px] text-blue-500 font-bold uppercase">{t('detail.cold')}</span>
                   <div className="w-24 h-2 rounded-full" style={{ background: 'linear-gradient(to right,#3b82f6,#f59e0b,#dc2626)' }} />
-                  <span className="text-[9px] text-red-600 font-bold uppercase">Hot</span>
+                  <span className="text-[9px] text-red-600 font-bold uppercase">{t('detail.hot')}</span>
                 </div>
               </div>
             </div>
@@ -310,7 +312,7 @@ export default function DetailPage() {
           <section className="glass-panel rounded-2xl p-7 shadow-sm border border-white/60">
             <div className="flex items-start justify-between gap-4 mb-7">
               <div>
-                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Diagnostic verdict</h3>
+                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">{t('detail.verdict_section')}</h3>
                 <div className="flex items-center gap-4">
                   <span className="text-5xl font-black tracking-tighter" style={{ color: s.color, textShadow: `0 0 18px ${s.color}28` }}>
                     {detection.verdict}
@@ -325,7 +327,7 @@ export default function DetailPage() {
               <Gauge value={detection.confidence} color={s.color} />
             </div>
 
-            <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Explainable AI · Score breakdown</p>
+            <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">{t('detail.score_breakdown')}</p>
             <div className="space-y-4 mb-6">
               <ScoreBar label="Deepfake probability (prob_fake)" value={detection.prob_fake * 100} raw={detection.prob_fake} color={s.color} />
               <ScoreBar label="Confidence" value={detection.confidence} color="#0050cb" />
@@ -350,7 +352,7 @@ export default function DetailPage() {
       {/* Metadata + notes */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-7 glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
-          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-5">Request metadata</h3>
+          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-5">{t('detail.meta_section')}</h3>
           <div className="grid grid-cols-2 gap-y-4 gap-x-6">
             {([
               ['Tenant', detection.tenant_name ?? '—'],
@@ -378,7 +380,7 @@ export default function DetailPage() {
 
         <div className="lg:col-span-5 glass-panel rounded-2xl p-6 shadow-sm border border-white/60 flex flex-col">
           <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">
-            Audit &amp; review notes <span className="text-slate-400 font-mono">({detection.audit_notes.length})</span>
+            {t('detail.notes_section')} <span className="text-slate-400 font-mono">({detection.audit_notes.length})</span>
           </h3>
           {detection.audit_notes.length > 0 ? (
             <div className="mb-4 space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-1">
@@ -395,7 +397,7 @@ export default function DetailPage() {
           ) : (
             <div className="mb-4 flex flex-col items-center justify-center py-6 text-slate-300">
               <Icon name="rate_review" className="text-[32px]" />
-              <p className="text-[11px] text-slate-400 mt-1">Chưa có ghi chú review</p>
+              <p className="text-[11px] text-slate-400 mt-1">{t('detail.no_notes')}</p>
             </div>
           )}
           {canNote ? (
@@ -404,7 +406,7 @@ export default function DetailPage() {
                 maxLength={500}
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
-                placeholder="Ghi chú kết quả review (VD: Ảnh có dấu hiệu face-swap quanh vùng mắt)…"
+                placeholder={t('detail.note_placeholder')}
                 className="flex-1 w-full bg-slate-50/60 border border-slate-100 rounded-xl p-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all resize-none custom-scrollbar min-h-[90px]"
               />
               <div className="mt-3 flex justify-between items-center">
@@ -414,13 +416,13 @@ export default function DetailPage() {
                   disabled={savingNote || !noteText.trim()}
                   className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {savingNote ? 'Đang lưu…' : 'Lưu ghi chú'}
+                  {savingNote ? t('detail.saving_note') : t('detail.save_note')}
                 </button>
               </div>
             </>
           ) : (
             <p className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-1">
-              <Icon name="lock" className="text-[14px]" /> Chỉ admin/compliance được thêm ghi chú review.
+              <Icon name="lock" className="text-[14px]" /> {t('detail.note_locked')}
             </p>
           )}
         </div>
@@ -429,10 +431,10 @@ export default function DetailPage() {
       {/* Related */}
       <section className="dg-rise">
         <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">
-          Sự kiện liên quan · cùng API key trong 24h
+          {t('detail.related_title')}
         </h3>
         {related.length === 0 ? (
-          <p className="text-xs text-slate-400 italic">Không có sự kiện liên quan trong 24h gần nhất.</p>
+          <p className="text-xs text-slate-400 italic">{t('detail.related_none')}</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {related.map((it) => {
@@ -476,6 +478,7 @@ function LivenessDetailView({
   liveness: LivenessDetail;
   navigate: (p: 'history') => void;
 }) {
+  const t = useT();
   const s = verdictStyle(liveness.verdict);
   const isSpoof = liveness.verdict === 'SPOOF';
   const hasImage = Boolean(liveness.image_thumb);
@@ -497,7 +500,7 @@ function LivenessDetailView({
           </button>
           <div className="min-w-0">
             <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-black tracking-tight text-slate-900">Chi tiết liveness</h1>
+              <h1 className="text-xl font-black tracking-tight text-slate-900">{t('detail.liveness_heading')}</h1>
               <VerdictBadge verdict={liveness.verdict} size="lg" />
               <TypeBadge kind="liveness" />
             </div>
@@ -511,7 +514,7 @@ function LivenessDetailView({
             onClick={() => navigator.clipboard?.writeText(liveness.check_id)}
             className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
           >
-            <Icon name="content_copy" className="text-[16px]" /> Copy ID
+            <Icon name="content_copy" className="text-[16px]" /> {t('detail.copy_id')}
           </button>
         </div>
       </div>
@@ -522,7 +525,7 @@ function LivenessDetailView({
         <div className="lg:col-span-5 space-y-5">
           <section className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Ảnh chụp</h3>
+              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">{t('detail.liveness_capture')}</h3>
               <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] text-slate-500 font-mono">{dimensionsLabel}</span>
             </div>
             <div className="relative rounded-2xl overflow-hidden aspect-square bg-slate-900 shadow-inner flex items-center justify-center">
@@ -532,8 +535,8 @@ function LivenessDetailView({
                 <div className="text-center px-6">
                   <Icon name="image_not_supported" className="text-[60px] text-slate-600" />
                   <p className="text-[11px] text-slate-400 mt-2 leading-snug">
-                    Ảnh gốc ẩn theo quyền hoặc không lưu.
-                    <br />Hash SHA-256 vẫn được giữ làm chứng cứ audit.
+                    {t('detail.liveness_img_hidden')}
+                    <br />{t('detail.no_image_hash')}
                   </p>
                 </div>
               )}
@@ -544,7 +547,7 @@ function LivenessDetailView({
                 <p className="text-sm font-bold text-slate-700 capitalize">{liveness.mode}</p>
               </div>
               <div className="p-3 rounded-xl bg-slate-50/60 border border-slate-100">
-                <p className="text-[9px] font-black text-slate-400 uppercase">Số khung hình</p>
+                <p className="text-[9px] font-black text-slate-400 uppercase">{t('detail.liveness_frame_count')}</p>
                 <p className="text-sm font-bold text-slate-700 tabular-nums">{liveness.frame_count}</p>
               </div>
             </div>
@@ -556,7 +559,7 @@ function LivenessDetailView({
           <section className="glass-panel rounded-2xl p-7 shadow-sm border border-white/60">
             <div className="flex items-start justify-between gap-4 mb-7">
               <div>
-                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Liveness verdict</h3>
+                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">{t('detail.liveness_verdict')}</h3>
                 <div className="flex items-center gap-4">
                   <span className="text-5xl font-black tracking-tighter" style={{ color: s.color, textShadow: `0 0 18px ${s.color}28` }}>
                     {liveness.verdict}
@@ -594,7 +597,7 @@ function LivenessDetailView({
               <div className="mt-5 flex items-center gap-3 p-3 rounded-xl bg-red-50 border border-red-100">
                 <Icon name="gpp_maybe" className="text-[20px] text-red-600" fill />
                 <div>
-                  <p className="text-xs font-bold text-slate-700">Loại giả mạo (spoof)</p>
+                  <p className="text-xs font-bold text-slate-700">{t('detail.spoof_label')}</p>
                   <p className="text-[11px] text-slate-500 capitalize">{liveness.spoof_type ?? 'unknown'}</p>
                 </div>
               </div>
@@ -606,7 +609,7 @@ function LivenessDetailView({
       {/* Metadata */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-12 glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
-          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-5">Request metadata</h3>
+          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-5">{t('detail.meta_section')}</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-6">
             {([
               ['Tenant', liveness.tenant_name ?? '—'],

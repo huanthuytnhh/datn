@@ -17,6 +17,7 @@ import { DG } from '@/lib/dg';
 import { useAuthStore } from '@/store/auth';
 import { useNavigation } from '@/store/navigation';
 import { authMe, authUpdateMe, authChangePassword, type UserOut, type TenantOut } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 
 const INPUT =
   'w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all';
@@ -28,9 +29,10 @@ const TZ_OPTIONS = ['Asia/Ho_Chi_Minh', 'Asia/Bangkok', 'Asia/Singapore', 'UTC']
 
 /** "Sắp có" pill for UI sections without a backend yet. */
 function SoonTag() {
+  const t = useT();
   return (
     <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-400 border border-slate-200">
-      Sắp có
+      {t('account.soon')}
     </span>
   );
 }
@@ -115,6 +117,7 @@ function draftFromUser(u: UserOut | null): ProfileDraft {
 }
 
 export default function AccountPage() {
+  const t = useT();
   const navigate = useNavigation((s) => s.navigate);
 
   // Seed from auth store, then refresh from authMe() on mount.
@@ -136,10 +139,10 @@ export default function AccountPage() {
   useEffect(() => {
     let alive = true;
     authMe()
-      .then(({ user: u, tenant: t }) => {
+      .then(({ user: u, tenant: tn }) => {
         if (!alive) return;
         setUser(u);
-        setTenant(t);
+        setTenant(tn);
         const d = draftFromUser(u);
         setDraft(d);
         setSavedDraft(d);
@@ -191,9 +194,9 @@ export default function AccountPage() {
       const tn = tenant ?? storeTenant;
       if (tk && tn) setAuth(tk, updated, tn);
 
-      onToast('Đã lưu thông tin cá nhân');
+      onToast(t('account.toast_info_saved'));
     } catch (err) {
-      setInfoError(err instanceof Error ? err.message : 'Không thể lưu thông tin');
+      setInfoError(err instanceof Error ? err.message : t('account.error_save'));
     } finally {
       setSavingInfo(false);
     }
@@ -208,7 +211,7 @@ export default function AccountPage() {
         : /[A-Z]/.test(pwd.next) && /\d/.test(pwd.next) && pwd.next.length >= 12
           ? 3
           : 2;
-  const strengthLabel = ['', 'Yếu', 'Khá', 'Mạnh'][pwdStrength];
+  const strengthLabel = ['', t('account.pwd_weak'), t('account.pwd_medium'), t('account.pwd_strong')][pwdStrength];
   const strengthColor = ['#e2e8f0', DG.fake, DG.uncertain, DG.real][pwdStrength];
 
   const mismatch = pwd.confirm.length > 0 && pwd.next !== pwd.confirm;
@@ -221,9 +224,9 @@ export default function AccountPage() {
     try {
       await authChangePassword(pwd.cur, pwd.next);
       setPwd({ cur: '', next: '', confirm: '' });
-      onToast('Đã đổi mật khẩu thành công');
+      onToast(t('account.toast_pwd_changed'));
     } catch (err) {
-      setPwdError(err instanceof Error ? err.message : 'Không thể đổi mật khẩu');
+      setPwdError(err instanceof Error ? err.message : t('account.error_change_pwd'));
     } finally {
       setSavingPwd(false);
     }
@@ -237,8 +240,8 @@ export default function AccountPage() {
   return (
     <div className="space-y-5 max-w-4xl">
       <div className="dg-rise">
-        <h1 className="text-2xl font-black tracking-tight text-slate-900">Tài khoản cá nhân</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Quản lý thông tin cá nhân, mật khẩu &amp; bảo mật tài khoản</p>
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">{t('account.title')}</h1>
+        <p className="text-sm text-slate-500 mt-0.5">{t('account.subtitle')}</p>
       </div>
 
       {/* profile header — real signed-in user */}
@@ -253,7 +256,7 @@ export default function AccountPage() {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-lg font-black text-slate-900">{user?.name || draft.name || 'Người dùng'}</h2>
+            <h2 className="text-lg font-black text-slate-900">{user?.name || draft.name || t('account.user_fallback')}</h2>
             <RoleBadge role={role} />
           </div>
           <p className="text-sm text-slate-500">
@@ -265,13 +268,13 @@ export default function AccountPage() {
               className="w-1.5 h-1.5 rounded-full"
               style={{ background: user?.is_active ? DG.real : '#94a3b8' }}
             />
-            {user?.is_active ? 'Đang hoạt động' : 'Ngưng hoạt động'} · {user?.email ?? '—'}
+            {user?.is_active ? t('account.status_active') : t('account.status_inactive')} · {user?.email ?? '—'}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1 text-right">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Đăng nhập gần nhất</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('account.last_login')}</span>
           <span className="text-sm font-black text-slate-700 tabular-nums">
-            {fmtDate(user?.last_login_at, 'Chưa có')}
+            {fmtDate(user?.last_login_at, t('account.never_logged'))}
           </span>
         </div>
       </div>
@@ -279,21 +282,21 @@ export default function AccountPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* personal info — wired to authUpdateMe */}
         <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise">
-          <h2 className="text-base font-black text-slate-900 mb-5">Thông tin cá nhân</h2>
+          <h2 className="text-base font-black text-slate-900 mb-5">{t('account.section_info')}</h2>
           <div className="space-y-4">
-            <Field label="Họ và tên">
+            <Field label={t('account.field_name')}>
               <input
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 className={INPUT}
-                placeholder="Họ và tên"
+                placeholder={t('account.field_name')}
               />
             </Field>
-            <Field label="Email">
+            <Field label={t('account.field_email')}>
               <input value={user?.email ?? ''} readOnly disabled className={INPUT_RO} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Số điện thoại">
+              <Field label={t('account.field_phone')}>
                 <input
                   value={draft.phone}
                   onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
@@ -301,15 +304,15 @@ export default function AccountPage() {
                   placeholder="+84 ..."
                 />
               </Field>
-              <Field label="Vai trò">
+              <Field label={t('account.field_role')}>
                 <input value={role} readOnly disabled className={INPUT_RO} />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Tổ chức">
+              <Field label={t('account.field_org')}>
                 <input value={tenant?.name ?? '—'} readOnly disabled className={INPUT_RO} />
               </Field>
-              <Field label="Múi giờ">
+              <Field label={t('account.field_tz')}>
                 <select value={draft.tz} onChange={(e) => setDraft({ ...draft, tz: e.target.value })} className={INPUT}>
                   {TZ_OPTIONS.map((tz) => (
                     <option key={tz} value={tz}>
@@ -337,14 +340,14 @@ export default function AccountPage() {
               disabled={!dirty || savingInfo}
               className="px-4 py-2.5 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Hoàn tác
+              {t('account.btn_revert')}
             </button>
             <button
               onClick={onSaveInfo}
               disabled={!dirty || savingInfo}
               className="px-5 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] shadow-lg shadow-dgblue/25 hover:scale-[1.02] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              {savingInfo ? 'Đang lưu…' : 'Lưu thay đổi'}
+              {savingInfo ? t('account.btn_saving') : t('account.btn_save')}
             </button>
           </div>
         </div>
@@ -353,9 +356,9 @@ export default function AccountPage() {
         <div className="space-y-5">
           {/* password change — wired to authChangePassword */}
           <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise">
-            <h2 className="text-base font-black text-slate-900 mb-4">Đổi mật khẩu</h2>
+            <h2 className="text-base font-black text-slate-900 mb-4">{t('account.section_pwd')}</h2>
             <div className="space-y-3">
-              <Field label="Mật khẩu hiện tại">
+              <Field label={t('account.pwd_current')}>
                 <input
                   type="password"
                   value={pwd.cur}
@@ -367,12 +370,12 @@ export default function AccountPage() {
                   className={INPUT}
                 />
               </Field>
-              <Field label="Mật khẩu mới">
+              <Field label={t('account.pwd_new')}>
                 <input
                   type="password"
                   value={pwd.next}
                   onChange={(e) => setPwd({ ...pwd, next: e.target.value })}
-                  placeholder="Tối thiểu 8 ký tự"
+                  placeholder={t('account.pwd_min')}
                   className={INPUT}
                 />
               </Field>
@@ -392,17 +395,17 @@ export default function AccountPage() {
                   </span>
                 </div>
               )}
-              <Field label="Xác nhận mật khẩu">
+              <Field label={t('account.pwd_confirm')}>
                 <input
                   type="password"
                   value={pwd.confirm}
                   onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })}
-                  placeholder="Nhập lại mật khẩu mới"
+                  placeholder={t('account.pwd_retype')}
                   className={INPUT}
                 />
               </Field>
               {mismatch && (
-                <p className="text-[11px] font-semibold text-dgfake dg-fade">Mật khẩu xác nhận không khớp.</p>
+                <p className="text-[11px] font-semibold text-dgfake dg-fade">{t('account.pwd_mismatch')}</p>
               )}
             </div>
 
@@ -418,7 +421,7 @@ export default function AccountPage() {
               disabled={!pwdValid || savingPwd}
               className="w-full mt-4 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {savingPwd ? 'Đang cập nhật…' : 'Cập nhật mật khẩu'}
+              {savingPwd ? t('account.btn_updating_pwd') : t('account.btn_update_pwd')}
             </button>
           </div>
 
@@ -431,13 +434,13 @@ export default function AccountPage() {
                   Two-Factor Authentication <SoonTag />
                 </>
               }
-              desc="Tăng cường bảo mật đăng nhập bằng ứng dụng xác thực."
+              desc={t('account.2fa_desc')}
             >
               <button
                 disabled
                 className="px-3 py-1.5 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
               >
-                Thiết lập
+                {t('account.2fa_setup')}
               </button>
             </SettingRow>
             <SettingRow
@@ -447,13 +450,13 @@ export default function AccountPage() {
                   Recovery codes <SoonTag />
                 </>
               }
-              desc="10 mã khôi phục dùng một lần khi mất thiết bị 2FA."
+              desc={t('account.recovery_desc')}
             >
               <button
                 disabled
                 className="px-3 py-1.5 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
               >
-                Tạo lại
+                {t('account.recovery_regen')}
               </button>
             </SettingRow>
           </div>
@@ -463,7 +466,7 @@ export default function AccountPage() {
       {/* connected accounts — no backend yet */}
       <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise">
         <h2 className="text-base font-black text-slate-900 mb-4 flex items-center gap-2">
-          Tài khoản liên kết <SoonTag />
+          {t('account.linked_title')} <SoonTag />
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {(
@@ -479,10 +482,10 @@ export default function AccountPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[12px] font-bold text-slate-800 truncate">{name}</p>
-                <p className="text-[10px] font-semibold text-slate-400">Chưa liên kết</p>
+                <p className="text-[10px] font-semibold text-slate-400">{t('account.linked_none')}</p>
               </div>
               <button disabled className="text-[11px] font-bold text-slate-300 cursor-not-allowed">
-                Liên kết
+                {t('account.linked_btn')}
               </button>
             </div>
           ))}
@@ -493,44 +496,44 @@ export default function AccountPage() {
       <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 border-l-4 border-l-dgfake dg-rise">
         <h2 className="text-base font-black text-dgfake mb-2 flex items-center gap-2">
           <Icon name="warning" className="text-[20px]" />
-          Vùng nguy hiểm
+          {t('account.danger_title')}
         </h2>
-        <SettingRow title="Đăng xuất" desc="Kết thúc phiên đăng nhập hiện tại trên thiết bị này.">
+        <SettingRow title={t('account.logout_title')} desc={t('account.logout_desc')}>
           <button
             onClick={onLogout}
             className="px-4 py-2 text-[11px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
           >
-            Đăng xuất
+            {t('account.logout_btn')}
           </button>
         </SettingRow>
         <SettingRow
           title={
             <>
-              Vô hiệu hoá tài khoản <SoonTag />
+              {t('account.deactivate_title')} <SoonTag />
             </>
           }
-          desc="Tạm thời khoá tài khoản. Bạn có thể kích hoạt lại bằng cách đăng nhập."
+          desc={t('account.deactivate_desc')}
         >
           <button
             disabled
             className="px-4 py-2 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
           >
-            Vô hiệu hoá
+            {t('account.deactivate_btn')}
           </button>
         </SettingRow>
         <SettingRow
           title={
             <>
-              Xoá tài khoản <SoonTag />
+              {t('account.delete_title')} <SoonTag />
             </>
           }
-          desc="Xoá vĩnh viễn tài khoản & dữ liệu cá nhân. Không thể hoàn tác."
+          desc={t('account.delete_desc')}
         >
           <button
             disabled
             className="px-4 py-2 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
           >
-            Xoá tài khoản
+            {t('account.delete_btn')}
           </button>
         </SettingRow>
       </div>

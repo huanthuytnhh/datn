@@ -14,6 +14,7 @@ import { apiKeysList, apiKeysCreate, apiKeysRevoke, type ApiKeyOut } from '@/lib
 import { useAuthStore } from '@/store/auth';
 import { canEdit } from '@/lib/rbac';
 import type { Role } from '@/lib/rbac';
+import { useT } from '@/lib/i18n';
 
 /* ──────────────────────────────────────────────
    LOCAL VIEW MODEL
@@ -88,6 +89,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function ActionMenu({ onAction, canRevoke }: { onAction: (label: string) => void; canRevoke: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -98,7 +100,7 @@ function ActionMenu({ onAction, canRevoke }: { onAction: (label: string) => void
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
 
-  const items: Array<[string, string, string]> = [['Thu hồi', 'delete', DG.fake]];
+  const items: Array<[string, string, string]> = [[t('apikeys.revoke_action'), 'delete', DG.fake]];
 
   return (
     <div className="relative" ref={ref}>
@@ -199,6 +201,7 @@ function Modal({ onClose, children, max = 'max-w-lg' }: { onClose: () => void; c
    PAGE
    ────────────────────────────────────────────── */
 export default function ApiKeysPage() {
+  const t = useT();
   const setApiKey = useAuthStore((s) => s.setApiKey);
   const userRole = useAuthStore((s) => s.user?.role as Role | undefined);
   const canWrite = canEdit(userRole, 'apikeys');
@@ -265,7 +268,7 @@ export default function ApiKeysPage() {
   );
 
   const statusChips = [
-    { id: 'ALL', label: 'Tất cả' },
+    { id: 'ALL', label: t('apikeys.filter_all') },
     { id: 'active', label: 'Active' },
     { id: 'rotating', label: 'Rotating' },
     { id: 'revoked', label: 'Revoked' },
@@ -292,7 +295,7 @@ export default function ApiKeysPage() {
       setNewKeyPlain(created.plain_key);
       setStep('reveal');   // banner trên cùng chỉ hiện SAU khi đóng modal (finishReveal) — tránh trùng lặp
     } catch (e: unknown) {
-      setCreateErr(e instanceof Error ? e.message : 'Tạo API key thất bại');
+      setCreateErr(e instanceof Error ? e.message : t('apikeys.error_create'));
     } finally {
       setCreating(false);
     }
@@ -312,7 +315,7 @@ export default function ApiKeysPage() {
   const maskKey = (k: string) => (k.length > 14 ? `${k.slice(0, 10)}${'•'.repeat(18)}${k.slice(-4)}` : k);
 
   const handleRevoke = async (key: KeyRow) => {
-    if (!confirm(`Thu hồi API key "${key.name}"?`)) return;
+    if (!confirm(t('apikeys.revoke_confirm').replace('{name}', key.name))) return;
     await apiKeysRevoke(key.id).catch(() => {});
     loadKeys();
   };
@@ -324,7 +327,7 @@ export default function ApiKeysPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const lastUsedLabel = (iso: string | null) => (iso ? timeAgo(iso) : 'Chưa dùng');
+  const lastUsedLabel = (iso: string | null) => (iso ? timeAgo(iso) : t('apikeys.never_used'));
   const createdLabel = (iso: string) => new Date(iso).toLocaleDateString('vi-VN');
 
   return (
@@ -332,16 +335,16 @@ export default function ApiKeysPage() {
       {/* ── Header ── */}
       <div className="flex flex-wrap items-end justify-between gap-4 dg-fade">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">API Keys</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Quản lý khóa truy cập cho VietBank Workspace</p>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">{t('apikeys.title')}</h1>
+          <p className="text-sm text-slate-500 mt-0.5">{t('apikeys.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <RangeToggle
             value={view}
             onChange={(v) => setView(v as 'table' | 'cards')}
             options={[
-              { id: 'table', label: 'Bảng' },
-              { id: 'cards', label: 'Thẻ' },
+              { id: 'table', label: t('apikeys.view_table') },
+              { id: 'cards', label: t('apikeys.view_cards') },
             ]}
           />
           {canWrite && (
@@ -350,7 +353,7 @@ export default function ApiKeysPage() {
               onClick={openCreate}
               className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
             >
-              <Icon name="add" className="text-[16px]" /> Tạo key mới
+              <Icon name="add" className="text-[16px]" /> {t('apikeys.btn_create')}
             </button>
           )}
         </div>
@@ -364,7 +367,7 @@ export default function ApiKeysPage() {
               <Icon name="check_circle" className="text-dgreal text-[20px]" fill />
             </div>
             <div className="min-w-0">
-              <p className="text-[13px] font-black text-dgreal">API key đã tạo — copy ngay, sẽ không hiển thị lại!</p>
+              <p className="text-[13px] font-black text-dgreal">{t('apikeys.banner_created')}</p>
               <code className="mt-2 inline-block text-[12px] font-mono font-bold bg-white/80 text-slate-800 px-3 py-1.5 rounded-lg border border-green-100 select-all break-all">
                 {createdKey}
               </code>
@@ -378,12 +381,12 @@ export default function ApiKeysPage() {
               }`}
             >
               <Icon name={copied ? 'check' : 'content_copy'} className="text-[14px]" />
-              {copied ? 'Đã copy!' : 'Copy'}
+              {copied ? t('apikeys.reveal_copied') : t('apikeys.reveal_copy')}
             </button>
             <button
               onClick={() => setCreatedKey(null)}
               className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-green-100 transition-colors text-green-600"
-              aria-label="Đóng"
+              aria-label={t('apikeys.modal_close')}
             >
               <Icon name="close" className="text-[16px]" />
             </button>
@@ -393,10 +396,10 @@ export default function ApiKeysPage() {
 
       {/* ── KPI pills ── */}
       <div data-tour="ak-kpis" className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-fade">
-        <StatPill label="Tổng keys" value={fmtInt(kpis.total)} color={DG.primary} icon="key" />
-        <StatPill label="Đang active" value={fmtInt(kpis.active)} color={DG.real} icon="check_circle" />
-        <StatPill label="Requests đã dùng" value={fmtInt(kpis.totalReq)} color={DG.primary} icon="data_usage" />
-        <StatPill label="Quota tổng" value={`${kpis.usagePct}%`} color={DG.uncertain} icon="speed" />
+        <StatPill label={t('apikeys.pill_total')} value={fmtInt(kpis.total)} color={DG.primary} icon="key" />
+        <StatPill label={t('apikeys.pill_active')} value={fmtInt(kpis.active)} color={DG.real} icon="check_circle" />
+        <StatPill label={t('apikeys.pill_requests')} value={fmtInt(kpis.totalReq)} color={DG.primary} icon="data_usage" />
+        <StatPill label={t('apikeys.pill_quota')} value={`${kpis.usagePct}%`} color={DG.uncertain} icon="speed" />
       </div>
 
       {/* ── Filter bar ── */}
@@ -406,7 +409,7 @@ export default function ApiKeysPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Tìm tên key, prefix…"
+            placeholder={t('apikeys.search_placeholder')}
             className="w-full h-9 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
           />
         </div>
@@ -443,13 +446,13 @@ export default function ApiKeysPage() {
       ) : filtered.length === 0 ? (
         <StateBlock
           icon="vpn_key_off"
-          title={keys.length === 0 ? 'Chưa có API key nào' : 'Không có key phù hợp'}
+          title={keys.length === 0 ? t('apikeys.empty_title') : t('apikeys.noresult_title')}
           desc={
             keys.length === 0
-              ? 'Tạo API key đầu tiên để bắt đầu tích hợp DeepGuard Detection API vào ứng dụng của bạn.'
-              : 'Thử đổi bộ lọc trạng thái hoặc tạo API key mới để bắt đầu tích hợp.'
+              ? t('apikeys.empty_desc')
+              : t('apikeys.noresult_desc')
           }
-          action={canWrite ? 'Tạo key đầu tiên' : undefined}
+          action={canWrite ? t('apikeys.btn_create_first') : undefined}
           onAction={canWrite ? openCreate : undefined}
         />
       ) : view === 'cards' ? (
@@ -472,10 +475,10 @@ export default function ApiKeysPage() {
                       <code className="text-[10px] font-mono text-slate-400">{k.prefix}</code>
                     </div>
                   </div>
-                  <ActionMenu canRevoke={canWrite && k.status !== 'revoked'} onAction={(l) => l === 'Thu hồi' && handleRevoke(k)} />
+                  <ActionMenu canRevoke={canWrite && k.status !== 'revoked'} onAction={(l) => l === t('apikeys.revoke_action') && handleRevoke(k)} />
                 </div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Quota · {k.rpm} RPM</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">{t('apikeys.col_quota')} · {k.rpm} RPM</span>
                   <Sparkline data={k.spark} color={DG.primary} w={80} h={24} />
                 </div>
                 <div className="flex items-baseline gap-1 mb-1.5">
@@ -499,15 +502,15 @@ export default function ApiKeysPage() {
             <table className="w-full min-w-[900px]">
               <thead className="bg-white/60 border-b border-slate-100">
                 <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left">
-                  <th className="px-6 py-3.5">Tên</th>
+                  <th className="px-6 py-3.5">{t('apikeys.col_name')}</th>
                   <th className="px-4 py-3.5">Prefix</th>
-                  <th className="px-4 py-3.5">Trạng thái</th>
-                  <th className="px-4 py-3.5">Quota</th>
-                  <th className="px-4 py-3.5">7 ngày</th>
+                  <th className="px-4 py-3.5">{t('apikeys.col_status')}</th>
+                  <th className="px-4 py-3.5">{t('apikeys.col_quota')}</th>
+                  <th className="px-4 py-3.5">{t('apikeys.col_7days')}</th>
                   <th className="px-4 py-3.5">RPM</th>
-                  <th className="px-4 py-3.5">Lần cuối</th>
-                  <th className="px-4 py-3.5">Tạo ngày</th>
-                  <th className="px-6 py-3.5 text-right">Actions</th>
+                  <th className="px-4 py-3.5">{t('apikeys.col_last_used')}</th>
+                  <th className="px-4 py-3.5">{t('apikeys.col_created')}</th>
+                  <th className="px-6 py-3.5 text-right">{t('apikeys.col_actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -552,7 +555,7 @@ export default function ApiKeysPage() {
                       <td className="px-4 py-4 text-[11px] text-slate-500 font-medium">{createdLabel(k.created)}</td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end">
-                          <ActionMenu canRevoke={canWrite && k.status !== 'revoked'} onAction={(l) => l === 'Thu hồi' && handleRevoke(k)} />
+                          <ActionMenu canRevoke={canWrite && k.status !== 'revoked'} onAction={(l) => l === t('apikeys.revoke_action') && handleRevoke(k)} />
                         </div>
                       </td>
                     </tr>
@@ -578,9 +581,9 @@ export default function ApiKeysPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 dg-fade">
           {(
             [
-              ['shield', DG.primary, 'Bảo mật', 'Key rotation', 'Rotate key định kỳ. Key cũ vô hiệu sau 24h khi rotate.'],
-              ['speed', DG.real, 'Rate Limit', '100 RPM mặc định', 'Giới hạn req/phút bảo vệ hệ thống. Nâng plan để tăng.'],
-              ['data_usage', DG.uncertain, 'Quota', 'Theo dõi sử dụng', 'Cảnh báo tự động khi đạt 80% hạn mức quota.'],
+              ['shield', DG.primary, t('apikeys.info_security_tag'), t('apikeys.info_security_title'), t('apikeys.info_security_desc')],
+              ['speed', DG.real, t('apikeys.info_ratelimit_tag'), t('apikeys.info_ratelimit_title'), t('apikeys.info_ratelimit_desc')],
+              ['data_usage', DG.uncertain, t('apikeys.info_quota_tag'), t('apikeys.info_quota_title'), t('apikeys.info_quota_desc')],
             ] as Array<[string, string, string, string, string]>
           ).map(([ic, col, tag, title, desc]) => (
             <div key={tag} className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60">
@@ -610,20 +613,20 @@ export default function ApiKeysPage() {
                     <Icon name="key" className="text-[22px] text-white" fill />
                   </div>
                   <div>
-                    <h2 className="text-[15px] font-bold text-slate-900">Tạo API Key mới</h2>
-                    <p className="text-[12px] text-slate-400 mt-0.5">Cấu hình quyền truy cập</p>
+                    <h2 className="text-[15px] font-bold text-slate-900">{t('apikeys.modal_create_title')}</h2>
+                    <p className="text-[12px] text-slate-400 mt-0.5">{t('apikeys.modal_create_sub')}</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setShowCreate(false)}
                   className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                  aria-label="Đóng"
+                  aria-label={t('apikeys.modal_close')}
                 >
                   <Icon name="close" className="text-[18px]" />
                 </button>
               </div>
               <div className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                <Field label="Tên key" req>
+                <Field label={t('apikeys.modal_field_name')} req>
                   <input
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -633,7 +636,7 @@ export default function ApiKeysPage() {
                   />
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Quota">
+                  <Field label={t('apikeys.col_quota')}>
                     <div className="relative">
                       <input
                         type="number"
@@ -670,14 +673,14 @@ export default function ApiKeysPage() {
                   onClick={() => setShowCreate(false)}
                   className="px-4 py-2.5 text-[12.5px] font-semibold rounded-xl text-slate-500 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all"
                 >
-                  Hủy
+                  {t('apikeys.modal_cancel')}
                 </button>
                 <button
                   onClick={handleCreate}
                   disabled={!form.name.trim() || creating}
                   className="px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                 >
-                  {creating ? 'Đang tạo…' : 'Tạo key'}
+                  {creating ? t('apikeys.modal_creating') : t('apikeys.modal_create_btn')}
                   {!creating && <Icon name="arrow_forward" className="text-[14px]" />}
                 </button>
               </div>
@@ -692,8 +695,8 @@ export default function ApiKeysPage() {
                   <Icon name="check_circle" className="text-[22px] text-white" fill />
                 </div>
                 <div>
-                  <h2 className="text-[15px] font-bold text-slate-900">Key đã tạo thành công!</h2>
-                  <p className="text-[12px] text-slate-400 mt-0.5">Copy ngay — sẽ không hiển thị lại</p>
+                  <h2 className="text-[15px] font-bold text-slate-900">{t('apikeys.reveal_title')}</h2>
+                  <p className="text-[12px] text-slate-400 mt-0.5">{t('apikeys.reveal_sub')}</p>
                 </div>
               </div>
               <div className="px-6 py-5 space-y-4">
@@ -706,7 +709,7 @@ export default function ApiKeysPage() {
                       className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-600"
                     >
                       <Icon name={revealShow ? 'visibility_off' : 'visibility'} className="text-[14px]" />
-                      {revealShow ? 'Ẩn' : 'Hiện'}
+                      {revealShow ? t('apikeys.reveal_hide') : t('apikeys.reveal_show')}
                     </button>
                   </div>
                   <div className="flex items-center gap-2 p-1.5 rounded-xl border border-slate-200 bg-slate-50">
@@ -720,20 +723,20 @@ export default function ApiKeysPage() {
                       }`}
                     >
                       <Icon name={keyCopied ? 'check' : 'content_copy'} className="text-[14px]" />
-                      {keyCopied ? 'Đã copy' : 'Copy'}
+                      {keyCopied ? t('apikeys.reveal_copied') : t('apikeys.reveal_copy')}
                     </button>
                   </div>
                 </div>
                 {/* Cảnh báo 1-lần */}
                 <div className="flex items-start gap-2 text-[11px] text-amber-700">
                   <Icon name="warning" className="text-[15px] text-dgwarn mt-px shrink-0" />
-                  <p className="leading-relaxed">Key đầy đủ chỉ hiển thị <b>một lần</b>. Lưu vào nơi an toàn (vault / <code className="font-mono">.env</code>) — không thể xem lại sau khi đóng.</p>
+                  <p className="leading-relaxed">{t('apikeys.reveal_warning')}</p>
                 </div>
                 {/* Summary chips */}
                 <div className="grid grid-cols-3 gap-2 pt-1">
                   {[
-                    ['Tên', form.name || '—'],
-                    ['Quota', fmtInt(form.quota)],
+                    [t('apikeys.modal_field_name'), form.name || '—'],
+                    [t('apikeys.col_quota'), fmtInt(form.quota)],
                     ['Rate limit', `${form.rpm} rpm`],
                   ].map(([l, v]) => (
                     <div key={l} className="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-100">
@@ -748,7 +751,7 @@ export default function ApiKeysPage() {
                   onClick={finishReveal}
                   className="px-6 py-2.5 rounded-xl font-semibold text-[13px] flex items-center gap-2 bg-dgblue text-white shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all"
                 >
-                  <Icon name="check" className="text-[15px]" /> Xong
+                  <Icon name="check" className="text-[15px]" /> {t('apikeys.reveal_done')}
                 </button>
               </div>
             </>

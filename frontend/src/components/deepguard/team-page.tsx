@@ -20,6 +20,7 @@ import {
   type UserListItem,
   type InviteUserResponse,
 } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 
 /* ──────────────────────────────────────────────
    DeepGuard — Team & Roles (RBAC)
@@ -41,13 +42,47 @@ interface RoleMeta {
   desc: string;
 }
 
-/* ── Static reference: per-role color + description (labels come from ROLE_LABEL). ── */
+/* ── Static reference: per-role color (descriptions are fetched via t() inside components). ── */
+const ROLE_COLORS: Record<RoleName, string> = {
+  sysadmin: '#be123c',
+  admin: '#0050cb',
+  developer: '#7c3aed',
+  compliance: '#2e7d32',
+  viewer: '#64748b',
+};
+
+/** Build ROLES record with translated descriptions. Must be called inside a component. */
+function buildRoles(t: (k: string) => string): Record<RoleName, RoleMeta> {
+  return {
+    sysadmin: { color: ROLE_COLORS.sysadmin, desc: t('team.role_desc_sysadmin') },
+    admin: { color: ROLE_COLORS.admin, desc: t('team.role_desc_admin') },
+    developer: { color: ROLE_COLORS.developer, desc: t('team.role_desc_developer') },
+    compliance: { color: ROLE_COLORS.compliance, desc: t('team.role_desc_compliance') },
+    viewer: { color: ROLE_COLORS.viewer, desc: t('team.role_desc_viewer') },
+  };
+}
+
+/** Build PERMISSIONS rows with translated cap labels. Must be called inside a component. */
+function buildPermissions(t: (k: string) => string): Permission[] {
+  return [
+    { cap: t('team.perm_dashboard'), sysadmin: true, admin: true, developer: true, compliance: true, viewer: true },
+    { cap: t('team.perm_playground'), sysadmin: true, admin: true, developer: true, compliance: false, viewer: false },
+    { cap: t('team.perm_apikeys'), sysadmin: true, admin: true, developer: true, compliance: false, viewer: false },
+    { cap: t('team.perm_notes'), sysadmin: true, admin: true, developer: true, compliance: true, viewer: false },
+    { cap: t('team.perm_models'), sysadmin: true, admin: true, developer: false, compliance: false, viewer: false },
+    { cap: t('team.perm_members'), sysadmin: true, admin: true, developer: false, compliance: false, viewer: false },
+    { cap: t('team.perm_billing'), sysadmin: false, admin: true, developer: false, compliance: false, viewer: false },
+    { cap: t('team.perm_platform'), sysadmin: true, admin: false, developer: false, compliance: false, viewer: false },
+  ];
+}
+
+/** Placeholder — real ROLES used only inside components where t() is available. */
 const ROLES: Record<RoleName, RoleMeta> = {
-  sysadmin: { color: '#be123c', desc: 'Vận hành nền tảng DeepGuard (xuyên tenant), toàn quyền hệ thống' },
-  admin: { color: '#0050cb', desc: 'Toàn quyền: quản lý tổ chức, billing, thành viên, keys' },
-  developer: { color: '#7c3aed', desc: 'Tạo & dùng API keys, xem analytics, chạy playground' },
-  compliance: { color: '#2e7d32', desc: 'Xem lịch sử, analytics, audit logs, thêm ghi chú review' },
-  viewer: { color: '#64748b', desc: 'Chỉ xem dashboard & lịch sử, không chỉnh sửa' },
+  sysadmin: { color: ROLE_COLORS.sysadmin, desc: '' },
+  admin: { color: ROLE_COLORS.admin, desc: '' },
+  developer: { color: ROLE_COLORS.developer, desc: '' },
+  compliance: { color: ROLE_COLORS.compliance, desc: '' },
+  viewer: { color: ROLE_COLORS.viewer, desc: '' },
 };
 
 /** Resolve role label + metadata defensively for any role string the backend returns. */
@@ -72,16 +107,9 @@ interface Permission {
   viewer: boolean;
 }
 
-const PERMISSIONS: Permission[] = [
-  { cap: 'Xem Dashboard & Analytics', sysadmin: true, admin: true, developer: true, compliance: true, viewer: true },
-  { cap: 'Chạy Playground / Detect API', sysadmin: true, admin: true, developer: true, compliance: false, viewer: false },
-  { cap: 'Quản lý API Keys', sysadmin: true, admin: true, developer: true, compliance: false, viewer: false },
-  { cap: 'Thêm ghi chú review', sysadmin: true, admin: true, developer: true, compliance: true, viewer: false },
-  { cap: 'Cấu hình Model & Threshold', sysadmin: true, admin: true, developer: false, compliance: false, viewer: false },
-  { cap: 'Quản lý thành viên & quyền', sysadmin: true, admin: true, developer: false, compliance: false, viewer: false },
-  { cap: 'Billing & subscription', sysadmin: false, admin: true, developer: false, compliance: false, viewer: false },
-  { cap: 'Quản trị nền tảng (xuyên tenant)', sysadmin: true, admin: false, developer: false, compliance: false, viewer: false },
-];
+/* PERMISSIONS moved to buildPermissions(t) above — this static version is used as a fallback
+   for module-level type checks only and is never rendered directly. */
+const PERMISSIONS: Permission[] = [];
 
 /* ── Helpers ── */
 function initialsOf(name: string, email: string): string {
@@ -182,6 +210,7 @@ function Field({ label, req, children }: { label: string; req?: boolean; childre
 
 /* ── Copy-to-clipboard button (used by the temp-password panel) ── */
 function CopyButton({ value }: { value: string }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -201,10 +230,10 @@ function CopyButton({ value }: { value: string }) {
           ? 'bg-green-50 border-green-200 text-dgreal'
           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
       }`}
-      aria-label="Sao chép mật khẩu tạm"
+      aria-label={t('team.copy_btn')}
     >
       <Icon name={copied ? 'check' : 'content_copy'} className="text-[15px]" />
-      {copied ? 'Đã chép' : 'Sao chép'}
+      {copied ? t('team.copied_btn') : t('team.copy_btn')}
     </button>
   );
 }
@@ -219,23 +248,24 @@ function TempPasswordPanel({
   tempPassword: string;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
     <div className="rounded-xl border border-dgblue/20 bg-dgblue/[0.04] p-4 space-y-3 dg-rise">
       <div className="flex items-start gap-2">
         <Icon name="lock_reset" className="text-[18px] text-dgblue mt-0.5 shrink-0" fill />
         <div className="flex-1 min-w-0">
           <p className="text-[12px] font-black text-slate-800">
-            Mật khẩu tạm cho {memberName}
+            {t('team.temp_pwd_title').replace('{name}', memberName)}
           </p>
           <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-            Cấp mật khẩu tạm này cho nhân viên. Họ sẽ buộc đổi khi đăng nhập.
+            {t('team.temp_pwd_desc')}
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
           className="w-7 h-7 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
-          aria-label="Đóng"
+          aria-label={t('team.invite_btn_close')}
         >
           <Icon name="close" className="text-[16px]" />
         </button>
@@ -248,7 +278,7 @@ function TempPasswordPanel({
       </div>
       <p className="text-[10px] text-dgwarn font-semibold flex items-center gap-1.5">
         <Icon name="visibility_off" className="text-[13px]" />
-        Mật khẩu này chỉ hiển thị một lần. Hãy lưu lại trước khi đóng.
+        {t('team.temp_pwd_once')}
       </p>
     </div>
   );
@@ -279,10 +309,13 @@ function MemberDrawer({
   onResetPassword: (member: UserListItem) => void;
   onClearReset: () => void;
 }) {
+  const t = useT();
   if (!member) return null;
-  const meta = roleMeta(member.role);
+  const ROLES_T = buildRoles(t);
+  const PERMISSIONS_T = buildPermissions(t);
+  const meta = { ...roleMeta(member.role), desc: ROLES_T[member.role as RoleName]?.desc ?? '' };
   const key = member.role as keyof Permission;
-  const caps = PERMISSIONS.filter(
+  const caps = PERMISSIONS_T.filter(
     (p) => p[key as 'sysadmin' | 'admin' | 'developer' | 'compliance' | 'viewer'],
   );
   /* Can the current actor manage this member at all? (never self, never higher rank) */
@@ -300,7 +333,7 @@ function MemberDrawer({
         style={{ animation: 'dg-rise .32s cubic-bezier(.22,1,.36,1) both' }}
       >
         <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex items-center justify-between z-10">
-          <h3 className="text-sm font-black text-slate-900">Chi tiết thành viên</h3>
+          <h3 className="text-sm font-black text-slate-900">{t('team.drawer_title')}</h3>
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 transition-colors"
@@ -327,13 +360,13 @@ function MemberDrawer({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-100">
-              <p className="text-[9px] font-black text-slate-400 uppercase">Hoạt động cuối</p>
+              <p className="text-[9px] font-black text-slate-400 uppercase">{t('team.col_last_active')}</p>
               <p className="text-[13px] font-bold text-slate-700">
-                {member.last_login_at ? timeAgo(member.last_login_at) : 'Chưa đăng nhập'}
+                {member.last_login_at ? timeAgo(member.last_login_at) : t('team.drawer_never_login')}
               </p>
             </div>
             <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-100">
-              <p className="text-[9px] font-black text-slate-400 uppercase">Tham gia</p>
+              <p className="text-[9px] font-black text-slate-400 uppercase">{t('team.col_joined')}</p>
               <p className="text-[13px] font-bold text-slate-700">
                 {new Date(member.created_at).toLocaleDateString('vi-VN')}
               </p>
@@ -341,7 +374,7 @@ function MemberDrawer({
           </div>
 
           <div>
-            <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">Vai trò</p>
+            <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">{t('team.col_role')}</p>
             {manageable && roleInOptions ? (
               <select
                 value={member.role}
@@ -366,19 +399,19 @@ function MemberDrawer({
             <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">{meta.desc}</p>
             {isSelf && (
               <p className="text-[11px] text-dgwarn mt-1.5 font-semibold">
-                Không thể đổi vai trò của chính bạn.
+                {t('team.drawer_self_role_warn')}
               </p>
             )}
             {!isSelf && !manageable && (
               <p className="text-[11px] text-dgwarn mt-1.5 font-semibold">
-                Bạn không thể quản lý thành viên có vai trò cao hơn.
+                {t('team.drawer_higher_role_warn')}
               </p>
             )}
           </div>
 
           <div>
             <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
-              Quyền hạn ({caps.length}) · tham khảo
+              {t('team.capabilities').replace('{count}', String(caps.length))}
             </p>
             <div className="space-y-1.5">
               {caps.map((c) => (
@@ -406,7 +439,7 @@ function MemberDrawer({
                 className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgblue bg-dgblue/[0.05] border-dgblue/20 hover:bg-dgblue/[0.09] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-dgblue/[0.05]"
               >
                 <Icon name="lock_reset" className="text-[16px]" />
-                Đặt lại mật khẩu
+                {t('team.drawer_reset_pwd')}
               </button>
               <button
                 onClick={() => onToggleActive(member.id, !member.is_active)}
@@ -414,7 +447,7 @@ function MemberDrawer({
                 className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgwarn bg-orange-50 border-orange-200 hover:bg-orange-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-orange-50"
               >
                 <Icon name={member.is_active ? 'pause_circle' : 'play_circle'} className="text-[16px]" />
-                {member.is_active ? 'Tạm ngưng truy cập' : 'Kích hoạt lại'}
+                {member.is_active ? t('team.drawer_suspend') : t('team.drawer_reactivate')}
               </button>
               <button
                 onClick={() => onRemove(member.id)}
@@ -422,13 +455,13 @@ function MemberDrawer({
                 className="w-full py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 text-dgfake bg-red-50 border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-50"
               >
                 <Icon name="person_remove" className="text-[16px]" />
-                Gỡ khỏi workspace
+                {t('team.drawer_remove')}
               </button>
             </div>
           )}
           {isSelf && (
             <p className="text-[11px] text-slate-400 text-center pt-2">
-              Bạn không thể tạm ngưng hoặc gỡ chính mình.
+              {t('team.drawer_self_protect')}
             </p>
           )}
         </div>
@@ -469,6 +502,7 @@ function genPassword(len = 16): string {
 
 /* ── Page ── */
 export default function TeamPage() {
+  const t = useT();
   const currentUser = useAuthStore((s) => s.user);
   const myRole = useAuthStore((s) => s.user?.role) as Role | undefined;
   const orgName = useAuthStore((s) => s.tenant?.name);
@@ -515,7 +549,7 @@ export default function TeamPage() {
       const res = await usersList();
       setMembers(res.items);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không tải được danh sách thành viên');
+      setError(e instanceof Error ? e.message : t('team.error_load'));
     } finally {
       setLoading(false);
     }
@@ -563,9 +597,9 @@ export default function TeamPage() {
     const email = form.email.trim();
     const password = form.password;
     // Client-side validation before hitting the backend.
-    if (!name) return setFormError('Vui lòng nhập họ tên.');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setFormError('Email không hợp lệ.');
-    if (password.length < 8) return setFormError('Mật khẩu phải có ít nhất 8 ký tự.');
+    if (!name) return setFormError(t('team.validate_name'));
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setFormError(t('team.validate_email'));
+    if (password.length < 8) return setFormError(t('team.validate_pwd'));
 
     setBusy(true);
     setFormError(null);
@@ -580,11 +614,11 @@ export default function TeamPage() {
       // Surface backend errors inline (409 email exists, 403 role above level) without crashing.
       const msg = e instanceof Error ? e.message : '';
       if (/409|exist|tồn tại|đã được/i.test(msg)) {
-        setFormError('Email này đã tồn tại trong tổ chức.');
+        setFormError(t('team.error_email_exists'));
       } else if (/403|forbidden|permission|quyền/i.test(msg)) {
-        setFormError('Bạn không thể tạo nhân viên có vai trò cao hơn vai trò của mình.');
+        setFormError(t('team.error_role_too_high'));
       } else {
-        setFormError(msg || 'Tạo nhân viên thất bại.');
+        setFormError(msg || t('team.error_create'));
       }
     } finally {
       setBusy(false);
@@ -595,8 +629,8 @@ export default function TeamPage() {
     if (inviteBusy) return;
     const name = inviteForm.name.trim();
     const email = inviteForm.email.trim();
-    if (!name) return setInviteError('Vui lòng nhập họ tên.');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setInviteError('Email không hợp lệ.');
+    if (!name) return setInviteError(t('team.validate_name'));
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setInviteError(t('team.validate_email'));
     setInviteBusy(true);
     setInviteError(null);
     setInviteResult(null);
@@ -605,7 +639,7 @@ export default function TeamPage() {
       setInviteResult(res);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      setInviteError(/409|exist|tồn tại/i.test(msg) ? 'Email này đã tồn tại trong tổ chức.' : msg || 'Gửi lời mời thất bại.');
+      setInviteError(/409|exist|tồn tại/i.test(msg) ? t('team.error_email_exists') : msg || t('team.invite_error_failed'));
     } finally {
       setInviteBusy(false);
     }
@@ -620,7 +654,7 @@ export default function TeamPage() {
       setMembers((p) => p.map((m) => (m.id === id ? updated : m)));
       setDetail((d) => (d && d.id === id ? updated : d));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Đổi vai trò thất bại');
+      setError(e instanceof Error ? e.message : t('team.error_change_role'));
     } finally {
       setBusy(false);
     }
@@ -635,7 +669,7 @@ export default function TeamPage() {
       setMembers((p) => p.map((m) => (m.id === id ? updated : m)));
       setDetail((d) => (d && d.id === id ? updated : d));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Cập nhật trạng thái thất bại');
+      setError(e instanceof Error ? e.message : t('team.error_toggle_active'));
     } finally {
       setBusy(false);
     }
@@ -650,7 +684,7 @@ export default function TeamPage() {
       setDetail(null);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Gỡ thành viên thất bại');
+      setError(e instanceof Error ? e.message : t('team.error_remove'));
     } finally {
       setBusy(false);
     }
@@ -678,9 +712,9 @@ export default function TeamPage() {
       const msg = e instanceof Error ? e.message : '';
       setResetConfirm(null);
       if (/403|forbidden|permission|quyền/i.test(msg)) {
-        setError('Bạn không có quyền đặt lại mật khẩu cho thành viên này.');
+        setError(t('team.error_reset_forbidden'));
       } else {
-        setError(msg || 'Đặt lại mật khẩu thất bại.');
+        setError(msg || t('team.error_reset'));
       }
     } finally {
       setBusy(false);
@@ -688,7 +722,7 @@ export default function TeamPage() {
   };
 
   const roleChips: { id: 'ALL' | RoleName; label: string }[] = [
-    { id: 'ALL', label: 'Tất cả' },
+    { id: 'ALL', label: t('team.filter_all') },
     ...MATRIX_ROLES.map((r) => ({ id: r, label: ROLE_LABEL[r] })),
   ];
 
@@ -699,7 +733,7 @@ export default function TeamPage() {
       <div className="flex flex-wrap items-end justify-between gap-4 dg-rise">
         <div>
           <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-2xl font-black tracking-tight text-slate-900">Team &amp; Roles</h1>
+            <h1 className="text-2xl font-black tracking-tight text-slate-900">{t('team.title')}</h1>
             {orgName && (
               <span
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold"
@@ -710,7 +744,7 @@ export default function TeamPage() {
             )}
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Thành viên trong tổ chức này · {members.length} người · {activeCount} đang hoạt động
+            {t('team.subtitle').replace('{total}', String(members.length)).replace('{active}', String(activeCount))}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -718,14 +752,14 @@ export default function TeamPage() {
             onClick={() => { setShowInvite(true); setInviteResult(null); setInviteError(null); setInviteForm({ email: '', name: '', role: 'developer' }); }}
             className="px-4 h-9 bg-white border border-dgblue text-dgblue rounded-xl font-bold text-xs tracking-wide hover:bg-dgblue/5 transition-all flex items-center gap-2"
           >
-            <Icon name="mail" className="text-[16px]" /> Mời qua link
+            <Icon name="mail" className="text-[16px]" /> {t('team.btn_invite')}
           </button>
           <button
             data-tour="tm-add"
             onClick={openCreate}
             className="px-4 h-9 bg-dgblue text-white rounded-xl font-bold text-xs tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.03] active:scale-[0.97] transition-all flex items-center gap-2"
           >
-            <Icon name="person_add" className="text-[16px]" /> Thêm nhân viên
+            <Icon name="person_add" className="text-[16px]" /> {t('team.btn_add')}
           </button>
         </div>
       </div>
@@ -744,7 +778,7 @@ export default function TeamPage() {
         <div className="glass-panel rounded-xl px-4 py-3 border border-green-200 bg-green-50/70 flex items-center gap-2 dg-rise">
           <Icon name="check_circle" className="text-[18px] text-dgreal" fill />
           <span className="text-[12px] font-semibold text-dgreal flex-1">
-            Đã thêm nhân viên {createdName} vào workspace.
+            {t('team.success_added').replace('{name}', createdName ?? '')}
           </span>
           <button onClick={() => setCreatedName(null)} className="text-dgreal/60 hover:text-dgreal">
             <Icon name="close" className="text-[16px]" />
@@ -754,18 +788,18 @@ export default function TeamPage() {
 
       {/* quick stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-rise">
-        <StatPill icon="group" label="Thành viên" value={members.length} />
-        <StatPill icon="bolt" label="Đang hoạt động" value={activeCount} color={DG.real} />
-        <StatPill icon="block" label="Tạm ngưng" value={members.length - activeCount} color={DG.uncertain} />
-        <StatPill icon="admin_panel_settings" label="Vai trò" value={MATRIX_ROLES.length} color="#7c3aed" />
+        <StatPill icon="group" label={t('team.stat_members')} value={members.length} />
+        <StatPill icon="bolt" label={t('team.stat_active')} value={activeCount} color={DG.real} />
+        <StatPill icon="block" label={t('team.stat_suspended')} value={members.length - activeCount} color={DG.uncertain} />
+        <StatPill icon="admin_panel_settings" label={t('team.stat_roles')} value={MATRIX_ROLES.length} color="#7c3aed" />
       </div>
 
       {/* tabs */}
       <div data-tour="tm-tabs" className="flex items-center gap-1 dg-rise">
         {(
           [
-            ['members', 'Thành viên', 'group'],
-            ['roles', 'Vai trò & quyền', 'admin_panel_settings'],
+            ['members', t('team.tab_members'), 'group'],
+            ['roles', t('team.tab_roles'), 'admin_panel_settings'],
           ] as const
         ).map(([id, l, ic]) => (
           <button
@@ -790,7 +824,7 @@ export default function TeamPage() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Tìm tên, email…"
+                placeholder={t('team.search_placeholder')}
                 className="w-full h-9 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
               />
             </div>
@@ -832,13 +866,13 @@ export default function TeamPage() {
           ) : filtered.length === 0 ? (
             <StateBlock
               icon="person_search"
-              title={members.length === 0 ? 'Chưa có thành viên' : 'Không tìm thấy thành viên'}
+              title={members.length === 0 ? t('team.empty_title') : t('team.noresult_title')}
               desc={
                 members.length === 0
-                  ? 'Thêm nhân viên đầu tiên vào workspace của bạn.'
-                  : 'Thử đổi bộ lọc vai trò hoặc thêm nhân viên mới.'
+                  ? t('team.empty_desc')
+                  : t('team.noresult_desc')
               }
-              action="Thêm nhân viên"
+              action={t('team.btn_add')}
               onAction={openCreate}
             />
           ) : (
@@ -847,11 +881,11 @@ export default function TeamPage() {
                 <table className="w-full min-w-[760px]">
                   <thead className="bg-white/60 border-b border-slate-100">
                     <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left">
-                      <th className="px-6 py-3.5">Thành viên</th>
-                      <th className="px-4 py-3.5">Vai trò</th>
-                      <th className="px-4 py-3.5">Trạng thái</th>
-                      <th className="px-4 py-3.5">Hoạt động cuối</th>
-                      <th className="px-4 py-3.5">Tham gia</th>
+                      <th className="px-6 py-3.5">{t('team.col_member')}</th>
+                      <th className="px-4 py-3.5">{t('team.col_role')}</th>
+                      <th className="px-4 py-3.5">{t('team.col_status')}</th>
+                      <th className="px-4 py-3.5">{t('team.col_last_active')}</th>
+                      <th className="px-4 py-3.5">{t('team.col_joined')}</th>
                       <th className="px-6 py-3.5 w-10"></th>
                     </tr>
                   </thead>
@@ -882,7 +916,7 @@ export default function TeamPage() {
                                   {m.name}
                                   {self && (
                                     <span className="text-[9px] font-black text-dgblue bg-dgblue/[0.08] px-1.5 py-0.5 rounded">
-                                      BẠN
+                                      {t('team.badge_you')}
                                     </span>
                                   )}
                                 </p>
@@ -929,8 +963,8 @@ export default function TeamPage() {
                                     requestReset(m);
                                   }}
                                   disabled={busy}
-                                  title="Đặt lại mật khẩu"
-                                  aria-label={`Đặt lại mật khẩu cho ${m.name || m.email}`}
+                                  title={t('team.drawer_reset_pwd')}
+                                  aria-label={`${t('team.drawer_reset_pwd')} ${m.name || m.email}`}
                                   className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-dgblue hover:bg-dgblue/[0.06] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   <Icon name="lock_reset" className="text-[18px]" />
@@ -953,11 +987,11 @@ export default function TeamPage() {
           {/* role cards (descriptive reference) */}
           <div className="flex items-center gap-2 text-[11px] text-slate-400 dg-rise">
             <Icon name="info" className="text-[15px]" />
-            Bảng dưới là tài liệu tham khảo về vai trò &amp; quyền — không phải cấu hình động từ backend.
+            {t('team.roles_note')}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 dg-rise">
-            {MATRIX_ROLES.map((role) => {
-              const r = ROLES[role];
+            {(() => { const ROLES_T = buildRoles(t); return MATRIX_ROLES.map((role) => {
+              const r = ROLES_T[role];
               return (
                 <div key={role} className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60">
                   <div className="flex items-center gap-2.5 mb-2">
@@ -967,27 +1001,27 @@ export default function TeamPage() {
                     <div>
                       <p className="text-sm font-black text-slate-800">{ROLE_LABEL[role]}</p>
                       <p className="text-[10px] font-bold tabular-nums" style={{ color: r.color }}>
-                        {members.filter((m) => m.role === role).length} thành viên
+                        {t('team.member_count').replace('{n}', String(members.filter((m) => m.role === role).length))}
                       </p>
                     </div>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-relaxed">{r.desc}</p>
                 </div>
               );
-            })}
+            }); })()}
           </div>
 
           {/* permission matrix (descriptive reference) */}
           <div className="glass-panel rounded-2xl shadow-sm border border-white/60 overflow-hidden dg-rise">
             <div className="px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-black text-slate-900">Ma trận phân quyền</h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">Tham khảo · mô tả khả năng theo từng vai trò</p>
+              <h2 className="text-base font-black text-slate-900">{t('team.matrix_title')}</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">{t('team.matrix_sub')}</p>
             </div>
             <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full min-w-[640px]">
                 <thead className="bg-white/60 border-b border-slate-100">
                   <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <th className="px-6 py-3.5 text-left">Khả năng</th>
+                    <th className="px-6 py-3.5 text-left">{t('team.matrix_col_capability')}</th>
                     {MATRIX_ROLES.map((r) => (
                       <th key={r} className="px-4 py-3.5 text-center" style={{ color: ROLES[r].color }}>
                         {ROLE_LABEL[r]}
@@ -996,7 +1030,7 @@ export default function TeamPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {PERMISSIONS.map((p) => (
+                  {buildPermissions(t).map((p) => (
                     <tr key={p.cap} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-3 text-[12px] font-semibold text-slate-700">{p.cap}</td>
                       {MATRIX_ROLES.map((r) => (
@@ -1041,8 +1075,8 @@ export default function TeamPage() {
               <Icon name="person_add" className="text-[20px] text-dgblue" />
             </div>
             <div>
-              <h2 className="text-base font-black text-slate-900">Thêm nhân viên</h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">Tạo tài khoản và cấp quyền truy cập ngay</p>
+              <h2 className="text-base font-black text-slate-900">{t('team.create_modal_title')}</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">{t('team.create_modal_sub')}</p>
             </div>
           </div>
           <div className="px-6 py-5 space-y-4">
@@ -1052,11 +1086,11 @@ export default function TeamPage() {
                 <span className="text-[11px] font-semibold text-dgfake">{formError}</span>
               </div>
             )}
-            <Field label="Họ tên" req>
+            <Field label={t('team.form_field_name')} req>
               <input
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Nguyễn Văn A"
+                placeholder={t('team.placeholder_name')}
                 autoFocus
                 className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
               />
@@ -1070,7 +1104,7 @@ export default function TeamPage() {
                 className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
               />
             </Field>
-            <Field label="Vai trò">
+            <Field label={t('team.col_role')}>
               <select
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value as RoleName })}
@@ -1084,14 +1118,14 @@ export default function TeamPage() {
                 ))}
               </select>
             </Field>
-            <Field label="Mật khẩu" req>
+            <Field label={t('team.form_field_pwd')} req>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <input
                     type={showPwd ? 'text' : 'password'}
                     value={form.password}
                     onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder="Tối thiểu 8 ký tự"
+                    placeholder={t('team.form_pwd_min')}
                     autoComplete="new-password"
                     className="w-full h-10 pl-3 pr-10 bg-white border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
                   />
@@ -1099,7 +1133,7 @@ export default function TeamPage() {
                     type="button"
                     onClick={() => setShowPwd((v) => !v)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                    aria-label={showPwd ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    aria-label={showPwd ? t('team.hide_pwd') : t('team.show_pwd')}
                   >
                     <Icon name={showPwd ? 'visibility_off' : 'visibility'} className="text-[18px]" />
                   </button>
@@ -1110,15 +1144,15 @@ export default function TeamPage() {
                   className="h-10 px-3 bg-white border border-slate-200 text-slate-600 rounded-lg font-bold text-[11px] flex items-center gap-1.5 hover:bg-slate-50 transition-all shrink-0"
                 >
                   <Icon name="casino" className="text-[15px]" />
-                  Tạo ngẫu nhiên
+                  {t('team.form_random_pwd')}
                 </button>
               </div>
             </Field>
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1.5">
-              <p className="text-[11px] text-slate-500 leading-relaxed">{roleMeta(form.role).desc}</p>
+              <p className="text-[11px] text-slate-500 leading-relaxed">{buildRoles(t)[form.role]?.desc ?? ''}</p>
               <p className="text-[11px] text-slate-400 leading-relaxed flex items-start gap-1.5">
                 <Icon name="info" className="text-[14px] text-slate-300 mt-0.5 shrink-0" />
-                Mật khẩu sẽ được cấp cho nhân viên; họ nên đổi sau khi đăng nhập.
+                {t('team.form_pwd_hint')}
               </p>
             </div>
           </div>
@@ -1127,7 +1161,7 @@ export default function TeamPage() {
               onClick={() => setShowCreate(false)}
               className="px-5 py-2.5 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all"
             >
-              Hủy
+              {t('team.btn_cancel')}
             </button>
             <button
               onClick={createMember}
@@ -1135,7 +1169,7 @@ export default function TeamPage() {
               className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               <Icon name={busy ? 'progress_activity' : 'person_add'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
-              {busy ? 'Đang tạo…' : 'Tạo nhân viên'}
+              {busy ? t('team.invite_btn_creating') : t('team.btn_add')}
             </button>
           </div>
         </Modal>
@@ -1148,7 +1182,7 @@ export default function TeamPage() {
               <Icon name="lock_reset" className="text-[20px] text-dgblue" />
             </div>
             <div>
-              <h2 className="text-base font-black text-slate-900">Đặt lại mật khẩu</h2>
+              <h2 className="text-base font-black text-slate-900">{t('team.reset_modal_title')}</h2>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 {resetConfirm.name || resetConfirm.email}
               </p>
@@ -1156,12 +1190,11 @@ export default function TeamPage() {
           </div>
           <div className="px-6 py-5 space-y-3">
             <p className="text-[13px] text-slate-600 leading-relaxed">
-              Hệ thống sẽ tạo một <strong className="font-bold text-slate-800">mật khẩu tạm</strong> dùng một lần
-              cho thành viên này. Mật khẩu hiện tại của họ sẽ ngừng hoạt động.
+              {t('team.reset_modal_body')}
             </p>
             <p className="text-[12px] text-slate-500 leading-relaxed flex items-start gap-1.5 p-3 rounded-xl bg-slate-50 border border-slate-100">
               <Icon name="info" className="text-[15px] text-slate-300 mt-0.5 shrink-0" />
-              Cấp mật khẩu tạm này cho nhân viên. Họ sẽ buộc đổi khi đăng nhập. Mật khẩu chỉ hiển thị một lần.
+              {t('team.reset_modal_note')}
             </p>
           </div>
           <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-end gap-3">
@@ -1170,7 +1203,7 @@ export default function TeamPage() {
               disabled={busy}
               className="px-5 py-2.5 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
             >
-              Hủy
+              {t('team.btn_cancel')}
             </button>
             <button
               onClick={confirmReset}
@@ -1178,7 +1211,7 @@ export default function TeamPage() {
               className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               <Icon name={busy ? 'progress_activity' : 'lock_reset'} className={`text-[14px] ${busy ? 'animate-spin' : ''}`} />
-              {busy ? 'Đang xử lý…' : 'Đặt lại mật khẩu'}
+              {busy ? t('team.btn_processing') : t('team.reset_modal_title')}
             </button>
           </div>
         </Modal>
@@ -1191,8 +1224,8 @@ export default function TeamPage() {
               <Icon name="mail" className="text-[20px] text-dgblue" />
             </div>
             <div>
-              <h2 className="text-base font-black text-slate-900">Mời qua link</h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">Tạo link mời — người nhận đặt mật khẩu lần đầu</p>
+              <h2 className="text-base font-black text-slate-900">{t('team.btn_invite')}</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">{t('team.invite_modal_sub')}</p>
             </div>
           </div>
           <div className="px-6 py-5 space-y-4">
@@ -1205,26 +1238,26 @@ export default function TeamPage() {
             {inviteResult ? (
               <div className="space-y-3">
                 <p className="text-[12px] font-bold text-dgreal flex items-center gap-1.5">
-                  <Icon name="check_circle" className="text-[16px]" fill /> Lời mời đã được tạo
+                  <Icon name="check_circle" className="text-[16px]" fill /> {t('team.invite_created')}
                 </p>
                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-2">
-                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-wide">Link mời (tuyệt đối)</p>
+                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-wide">{t('team.invite_link_label')}</p>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 text-[11px] font-mono text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-2 break-all select-all">
                       {typeof window !== 'undefined' ? `${window.location.origin}${inviteResult.invite_url}` : inviteResult.invite_url}
                     </code>
                     <CopyButton value={typeof window !== 'undefined' ? `${window.location.origin}${inviteResult.invite_url}` : inviteResult.invite_url} />
                   </div>
-                  <p className="text-[10px] text-slate-400">Hết hạn: {new Date(inviteResult.expires_at).toLocaleString('vi-VN')}</p>
+                  <p className="text-[10px] text-slate-400">{t('team.invite_expires').replace('{date}', new Date(inviteResult.expires_at).toLocaleString('vi-VN'))}</p>
                 </div>
               </div>
             ) : (
               <>
-                <Field label="Họ tên" req>
+                <Field label={t('team.form_field_name')} req>
                   <input
                     value={inviteForm.name}
                     onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })}
-                    placeholder="Nguyễn Văn A"
+                    placeholder={t('team.placeholder_name')}
                     autoFocus
                     className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
                   />
@@ -1238,7 +1271,7 @@ export default function TeamPage() {
                     className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
                   />
                 </Field>
-                <Field label="Vai trò">
+                <Field label={t('team.col_role')}>
                   <select
                     value={inviteForm.role}
                     onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value as RoleName })}
@@ -1257,7 +1290,7 @@ export default function TeamPage() {
               onClick={() => setShowInvite(false)}
               className="px-5 py-2.5 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all"
             >
-              {inviteResult ? 'Đóng' : 'Hủy'}
+              {inviteResult ? t('team.invite_btn_close') : t('team.btn_cancel')}
             </button>
             {!inviteResult && (
               <button
@@ -1266,7 +1299,7 @@ export default function TeamPage() {
                 className="px-6 py-2.5 bg-dgblue text-white rounded-xl font-bold text-[12px] tracking-wide shadow-lg shadow-dgblue/25 hover:scale-[1.02] active:scale-[0.97] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
                 <Icon name={inviteBusy ? 'progress_activity' : 'mail'} className={`text-[14px] ${inviteBusy ? 'animate-spin' : ''}`} />
-                {inviteBusy ? 'Đang tạo…' : 'Tạo link mời'}
+                {inviteBusy ? t('team.invite_btn_creating') : t('team.invite_btn_create')}
               </button>
             )}
           </div>

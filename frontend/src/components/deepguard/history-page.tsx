@@ -5,27 +5,7 @@ import { useNavigation, type DetectionKind } from '@/store/navigation';
 import { detectionsList, livenessList, type DetectionListItem, type LivenessListItem } from '@/lib/api';
 import { Icon, VerdictBadge, StatPill } from '@/components/deepguard/shared';
 import { DG, verdictStyle, fmtInt, timeAgo } from '@/lib/dg';
-
-const DATE_RANGES: { label: string; hours: number | null }[] = [
-  { label: '7 ngày qua', hours: 24 * 7 },
-  { label: '24 giờ qua', hours: 24 },
-  { label: '30 ngày qua', hours: 24 * 30 },
-  { label: 'Tất cả', hours: null },
-];
-
-const VERDICT_CHIPS: { id: string; label: string; color: string }[] = [
-  { id: '', label: 'Tất cả', color: DG.primary },
-  { id: 'REAL', label: 'Real', color: DG.real },
-  { id: 'FAKE', label: 'Fake', color: DG.fake },
-  { id: 'UNCERTAIN', label: 'Uncertain', color: DG.uncertain },
-];
-
-// Record-type filter chips (deepfake detection vs liveness check).
-const KIND_CHIPS: { id: '' | DetectionKind; label: string; color: string }[] = [
-  { id: '', label: 'Tất cả', color: DG.primary },
-  { id: 'deepfake', label: 'Deepfake', color: '#0047cc' },
-  { id: 'liveness', label: 'Liveness', color: '#0d9488' },
-];
+import { useT } from '@/lib/i18n';
 
 // Visual style for the per-row TYPE badge — kept consistent with the small 'Playground' pill.
 const KIND_BADGE: Record<DetectionKind, { label: string; bg: string; color: string }> = {
@@ -148,6 +128,28 @@ function Pagination({
 }
 
 export default function HistoryPage() {
+  const t = useT();
+
+  const DATE_RANGES: { label: string; hours: number | null }[] = [
+    { label: t('history.range_7d'), hours: 24 * 7 },
+    { label: t('history.range_24h'), hours: 24 },
+    { label: t('history.range_30d'), hours: 24 * 30 },
+    { label: t('history.range_all'), hours: null },
+  ];
+
+  const VERDICT_CHIPS: { id: string; label: string; color: string }[] = [
+    { id: '', label: t('history.filter_all'), color: DG.primary },
+    { id: 'REAL', label: 'Real', color: DG.real },
+    { id: 'FAKE', label: 'Fake', color: DG.fake },
+    { id: 'UNCERTAIN', label: 'Uncertain', color: DG.uncertain },
+  ];
+
+  const KIND_CHIPS: { id: '' | DetectionKind; label: string; color: string }[] = [
+    { id: '', label: t('history.filter_all'), color: DG.primary },
+    { id: 'deepfake', label: 'Deepfake', color: '#0047cc' },
+    { id: 'liveness', label: 'Liveness', color: '#0d9488' },
+  ];
+
   const { navigate, setSelectedRequestId, setSelectedKind } = useNavigation();
   const [confidenceFilter, setConfidenceFilter] = useState(0);
   const [query, setQuery] = useState('');
@@ -188,7 +190,7 @@ export default function HistoryPage() {
     ])
       .then(([dRes, lRes]) => {
         if (!dRes && !lRes) {
-          setError('Lỗi tải dữ liệu');
+          setError(t('history.error_load'));
           setRows([]);
           return;
         }
@@ -322,9 +324,12 @@ export default function HistoryPage() {
       {/* header */}
       <div className="flex flex-wrap items-end justify-between gap-4 dg-rise">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">Lịch sử phát hiện</h1>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">{t('history.title')}</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {fmtInt(total)} bản ghi · {fmtInt(stats.deepfake)} deepfake · {fmtInt(stats.liveness)} liveness
+            {t('history.subtitle')
+              .replace('{total}', fmtInt(total))
+              .replace('{deepfake}', fmtInt(stats.deepfake))
+              .replace('{liveness}', fmtInt(stats.liveness))}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -345,7 +350,7 @@ export default function HistoryPage() {
           <button
             onClick={() => setRefreshTick((t) => t + 1)}
             className="w-9 h-9 flex items-center justify-center bg-white border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50 transition-all shadow-sm"
-            title="Làm mới"
+            title={t('history.btn_refresh')}
           >
             <Icon name="refresh" className={`text-[18px] ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -355,17 +360,17 @@ export default function HistoryPage() {
             disabled={filtered.length === 0}
             className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Icon name="download" className="text-[18px]" /> Xuất CSV
+            <Icon name="download" className="text-[18px]" /> {t('history.btn_export')}
           </button>
         </div>
       </div>
 
       {/* stat strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 dg-rise">
-        <StatPill label="Tổng" value={fmtInt(total)} color={DG.primary} icon="data_usage" />
+        <StatPill label={t('history.stat_total')} value={fmtInt(total)} color={DG.primary} icon="data_usage" />
         <StatPill label="Real" value={fmtInt(stats.real)} color={DG.real} icon="verified" />
         <StatPill label="Fake" value={fmtInt(stats.fake)} color={DG.fake} icon="gpp_maybe" />
-        <StatPill label="Độ tin cậy TB" value={`${stats.avgConf.toFixed(1)}%`} color={DG.uncertain} icon="target" />
+        <StatPill label={t('history.stat_avg_conf')} value={`${stats.avgConf.toFixed(1)}%`} color={DG.uncertain} icon="target" />
       </div>
 
       {/* filter bar */}
@@ -375,7 +380,7 @@ export default function HistoryPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Tìm request id, model, image hash…"
+            placeholder={t('history.search_placeholder')}
             className="w-full h-9 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
           />
         </div>
@@ -433,7 +438,7 @@ export default function HistoryPage() {
 
         <div className="flex items-center gap-2 min-w-[170px]">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">
-            Conf ≥ {confidenceFilter}%
+            {t('history.conf_label').replace('{val}', String(confidenceFilter))}
           </label>
           <input
             type="range"
@@ -461,26 +466,26 @@ export default function HistoryPage() {
       ) : effState === 'error' ? (
         <StateBlock
           icon="cloud_off"
-          title="Không tải được dữ liệu"
-          desc={error || 'Kết nối tới máy chủ bị gián đoạn. Thử lại sau giây lát.'}
-          action="Thử lại"
-          onAction={() => setRefreshTick((t) => t + 1)}
+          title={t('history.error_load')}
+          desc={error || t('history.error_network')}
+          action={t('history.error_retry')}
+          onAction={() => setRefreshTick((tk) => tk + 1)}
           danger
         />
       ) : effState === 'empty' ? (
         <StateBlock
           icon="inbox"
-          title="Chưa có phát hiện nào"
-          desc="Khi bạn chạy Detection API, kết quả sẽ xuất hiện ở đây."
-          action="Mở Playground"
+          title={t('history.empty_title')}
+          desc={t('history.empty_desc')}
+          action={t('history.empty_action')}
           onAction={() => navigate('playground')}
         />
       ) : effState === 'noresults' ? (
         <StateBlock
           icon="search_off"
-          title="Không có kết quả phù hợp"
-          desc="Thử nới lỏng bộ lọc hoặc xoá từ khoá tìm kiếm."
-          action="Xoá bộ lọc"
+          title={t('history.noresult_title')}
+          desc={t('history.noresult_desc')}
+          action={t('history.noresult_action')}
           onAction={clearFilters}
         />
       ) : view === 'cards' ? (
@@ -527,12 +532,12 @@ export default function HistoryPage() {
             <table className="w-full text-left border-collapse min-w-[760px]">
               <thead className="bg-white/60 border-b border-slate-100">
                 <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  <th className="px-5 py-3.5">Request ID</th>
-                  <th className="px-5 py-3.5">Thời gian</th>
-                  <th className="px-5 py-3.5">Kết luận</th>
-                  <th className="px-5 py-3.5">Độ tin cậy</th>
-                  <th className="px-5 py-3.5">Model</th>
-                  <th className="px-5 py-3.5 text-right">Độ trễ</th>
+                  <th className="px-5 py-3.5">{t('history.col_request')}</th>
+                  <th className="px-5 py-3.5">{t('history.col_time')}</th>
+                  <th className="px-5 py-3.5">{t('history.col_verdict')}</th>
+                  <th className="px-5 py-3.5">{t('history.col_confidence')}</th>
+                  <th className="px-5 py-3.5">{t('history.col_model')}</th>
+                  <th className="px-5 py-3.5 text-right">{t('history.col_latency')}</th>
                   <th className="px-5 py-3.5 w-10" />
                 </tr>
               </thead>
@@ -590,7 +595,10 @@ export default function HistoryPage() {
       {effState === 'ready' && (
         <div className="flex items-center justify-between px-1 dg-fade">
           <span className="text-[11px] font-bold text-slate-500">
-            Trang {currentPage} / {totalPages} · {fmtInt(total)} bản ghi
+            {t('history.pagination')
+              .replace('{page}', String(currentPage))
+              .replace('{total}', String(totalPages))
+              .replace('{count}', fmtInt(total))}
           </span>
           <Pagination page={currentPage} totalPages={totalPages} onPage={setCurrentPage} />
         </div>
