@@ -50,6 +50,14 @@ async def playground_detect_image(
     current_user: User = Depends(_playground_user),
     db: AsyncSession = Depends(get_db),
 ):
+    tenant = await crud.get_tenant(db, current_user.tenant_id)
+    if tenant and tenant.monthly_quota and tenant.current_usage >= tenant.monthly_quota:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=429,
+            detail=f"Tenant đã đạt quota tháng ({tenant.monthly_quota} detections). Liên hệ admin.",
+        )
+
     if file.content_type not in ALLOWED_IMAGE_TYPES:
         raise bad_request(f"Unsupported file type: {file.content_type}")
     image_bytes = await file.read()
@@ -132,6 +140,14 @@ async def playground_detect_video(
     current_user: User = Depends(_playground_user),
     db: AsyncSession = Depends(get_db),
 ):
+    tenant = await crud.get_tenant(db, current_user.tenant_id)
+    if tenant and tenant.monthly_quota and tenant.current_usage >= tenant.monthly_quota:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=429,
+            detail=f"Tenant đã đạt quota tháng ({tenant.monthly_quota} detections). Liên hệ admin.",
+        )
+
     if file.content_type not in ALLOWED_VIDEO_TYPES:
         raise bad_request(f"Unsupported video type: {file.content_type}")
     video_bytes = await file.read()
@@ -184,6 +200,14 @@ async def playground_detect_liveness(
     db: AsyncSession = Depends(get_db),
 ):
     """Passive liveness bằng JWT cho Playground (KHÔNG cần API key). Lưu source='playground'."""
+    tenant = await crud.get_tenant(db, current_user.tenant_id)
+    if tenant and tenant.monthly_quota and tenant.current_usage >= tenant.monthly_quota:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=429,
+            detail=f"Tenant đã đạt quota tháng ({tenant.monthly_quota} detections). Liên hệ admin.",
+        )
+
     if file.content_type not in ALLOWED_IMAGE_TYPES:
         raise bad_request(f"Unsupported file type: {file.content_type}")
     image_bytes = await file.read()

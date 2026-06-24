@@ -84,6 +84,15 @@ async def get_api_key_auth(
         from app.core.exceptions import quota_exceeded
         raise quota_exceeded()
 
+    # Tenant monthly quota — chặn khi đã đạt giới hạn tháng
+    tenant = api_key.tenant
+    if tenant.monthly_quota and tenant.current_usage >= tenant.monthly_quota:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=429,
+            detail=f"Tenant đã đạt quota tháng ({tenant.monthly_quota} detections). Liên hệ admin.",
+        )
+
     return api_key
 
 
