@@ -509,6 +509,15 @@ def call_dfv(b, n, m):
     r.raise_for_status()
     return r.json()
 
+def call_cascade(b, n, m):
+    # Backend gộp liveness->deepfake trong 1 endpoint; trả payload lồng full.
+    r = requests.post(
+        f"{api_url}/v1/detect/cascade", headers=H(),
+        files={"file": (n, b, m)}, params=P(), timeout=180,
+    )
+    r.raise_for_status()
+    return r.json()
+
 def call_get(rid):
     r = requests.get(f"{api_url}/v1/results/{rid}", headers=H(), timeout=30)
     r.raise_for_status()
@@ -790,26 +799,26 @@ with right:
                         [("Liveness", "active"), ("Deepfake", "pending"), ("Decision", "pending")], 0,
                     ), unsafe_allow_html=True)
                     if is_video:
+                        # Video: gộp phía client (backend cascade chỉ nhận ảnh tĩnh)
                         lr, pf = live_video(data, n_frames, up.name)
+                        vlive = lr.get("verdict")
+                        stopped = vlive == "SPOOF"; unc = vlive == "UNCERTAIN"
+                        dr = None if (stopped or unc) else call_dfv(data, up.name, mime)
+                        final = "FAIL" if stopped else "REVIEW" if unc else df_decision(dr)
+                        reason = (
+                            "Presentation attack phát hiện — cascade dừng tại bước liveness."
+                            if stopped else
+                            "Liveness UNCERTAIN — chuyển người duyệt (spec 2.1)."
+                            if unc else
+                            f"Liveness {vlive} ✓ → Deepfake → {final}."
+                        )
                     else:
-                        lr, pf = call_live(data, up.name, mime), None
-                    vlive = lr.get("verdict")
-                    stopped = vlive == "SPOOF"
-                    unc = vlive == "UNCERTAIN"
-                    dr = None
-                    if not stopped and not unc:
-                        _step_ph.markdown(step_indicator(
-                            [("Liveness", "done"), ("Deepfake", "active"), ("Decision", "pending")], 1,
-                        ), unsafe_allow_html=True)
-                        dr = call_dfv(data, up.name, mime) if is_video else call_df(data, up.name, mime)
-                    final = "FAIL" if stopped else "REVIEW" if unc else df_decision(dr)
-                    reason = (
-                        "Presentation attack phát hiện — cascade dừng tại bước liveness."
-                        if stopped else
-                        "Liveness UNCERTAIN — chuyển người duyệt (spec 2.1)."
-                        if unc else
-                        f"Liveness {vlive} ✓ → Deepfake → {final}."
-                    )
+                        # Ảnh: gọi 1 endpoint backend /v1/detect/cascade (logic gộp ở server)
+                        res = call_cascade(data, up.name, mime)
+                        lr, pf, dr = res["liveness"], None, res.get("deepfake")
+                        vlive = lr.get("verdict")
+                        stopped = vlive == "SPOOF"; unc = vlive == "UNCERTAIN"
+                        final, reason = res["final_decision"], res["reason"]
                     _step_ph.markdown(step_indicator(
                         [
                             ("Liveness", "done" if not unc else "active"),
@@ -823,7 +832,7 @@ with right:
                     render_live(lr, pf)
                     st.divider()
                     st.markdown("**Bước 2 · Deepfake**")
-                    if stopped:
+                    if stopped or unc:
                         _r(info_box("⏭️ Bỏ qua — đã chặn ở bước liveness.", kind="warn"))
                     elif dr:
                         render_any(dr)
@@ -890,7 +899,7 @@ with lc:
 ep = {
     "🧬 Liveness": "/v1/detect/liveness",
     "🔍 Deepfake": "/v1/detect/image",
-    "🏛️ eKYC Cascade": "/v1/detect/liveness → /v1/detect/image",
+    "🏛️ eKYC Cascade": "/v1/detect/cascade",
 }[mode]
 with st.expander("💻 cURL tương đương"):
     st.code(

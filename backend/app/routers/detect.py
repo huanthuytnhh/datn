@@ -1,4 +1,5 @@
 import io
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -21,6 +22,11 @@ settings = get_settings()
 from app.schemas.detect import DetectionResponse, DetectionListItem, VideoDetectionResponse, FrameResult
 from app.schemas.common import Paginated
 from app.core.exceptions import bad_request, not_found
+from app.routers._detect_helpers import build_detection_response
+from app.routers._liveness_helpers import _save_liveness, _to_response
+from app.services.cascade import cascade_decision
+from app.services.liveness import run_liveness_check
+from app.schemas.cascade import CascadeResponse
 
 router = APIRouter(prefix="/v1", tags=["detection"])
 
@@ -55,83 +61,57 @@ async def detect_image(
         raise bad_request("File size exceeds 10 MB limit")
     _assert_valid_image(image_bytes)   # BUG-3: chặn file rác giả header image/*
 
-    result = await run_inference(image_bytes, threshold=threshold, model=model)
-
-    # ── Tín hiệu rủi ro (định vị eKYC) — calibrate prob_fake → risk_score + band + gợi ý ──
-    risk = to_risk_score(result.prob_fake)
-    band = risk_band(risk)
-    freq = frequency_viz(image_bytes)   # phổ log|2D-DCT| (bằng chứng tần số, nhìn chuyên nghiệp)
-
-    verdict_enum = DetectionVerdict(result.verdict)
-    detection = await crud.create_detection(
-        db,
-        tenant_id=api_key.tenant_id,
-        api_key_id=api_key.id,
-        verdict=verdict_enum,
-        confidence=result.confidence,
-        prob_fake=result.prob_fake,
-        prob_cnn=result.prob_cnn,
-        spatial_score=result.spatial_score,
-        frequency_score=result.frequency_score,
-        threshold_used=result.threshold_used,
-        image_hash=result.image_hash,
-        image_width=result.image_width,
-        image_height=result.image_height,
-        image_thumb=result.image_thumb or _encode_image_thumb(image_bytes),
-        processing_time_ms=result.processing_time_ms,
-        model_version=result.model_version,
-        user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
+    return await build_detection_response(
+        db, image_bytes, api_key=api_key, request=request,
+        threshold=threshold, model=model, content_type=file.content_type, source="api",
     )
 
-    # Phase 2: lưu bằng chứng Grad-CAM lên S3 (no-op khi S3_BUCKET trống)
-    if storage.enabled() and result.heatmap:
-        import asyncio
-        detection.heatmap_url = await asyncio.to_thread(
-            storage.upload_heatmap, api_key.tenant_id, detection.request_id, result.heatmap
+
+@router.post("/detect/cascade", response_model=CascadeResponse)
+async def detect_cascade(
+    request: Request,
+    file: UploadFile = File(...),
+    threshold: float = Query(default=None, ge=0.0, le=1.0,
+                             description="Override ngưỡng (áp cho cả liveness lẫn deepfake)"),
+    api_key: ApiKey = Depends(get_api_key_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cascade eKYC: liveness prefilter → (nếu LIVE) deepfake. Logic gộp ở backend.
+
+    Mirror nhánh client cũ (ekyc_demo): SPOOF→FAIL, UNCERTAIN→REVIEW, LIVE→deepfake.
+    Trả payload lồng full (liveness + deepfake) y hệt endpoint lẻ để client tái dùng render."""
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise bad_request(f"Unsupported file type: {file.content_type}")
+    image_bytes = await file.read()
+    if len(image_bytes) > MAX_IMAGE_SIZE:
+        raise bad_request("File size exceeds 10 MB limit")
+    _assert_valid_image(image_bytes)
+
+    t0 = time.perf_counter()
+    # 1) Liveness prefilter — lưu LivenessCheck (source='cascade')
+    live_result = await run_liveness_check(image_bytes, threshold=threshold)
+    live_row = await _save_liveness(
+        db, tenant_id=api_key.tenant_id, api_key_id=api_key.id,
+        result=live_result, mode="passive", request=request, source="cascade",
+    )
+    live_resp = _to_response(live_row, attack_analysis=live_result.attack_analysis)
+
+    # 2) Deepfake chỉ chạy khi LIVE (tiết kiệm 1 forward pass khi đã chặn)
+    deepfake_resp = None
+    hint = None
+    if live_resp.verdict == "LIVE":
+        deepfake_resp = await build_detection_response(
+            db, image_bytes, api_key=api_key, request=request,
+            threshold=threshold, model=None, content_type=file.content_type, source="cascade",
         )
+        hint = deepfake_resp.decision_hint
 
-    # Phase 3: lưu media gốc lên S3 (audit) + bắn CloudWatch metric (no-op khi tắt)
-    import asyncio as _aio
-    from app.services import metrics
-    if storage.enabled():
-        await _aio.to_thread(storage.upload_media, api_key.tenant_id, detection.request_id,
-                             image_bytes, file.content_type or "image/jpeg", "input")
-    if metrics.enabled():
-        await _aio.to_thread(metrics.emit_detection, result.verdict, result.prob_fake,
-                             result.processing_time_ms, "api")
-
-    # Increment quotas
-    from sqlalchemy import update
-    from deepguard_db.app.db.models import ApiKey as ApiKeyModel, Tenant
-    await db.execute(
-        update(ApiKeyModel).where(ApiKeyModel.id == api_key.id)
-        .values(quota_used=ApiKeyModel.quota_used + 1)
-    )
-    await crud.increment_tenant_usage(db, api_key.tenant_id)
-    await db.commit()
-
-    return DetectionResponse(
-        request_id=detection.request_id,
-        # ── Tín hiệu rủi ro (khách eKYC dùng cái này) ──
-        risk_score=risk,
-        risk_band=band,
-        decision_hint=decision_hint(band),
-        thresholds=thresholds_dict(),
-        # ── Giải thích (nhìn chuyên nghiệp) ──
-        heatmap=result.heatmap,   # Grad-CAM overlay (base64) — vùng nghi vấn
-        frequency=freq,           # phổ log|2D-DCT| (base64) — bằng chứng tần số
-        # ── Tương thích ngược + chi tiết ──
-        verdict=detection.verdict.value,
-        confidence=detection.confidence,
-        prob_fake=detection.prob_fake,
-        threshold_used=detection.threshold_used,
-        face_detected=result.face_detected,
-        processing_time_ms=detection.processing_time_ms,
-        model_version=detection.model_version,
-        image_width=detection.image_width,
-        image_height=detection.image_height,
-        created_at=detection.created_at,
+    final, reason = cascade_decision(live_resp.verdict, hint)
+    rid = str(deepfake_resp.request_id) if deepfake_resp else str(live_resp.check_id)
+    return CascadeResponse(
+        request_id=rid, liveness=live_resp, deepfake=deepfake_resp,
+        final_decision=final, reason=reason,
+        processing_time_ms=int((time.perf_counter() - t0) * 1000),
     )
 
 
