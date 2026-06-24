@@ -1,4 +1,14 @@
-# Chạy demo ở 8601 — TRÁNH cổng 8501 (đó là serving deepfake SFDCT).
+[theme]
+primaryColor      = "#2563eb"
+backgroundColor   = "#f8fafc"
+secondaryBackgroundColor = "#ffffff"
+textColor         = "#0f172a"
+font              = "sans serif"
+
 [server]
-port = 8601
 headless = true
+port     = 8503
+address  = "0.0.0.0"
+
+[browser]
+gatherUsageStats = false

@@ -1,154 +1,537 @@
-"""
-DeepGuard eKYC — Streamlit demo cho DEV đang tích hợp API.
-
-Mô phỏng màn của một dev xây giao diện eKYC: nhập API key, chọn 1 trong 3 mode
-(Liveness / Deepfake / eKYC), upload ẢNH hoặc VIDEO → gọi API thật và xem response.
-
-Key: ưu tiên ô nhập trên sidebar; nếu trống → lấy DEEPGUARD_API_KEY trong .env.
-
-Video:
-- Liveness: model là ảnh tĩnh → demo trích N khung (cv2) rồi gọi /v1/detect/liveness từng
-  khung và GỘP majority-vote (mô tả rõ là gộp phía client).
-- Deepfake: gọi thẳng /v1/detect/video sẵn có ở backend.
-
-Chạy:  streamlit run app.py
-"""
-import os
-import base64
-import tempfile
-import requests
-import streamlit as st
-import cv2
+"""DeepGuard eKYC — Streamlit demo (Light · Modern UI)
+Chạy: streamlit run app.py"""
+import os, base64, tempfile, requests, streamlit as st, cv2
 from datetime import datetime
 from dotenv import load_dotenv
 
-load_dotenv(override=True)   # nạp lại .env mỗi lần chạy → "Ghi nhớ key" có hiệu lực ngay sau reload
-
+load_dotenv(override=True)
 DEFAULT_API_URL = os.getenv("DEEPGUARD_API_URL", "http://localhost:8000")
-ENV_API_KEY = os.getenv("DEEPGUARD_API_KEY", "")
+ENV_API_KEY     = os.getenv("DEEPGUARD_API_KEY", "")
+IMAGE_TYPES     = ["jpg", "jpeg", "png", "webp", "bmp"]
+VIDEO_TYPES     = ["mp4", "mov", "avi", "webm", "mkv"]
 
-IMAGE_TYPES = ["jpg", "jpeg", "png", "webp", "bmp"]
-VIDEO_TYPES = ["mp4", "mov", "avi", "webm", "mkv"]
+st.set_page_config(
+    page_title="DeepGuard eKYC",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-VERDICT_COLOR = {
-    "LIVE": "#2e7d32", "REAL": "#2e7d32", "PASS": "#2e7d32",
-    "SPOOF": "#ba1a1a", "FAKE": "#ba1a1a", "FAIL": "#ba1a1a",
-    "UNCERTAIN": "#ed6c02", "REVIEW": "#ed6c02",
+# ════════════════════════════════════════════════════════════════════════════
+# DESIGN TOKENS
+# ════════════════════════════════════════════════════════════════════════════
+# Palette: slate base + indigo accent + semantic colors
+PRIMARY    = "#4f46e5"   # indigo-600
+PRIMARY_D  = "#4338ca"
+ACCENT     = "#0ea5e9"   # sky-500
+INK        = "#0f172a"   # slate-900
+MUTED      = "#64748b"   # slate-500
+LINE       = "#e2e8f0"   # slate-200
+SURFACE    = "#ffffff"
+SURFACE_2  = "#f8fafc"   # slate-50
+SURFACE_3  = "#f1f5f9"   # slate-100
+
+SEM = {  # semantic
+    "success": "#059669", "success_bg": "#ecfdf5", "success_bd": "#a7f3d0",
+    "warn":    "#d97706", "warn_bg":    "#fffbeb", "warn_bd":    "#fde68a",
+    "danger":  "#dc2626", "danger_bg":  "#fef2f2", "danger_bd":  "#fecaca",
+    "info":    "#2563eb", "info_bg":    "#eff6ff", "info_bd":    "#bfdbfe",
 }
 
-st.set_page_config(page_title="DeepGuard eKYC — Dev Demo", page_icon="🛡️", layout="wide")
+st.markdown(f"""
+<style>
+/* ─── base ─────────────────────────────────────────────────────────────── */
+:root {{
+  --primary: {PRIMARY};
+  --primary-d: {PRIMARY_D};
+  --ink: {INK};
+  --muted: {MUTED};
+  --line: {LINE};
+}}
+html, body, [class*="css"] {{
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: {INK};
+}}
+.stApp {{
+  background:
+    radial-gradient(1200px 600px at 90% -10%, #eef2ff 0%, transparent 60%),
+    radial-gradient(900px 500px at -10% 10%, #f0f9ff 0%, transparent 55%),
+    {SURFACE_2};
+}}
 
-# ───────────────────────────── Sidebar: cấu hình ─────────────────────────────
-st.sidebar.title("🛡️ DeepGuard eKYC")
-st.sidebar.caption("Demo tích hợp API cho dev")
+/* hide chrome */
+#MainMenu, footer {{ visibility: hidden; }}
 
-# Chọn môi trường API: Local vs Deploy (deploy qua nginx → bắt buộc prefix /api)
-ENV_PRESETS = {
-    "Local — localhost:8000": "http://localhost:8000",
-    "Deploy — deepguard.ddns.net": "https://deepguard.ddns.net/api",
-    "Custom…": None,
+/* ─── typography ───────────────────────────────────────────────────────── */
+h1, h2, h3 {{ color: {INK}!important; letter-spacing: -0.02em; }}
+.stMarkdown p {{ color: #334155; }}
+
+/* ─── sidebar ──────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {{
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)!important;
+  border-right: 1px solid {LINE}!important;
+}}
+[data-testid="stSidebar"] > div {{ padding-top: 8px; }}
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stRadio label,
+[data-testid="stSidebar"] .stSlider label,
+[data-testid="stSidebar"] .stCheckbox label,
+[data-testid="stSidebar"] .stTextInput label {{
+  color: {MUTED}!important;
+  font-size: 11px!important;
+  font-weight: 600!important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}}
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] [data-baseweb="select"] > div {{
+  background: {SURFACE}!important;
+  border: 1px solid {LINE}!important;
+  border-radius: 8px!important;
+  color: {INK}!important;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04)!important;
+}}
+[data-testid="stSidebar"] input:focus {{
+  border-color: {PRIMARY}!important;
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.12)!important;
+}}
+[data-testid="stSidebar"] hr {{ border-color: {LINE}!important; margin: 14px 0; }}
+
+/* radio as segmented pills */
+[data-testid="stSidebar"] [role="radiogroup"] {{ gap: 6px; }}
+[data-testid="stSidebar"] [role="radiogroup"] [role="radio"] {{
+  background: {SURFACE}; border: 1px solid {LINE}; border-radius: 8px;
+  padding: 8px 12px; transition: all .15s;
+}}
+[data-testid="stSidebar"] [role="radiogroup"] [role="radio"][aria-checked="true"] {{
+  background: {PRIMARY}; border-color: {PRIMARY}; color: white;
+  box-shadow: 0 4px 12px rgba(79,70,229,0.25);
+}}
+[data-testid="stSidebar"] [role="radiogroup"] [role="radio"][aria-checked="true"] span {{
+  color: white!important;
+}}
+
+/* ─── buttons ──────────────────────────────────────────────────────────── */
+.stButton > button {{
+  border-radius: 10px!important;
+  font-weight: 600!important;
+  transition: all .15s ease!important;
+}}
+.stButton > button[kind="primary"] {{
+  background: linear-gradient(135deg, {PRIMARY} 0%, {ACCENT} 100%)!important;
+  color: white!important; border: none!important;
+  font-size: 15px!important; padding: 12px 0!important;
+  box-shadow: 0 8px 20px -4px rgba(79,70,229,0.4)!important;
+}}
+.stButton > button[kind="primary"]:hover {{
+  transform: translateY(-1px)!important;
+  box-shadow: 0 12px 24px -6px rgba(79,70,229,0.5)!important;
+  filter: brightness(1.05)!important;
+}}
+.stButton > button[kind="primary"]:disabled {{
+  opacity: 0.5; cursor: not-allowed; transform: none!important;
+  box-shadow: none!important;
+}}
+.stButton > button[kind="secondary"] {{
+  background: {SURFACE}!important;
+  border: 1px solid {LINE}!important;
+  color: #475569!important;
+}}
+.stButton > button[kind="secondary"]:hover {{
+  border-color: {PRIMARY}!important; color: {PRIMARY}!important;
+  background: #eef2ff!important;
+}}
+
+/* ─── uploader ─────────────────────────────────────────────────────────── */
+[data-testid="stFileUploadDropzone"] {{
+  background: {SURFACE}!important;
+  border: 2px dashed {LINE}!important;
+  border-radius: 14px!important;
+  padding: 10px!important;
+  transition: all .2s!important;
+}}
+[data-testid="stFileUploadDropzone"]:hover {{
+  border-color: {PRIMARY}!important;
+  background: #f5f3ff!important;
+}}
+
+/* ─── expander ─────────────────────────────────────────────────────────── */
+[data-testid="stExpander"] {{
+  border: 1px solid {LINE}!important;
+  border-radius: 12px!important;
+  background: {SURFACE}!important;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.05)!important;
+  overflow: hidden;
+}}
+[data-testid="stExpander"] > div:first-child {{
+  background: {SURFACE_2}!important;
+  font-weight: 600!important;
+  font-size: 13px!important;
+}}
+
+/* ─── table ────────────────────────────────────────────────────────────── */
+[data-testid="stTable"] {{
+  border-radius: 10px; overflow: hidden; border: 1px solid {LINE};
+}}
+[data-testid="stTable"] thead tr th {{
+  background: {SURFACE_3}!important;
+  color: {MUTED}!important;
+  font-size: 11px!important; font-weight: 700!important;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border: none!important; padding: 10px 14px!important;
+}}
+[data-testid="stTable"] tbody tr td {{
+  font-size: 13px!important; padding: 10px 14px!important;
+  border-top: 1px solid {LINE}!important;
+}}
+[data-testid="stTable"] tbody tr:hover td {{ background: {SURFACE_2}!important; }}
+
+/* ─── code block ───────────────────────────────────────────────────────── */
+[data-testid="stCodeBlock"] {{
+  border-radius: 10px!important; border: 1px solid {LINE}!important;
+}}
+[data-testid="stCodeBlock"] pre {{
+  background: #0f172a!important; border-radius: 10px!important;
+  font-size: 12px!important;
+}}
+
+/* ─── metric ───────────────────────────────────────────────────────────── */
+[data-testid="stMetric"] {{
+  background: {SURFACE}; border: 1px solid {LINE};
+  border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.05);
+}}
+[data-testid="stMetricLabel"] {{ font-size: 11px!; color: {MUTED}!important;
+  text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }}
+[data-testid="stMetricValue"] {{ color: {INK}!important; font-weight: 700!important; }}
+
+/* ─── spinner ──────────────────────────────────────────────────────────── */
+.stSpinner > div {{ border-color: {PRIMARY}!important; }}
+
+/* ─── scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {{ width: 8px; height: 8px; }}
+::-webkit-scrollbar-track {{ background: transparent; }}
+::-webkit-scrollbar-thumb {{ background: #cbd5e1; border-radius: 4px; }}
+::-webkit-scrollbar-thumb:hover {{ background: {MUTED}; }}
+
+/* ─── shimmer skeleton ─────────────────────────────────────────────────── */
+@keyframes shimmer {{
+  0% {{ background-position: -468px 0; }}
+  100% {{ background-position: 468px 0; }}
+}}
+.skeleton {{
+  background: linear-gradient(90deg, {SURFACE_3} 0%, #e2e8f0 50%, {SURFACE_3} 100%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 8px;
+}}
+</style>
+""", unsafe_allow_html=True)
+
+# ════════════════════════════════════════════════════════════════════════════
+# HTML PRIMITIVES
+# ════════════════════════════════════════════════════════════════════════════
+def card(body: str, title: str = "", accent: str = None):
+    """Card container with optional title bar and left accent stripe."""
+    accent_html = (
+        f"<div style='position:absolute;left:0;top:0;bottom:0;width:3px;"
+        f"background:{accent};border-radius:14px 0 0 14px'></div>"
+        if accent else ""
+    )
+    hdr = (
+        f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:14px'>"
+        f"<span style='color:{accent or PRIMARY};font-size:11px;font-weight:700;"
+        f"text-transform:uppercase;letter-spacing:0.1em'>{title}</span>"
+        f"<div style='flex:1;height:1px;background:{LINE}'></div></div>"
+        if title else ""
+    )
+    st.markdown(
+        f"<div style='position:relative;background:{SURFACE};border:1px solid {LINE};"
+        f"border-radius:14px;padding:22px 24px;margin:10px 0;"
+        f"box-shadow:0 1px 3px rgba(15,23,42,0.06),0 1px 2px rgba(15,23,42,0.04)'>"
+        f"{accent_html}{hdr}{body}</div>",
+        unsafe_allow_html=True,
+    )
+
+# Verdict visual mapping
+_VMAP = {
+    "LIVE":      ("success", "✅"),
+    "REAL":      ("success", "✅"),
+    "PASS":      ("success", "✅"),
+    "SPOOF":     ("danger",  "🛑"),
+    "FAKE":      ("danger",  "🛑"),
+    "FAIL":      ("danger",  "🛑"),
+    "UNCERTAIN": ("warn",    "⚠️"),
+    "REVIEW":    ("warn",    "⚠️"),
 }
-_preset_idx = next((i for i, v in enumerate(ENV_PRESETS.values()) if v == DEFAULT_API_URL), 0)
-_env_label = st.sidebar.selectbox("Môi trường API", list(ENV_PRESETS.keys()), index=_preset_idx)
-if ENV_PRESETS[_env_label] is None:
-    api_url = st.sidebar.text_input("API base URL (custom)", value=DEFAULT_API_URL).rstrip("/")
-else:
-    api_url = ENV_PRESETS[_env_label].rstrip("/")
-st.sidebar.caption("⚠️ Deploy dùng prefix `/api`; API key phải tạo TRÊN deploy (DB riêng — key local không dùng được).")
 
-input_key = st.sidebar.text_input("API Key", type="password",
-                                  placeholder="dán key ở đây (ưu tiên)")
+def vbadge(label: str, sub: str = "", size: str = "lg"):
+    """Large verdict badge with icon + sub-text."""
+    v = str(label).upper()
+    sem, icon = _VMAP.get(v, ("info", "❔"))
+    col = SEM[f"{sem}"]; bg = SEM[f"{sem}_bg"]; bd = SEM[f"{sem}_bd"]
+    sizes = {
+        "lg": ("2.4rem", "2rem", "16px 28px", "2.2rem"),
+        "md": ("1.8rem", "1.4rem", "12px 20px", "1.6rem"),
+    }
+    ico_fs, txt_fs, pad, sub_fs = sizes.get(size, sizes["lg"])
+    sub_html = (
+        f"<div style='color:{col};opacity:.75;font-size:13px;font-weight:500;"
+        f"margin-top:4px;max-width:520px;line-height:1.4'>{sub}</div>"
+        if sub else ""
+    )
+    return (
+        f"<div style='display:inline-flex;align-items:center;gap:16px;padding:{pad};"
+        f"background:{bg};border:1.5px solid {bd};border-radius:14px;margin:6px 0;"
+        f"box-shadow:0 4px 12px -2px {col}22'>"
+        f"<span style='font-size:{ico_fs};line-height:1'>{icon}</span>"
+        f"<div><div style='color:{col};font-size:{txt_fs};font-weight:800;"
+        f"line-height:1.1;letter-spacing:-0.01em'>{label}</div>{sub_html}</div></div>"
+    )
 
-# Resolve key: ô nhập trước, .env sau
-api_key = input_key.strip() or ENV_API_KEY
-key_source = "ô nhập" if input_key.strip() else (".env" if ENV_API_KEY else None)
-if api_key:
-    st.sidebar.success(f"Key …{api_key[-6:]} · nguồn: **{key_source}**")
-else:
-    st.sidebar.error("Chưa có API key. Nhập ô trên hoặc đặt DEEPGUARD_API_KEY trong .env")
+def score_bar(label: str, val: float, invert: bool = False, max_label: str = ""):
+    """Animated score bar with semantic colors."""
+    pct = round(max(0, min(1, val)) * 100, 1)
+    danger = val > 0.5 if not invert else val < 0.5
+    mid = val > 0.3 if not invert else val < 0.7
+    if danger:
+        fill, txt = "#ef4444", SEM["danger"]
+    elif mid:
+        fill, txt = "#f59e0b", SEM["warn"]
+    else:
+        fill, txt = "#10b981", SEM["success"]
+    side = f"<span style='color:{MUTED};font-size:11px;font-weight:500'>{max_label}</span>" if max_label else ""
+    return (
+        f"<div style='margin:14px 0'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'>"
+        f"<span style='color:#334155;font-size:13px;font-weight:600'>{label}</span>"
+        f"<span style='display:flex;align-items:center;gap:8px'>"
+        f"{side}"
+        f"<span style='color:{txt};font-size:14px;font-weight:800;font-variant-numeric:tabular-nums'>{pct}%</span>"
+        f"</span></div>"
+        f"<div style='background:{SURFACE_3};border-radius:8px;height:10px;overflow:hidden;"
+        f"box-shadow:inset 0 1px 2px rgba(15,23,42,0.06)'>"
+        f"<div style='width:{pct}%;height:100%;background:linear-gradient(90deg,{fill},{fill}cc);"
+        f"border-radius:8px;transition:width .6s cubic-bezier(.22,1,.36,1);"
+        f"box-shadow:0 0 8px {fill}55'></div></div></div>"
+    )
 
-# Ghi nhớ key vào .env (đã gitignore) → reload không phải nhập lại. Streamlit không có localStorage.
-if input_key.strip():
-    if st.sidebar.button("💾 Ghi nhớ key vào .env"):
-        _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-        _lines = []
-        if os.path.exists(_env_path):
-            with open(_env_path) as _f:
-                _lines = [ln for ln in _f.read().splitlines() if not ln.startswith("DEEPGUARD_API_KEY=")]
-        _lines.append(f"DEEPGUARD_API_KEY={input_key.strip()}")
-        with open(_env_path, "w") as _f:
-            _f.write("\n".join(_lines) + "\n")
-        st.sidebar.success("Đã lưu vào .env — lần sau reload tự nạp, khỏi nhập lại.")
+def pills(**kw):
+    """Stat pills row."""
+    items = "".join(
+        f"<div style='flex:1;min-width:100px;background:{SURFACE_2};border:1px solid {LINE};"
+        f"border-radius:10px;padding:12px 14px;transition:all .15s'>"
+        f"<div style='color:{MUTED};font-size:10px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:0.08em'>{k}</div>"
+        f"<div style='color:{INK};font-size:1.1rem;font-weight:700;margin-top:4px;"
+        f"font-variant-numeric:tabular-nums'>{v}</div></div>"
+        for k, v in kw.items()
+    )
+    return f"<div style='display:flex;gap:10px;flex-wrap:wrap;margin:14px 0'>{items}</div>"
 
-mode = st.sidebar.radio("Mode", ["Liveness", "Deepfake", "eKYC (cascade)"], index=2)
-model_choice = st.sidebar.selectbox(
-    "Model deepfake", ["sfdct", "b4", "hff"],
-    format_func=lambda m: {"sfdct": "SFDCT · B4+block-DCT (0.7572)",
-                           "b4": "B4 · spatial baseline (0.7497)",
-                           "hff": "SFDCT-HFF · R3 (0.7695)"}[m],
-    help="Áp dụng cho deepfake ẢNH; video dùng model mặc định của server.")
-n_frames = st.sidebar.slider("Số khung lấy từ video (liveness)", 3, 12, 6)
-use_threshold = st.sidebar.checkbox("Tự đặt threshold (override server)", value=False)
-threshold = st.sidebar.slider("Threshold", 0.0, 1.0, 0.35, 0.01,
-                              disabled=not use_threshold,
-                              help="Liveness: P(live) < threshold ⇒ SPOOF. Deepfake: ngưỡng phân loại FAKE.")
+def info_box(msg: str, kind: str = "info"):
+    _k = {"err": "danger", "ok": "success"}.get(kind, kind)
+    bg = SEM[f"{_k}_bg"]; tc = SEM[_k]; bc = SEM[f"{_k}_bd"]
+    icons = {"info": "ℹ️", "warn": "⚠️", "err": "⛔", "danger": "⛔", "ok": "✨", "success": "✅"}
+    return (
+        f"<div style='display:flex;gap:10px;align-items:flex-start;background:{bg};"
+        f"border:1px solid {bc};border-radius:10px;padding:12px 16px;color:{tc};"
+        f"font-size:13px;line-height:1.6;margin:8px 0'>"
+        f"<span style='font-size:16px;line-height:1.4'>{icons.get(kind, 'ℹ️')}</span>"
+        f"<div style='flex:1'>{msg}</div></div>"
+    )
 
-st.sidebar.divider()
-st.sidebar.caption("Crop mặt (MTCNN) chạy ở **backend** — client chỉ gửi ảnh/khung thô.")
+def _r(html: str):
+    """Render một HTML primitive string (dùng cho các hàm trả về string)."""
+    st.markdown(html, unsafe_allow_html=True)
 
-# ───────────────────────────── API helpers ─────────────────────────────
-def _headers():
-    return {"Authorization": f"Bearer {api_key}"}
+def step_indicator(steps, current_idx):
+    """Horizontal step indicator for eKYC cascade."""
+    out = "<div style='display:flex;align-items:center;gap:6px;margin:12px 0 18px;flex-wrap:wrap'>"
+    for i, (label, state) in enumerate(steps):
+        # state: done / active / pending / skipped
+        cfg = {
+            "done":    (SEM["success"], SEM["success_bg"], "✓"),
+            "active":  (PRIMARY, "#eef2ff", "•"),
+            "pending": (MUTED, SURFACE_3, str(i + 1)),
+            "skipped": (SEM["warn"], SEM["warn_bg"], "⤳"),
+        }[state]
+        col, bg, sym = cfg
+        out += (
+            f"<div style='display:flex;align-items:center;gap:8px'>"
+            f"<div style='width:24px;height:24px;border-radius:50%;background:{bg};"
+            f"color:{col};border:1.5px solid {col};display:flex;align-items:center;"
+            f"justify-content:center;font-size:12px;font-weight:700'>{sym}</div>"
+            f"<span style='color:{col};font-size:12px;font-weight:600'>{label}</span>"
+            f"</div>"
+        )
+        if i < len(steps) - 1:
+            out += f"<div style='flex:1;min-width:20px;height:1.5px;background:{LINE};margin:0 4px'></div>"
+    out += "</div>"
+    return out
 
-def _params():
-    return {"threshold": threshold} if use_threshold else {}
+def empty_state(icon: str, title: str, desc: str):
+    st.markdown(
+        f"<div style='text-align:center;padding:50px 20px'>"
+        f"<div style='font-size:3.5rem;opacity:.5;margin-bottom:12px'>{icon}</div>"
+        f"<div style='color:{INK};font-size:1.1rem;font-weight:700;margin-bottom:6px'>{title}</div>"
+        f"<div style='color:{MUTED};font-size:13px;max-width:380px;margin:0 auto;line-height:1.5'>{desc}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
-def call_liveness(img_bytes, filename, mime):
-    r = requests.post(f"{api_url}/v1/detect/liveness", headers=_headers(),
-                      files={"file": (filename, img_bytes, mime)},
-                      params={**_params(), "debug": "true"}, timeout=60)
+def show_b64(data_url: str, caption: str):
+    if not data_url:
+        return
+    try:
+        b = data_url.split(",", 1)[1] if "," in data_url else data_url
+        st.image(base64.b64decode(b), caption=caption, use_container_width=True)
+    except Exception:
+        pass
+
+# ════════════════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ════════════════════════════════════════════════════════════════════════════
+with st.sidebar:
+    # Brand block
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:12px;padding:4px 0 16px'>"
+        f"<div style='width:40px;height:40px;border-radius:11px;"
+        f"background:linear-gradient(135deg,{PRIMARY},{ACCENT});"
+        f"display:flex;align-items:center;justify-content:center;font-size:1.4rem;"
+        f"box-shadow:0 6px 16px -4px {PRIMARY}66'>🛡️</div>"
+        f"<div><div style='font-weight:800;font-size:1.05rem;color:{INK}'>DeepGuard</div>"
+        f"<div style='color:{MUTED};font-size:11px;letter-spacing:0.04em'>eKYC · Dev Demo</div></div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.divider()
+
+    st.markdown(
+        f"<div style='color:{MUTED};font-size:11px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:0.08em;margin-bottom:8px'>⚙️ Cấu hình</div>",
+        unsafe_allow_html=True,
+    )
+    ENV_PRESETS = {
+        "Local — localhost:8000": "http://localhost:8000",
+        "Deploy — deepguard.ddns.net": "https://deepguard.ddns.net/api",
+        "Custom…": None,
+    }
+    _label = st.selectbox("Môi trường", list(ENV_PRESETS.keys()))
+    api_url = (
+        st.text_input("Base URL", DEFAULT_API_URL).rstrip("/")
+        if ENV_PRESETS[_label] is None
+        else ENV_PRESETS[_label].rstrip("/")
+    )
+    input_key = st.text_input("API Key", type="password", placeholder="Bearer token…")
+    api_key = input_key.strip() or ENV_API_KEY
+
+    if api_key:
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:6px;padding:8px 10px;"
+            f"background:{SEM['success_bg']};border:1px solid {SEM['success_bd']};"
+            f"border-radius:8px;font-size:12px;color:{SEM['success']}'>"
+            f"<span>🔑</span><span style='font-weight:600'>…{api_key[-6:]}</span></div>",
+            unsafe_allow_html=True,
+        )
+        if input_key.strip():
+            if st.button("💾 Ghi nhớ vào .env", use_container_width=True):
+                p = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+                ls = [
+                    l for l in (open(p).read().splitlines() if os.path.exists(p) else [])
+                    if not l.startswith("DEEPGUARD_API_KEY=")
+                ]
+                open(p, "w").write("\n".join(ls + [f"DEEPGUARD_API_KEY={input_key.strip()}"]) + "\n")
+                st.success("Đã lưu vào .env")
+    else:
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:6px;padding:8px 10px;"
+            f"background:{SEM['warn_bg']};border:1px solid {SEM['warn_bd']};"
+            f"border-radius:8px;font-size:12px;color:{SEM['warn']}'>"
+            f"<span>⚠️</span><span>Chưa có API key</span></div>",
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+    st.markdown(
+        f"<div style='color:{MUTED};font-size:11px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:0.08em;margin-bottom:8px'>🎯 Chế độ</div>",
+        unsafe_allow_html=True,
+    )
+    mode = st.radio("Mode", ["🧬 Liveness", "🔍 Deepfake", "🏛️ eKYC Cascade"], index=2, label_visibility="collapsed")
+
+    model_choice = st.selectbox(
+        "Model deepfake",
+        ["sfdct", "b4", "hff"],
+        format_func=lambda m: {
+            "sfdct": "SFDCT · B4+DCT (0.7572)",
+            "b4": "B4 · Spatial (0.7497)",
+            "hff": "HFF · R3 (0.7695)",
+        }[m],
+    )
+    n_frames = st.slider("Khung video (liveness)", 3, 12, 6)
+    use_thr = st.checkbox("Override threshold")
+    threshold = st.slider("Threshold", 0.0, 1.0, 0.35, 0.01, disabled=not use_thr)
+
+    st.divider()
+    st.caption("🔬 Face crop MTCNN chạy tại backend")
+
+mode_clean = mode.split()[-1]
+
+# ════════════════════════════════════════════════════════════════════════════
+# API LAYER
+# ════════════════════════════════════════════════════════════════════════════
+H = lambda: {"Authorization": f"Bearer {api_key}"}
+P = lambda: ({"threshold": threshold} if use_thr else {})
+
+def call_live(b, n, m):
+    r = requests.post(
+        f"{api_url}/v1/detect/liveness", headers=H(),
+        files={"file": (n, b, m)}, params={**P(), "debug": "true"}, timeout=60,
+    )
     r.raise_for_status()
     return r.json()
 
-def call_deepfake(img_bytes, filename, mime):
-    r = requests.post(f"{api_url}/v1/detect/image", headers=_headers(),
-                      files={"file": (filename, img_bytes, mime)},
-                      params={**_params(), "model": model_choice}, timeout=120)
+def call_df(b, n, m):
+    r = requests.post(
+        f"{api_url}/v1/detect/image", headers=H(),
+        files={"file": (n, b, m)}, params={**P(), "model": model_choice}, timeout=120,
+    )
     r.raise_for_status()
     return r.json()
 
-def call_deepfake_video(video_bytes, filename, mime):
-    r = requests.post(f"{api_url}/v1/detect/video", headers=_headers(),
-                      files={"file": (filename, video_bytes, mime)}, timeout=300)
+def call_dfv(b, n, m):
+    r = requests.post(
+        f"{api_url}/v1/detect/video", headers=H(),
+        files={"file": (n, b, m)}, timeout=300,
+    )
     r.raise_for_status()
     return r.json()
 
-def call_result(request_id):
-    # GET /v1/results/{id} — tra lại 1 kết quả deepfake theo request_id (auth API key)
-    r = requests.get(f"{api_url}/v1/results/{request_id}", headers=_headers(), timeout=30)
+def call_get(rid):
+    r = requests.get(f"{api_url}/v1/results/{rid}", headers=H(), timeout=30)
     r.raise_for_status()
     return r.json()
 
-# ───────────────────────────── Video frame extraction ─────────────────────────────
-def extract_frames(video_bytes, n, filename="video.mp4"):
-    """Trích n khung đều nhau từ video → list jpeg bytes (cv2, BGR→JPEG đúng màu)."""
+def extract_frames(data, n, fname):
     import pathlib
-    suffix = pathlib.Path(filename).suffix or ".mp4"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
-        tf.write(video_bytes)
+    sfx = pathlib.Path(fname).suffix or ".mp4"
+    with tempfile.NamedTemporaryFile(suffix=sfx, delete=False) as tf:
+        tf.write(data)
         path = tf.name
     frames = []
     try:
         cap = cv2.VideoCapture(path)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
-        idxs = set(list(range(0, total, max(1, total // n)))[:n]) if total > 0 else None
-        i, picked = 0, 0
+        idxs = set(list(range(0, total, max(1, total // n)))[:n]) if total else None
+        i = picked = 0
         while picked < n:
-            ret, frame = cap.read()
+            ret, frm = cap.read()
             if not ret:
                 break
             if idxs is None or i in idxs:
-                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                ok, buf = cv2.imencode(".jpg", frm, [cv2.IMWRITE_JPEG_QUALITY, 90])
                 if ok:
                     frames.append(buf.tobytes())
                     picked += 1
@@ -158,281 +541,361 @@ def extract_frames(video_bytes, n, filename="video.mp4"):
         os.unlink(path)
     return frames
 
-def call_liveness_video(video_bytes, n, filename="video.mp4"):
-    """Gộp liveness trên N khung (majority-vote). Trả (aggregate_dict, per_frame_list)."""
-    frames = extract_frames(video_bytes, n, filename=filename)
+def live_video(data, n, fname):
+    frames = extract_frames(data, n, fname)
     if not frames:
-        raise RuntimeError("Không trích được khung hình từ video (codec không hỗ trợ?)")
-    per_frame = [call_liveness(fb, f"frame_{i}.jpg", "image/jpeg") for i, fb in enumerate(frames)]
-    scores = [r.get("liveness_score", 0.0) for r in per_frame]
-    confs = [r.get("confidence", 0.0) for r in per_frame]
-    n_spoof = sum(1 for r in per_frame if r.get("verdict") == "SPOOF")
-    n_live = sum(1 for r in per_frame if r.get("verdict") == "LIVE")
-    agg_verdict = "SPOOF" if n_spoof > n_live else ("LIVE" if n_live > n_spoof else "UNCERTAIN")
-    spoof_types = [r.get("spoof_type") for r in per_frame if r.get("spoof_type")]
-    agg = {
-        "verdict": agg_verdict,
-        "liveness_score": sum(scores) / len(scores),
-        "confidence": sum(confs) / len(confs),
-        "spoof_type": max(set(spoof_types), key=spoof_types.count) if (spoof_types and agg_verdict != "LIVE") else None,
-        "threshold_used": per_frame[0].get("threshold_used"),
-        "mode": f"video · gộp {len(per_frame)} khung (client)",
-        "frame_count": len(per_frame),
-        "processing_time_ms": sum(r.get("processing_time_ms", 0) for r in per_frame),
-        "model_version": per_frame[0].get("model_version"),
-    }
-    return agg, per_frame
+        raise RuntimeError("Không trích được khung")
+    pf = [call_live(fb, f"frame_{i}.jpg", "image/jpeg") for i, fb in enumerate(frames)]
+    sc = [r.get("liveness_score", 0) for r in pf]
+    co = [r.get("confidence", 0) for r in pf]
+    ns = sum(1 for r in pf if r.get("verdict") == "SPOOF")
+    nl = sum(1 for r in pf if r.get("verdict") == "LIVE")
+    v = "SPOOF" if ns > nl else ("LIVE" if nl > ns else "UNCERTAIN")
+    sts = [r.get("spoof_type") for r in pf if r.get("spoof_type")]
+    return {
+        "verdict": v,
+        "liveness_score": sum(sc) / len(sc),
+        "confidence": sum(co) / len(co),
+        "spoof_type": (max(set(sts), key=sts.count) if sts and v != "LIVE" else None),
+        "threshold_used": pf[0].get("threshold_used"),
+        "mode": f"video · {len(pf)} khung (client)",
+        "frame_count": len(pf),
+        "processing_time_ms": sum(r.get("processing_time_ms", 0) for r in pf),
+        "model_version": pf[0].get("model_version"),
+    }, pf
 
-# ───────────────────────────── Render helpers ─────────────────────────────
-def show_b64(data_url, caption):
-    if not data_url:
-        st.caption(f"({caption}: không có)")
-        return
-    try:
-        b64 = data_url.split(",", 1)[1] if "," in data_url else data_url
-        st.image(base64.b64decode(b64), caption=caption, use_container_width=True)
-    except Exception as e:  # noqa: BLE001
-        st.caption(f"(không hiển thị được {caption}: {e})")
-
-def verdict_badge(label):
-    color = VERDICT_COLOR.get(str(label).upper(), "#64748b")
-    st.markdown(f"<span style='font-size:2.2rem;font-weight:800;color:{color}'>{label}</span>",
-                unsafe_allow_html=True)
-
-def _explain_deepfake(res):
-    pf = res.get("prob_fake") or 0.0
-    thr = res.get("threshold_used") or 0.35
-    rs = res.get("risk_score") or 0.0
-    th = res.get("thresholds") or {"low": 0.3, "high": 0.7}
-    with st.expander("🔍 Vì sao ra verdict / decision này?", expanded=True):
-        st.markdown(
-            f"**Verdict (FAKE/REAL)** — so `prob_fake` với `threshold_used` (vùng lưỡng lự ±0.10):\n"
-            f"- prob_fake = **{pf:.4f}** · threshold = **{thr:.2f}**\n"
-            f"- REAL nếu ≤ **{thr - 0.10:.2f}** · FAKE nếu ≥ **{thr + 0.10:.2f}** · ở giữa → UNCERTAIN\n"
-            f"- ⇒ **{res.get('verdict')}**\n\n"
-            f"**Decision hint** — so `risk_score` với band rủi ro:\n"
-            f"- risk_score = **{rs:.4f}** · band: low < **{th.get('low')}** / high ≥ **{th.get('high')}**\n"
-            f"- ⇒ band **{res.get('risk_band')}** → **{str(res.get('decision_hint')).upper()}**"
-        )
-
-def _explain_liveness(res):
-    sc = res.get("liveness_score") or 0.0
-    thr = res.get("threshold_used") or 0.0
-    with st.expander("🔍 Vì sao ra verdict này?", expanded=True):
-        md = (
-            f"- P(live) = **{sc:.4f}** · threshold = **{thr:.3f}**\n"
-            f"- LIVE nếu P(live) ≥ threshold · SPOOF nếu < threshold (margin = 0)\n"
-            f"- ⇒ **{res.get('verdict')}**"
-        )
-        if res.get("spoof_type"):
-            md += f"\n- spoof_type (heuristic): **{res['spoof_type']}**"
-        st.markdown(md)
-        aa = res.get("attack_analysis")
-        if aa:
-            sca = aa.get("scores", {})
-            st.markdown(
-                f"**Print vs Screen** (heuristic): print=**{sca.get('print')}** · "
-                f"screen=**{sca.get('screen')}** → **{aa.get('attack_type')}** "
-                f"(conf {aa.get('confidence')}; unknown nếu điểm cao nhất < 0.25)"
+# ════════════════════════════════════════════════════════════════════════════
+# RENDER FUNCTIONS
+# ════════════════════════════════════════════════════════════════════════════
+def render_live(res, pf=None):
+    sc = res.get("liveness_score", 0)
+    thr = res.get("threshold_used", 0)
+    v = res.get("verdict", "—")
+    sem = _VMAP.get(str(v).upper(), ("info", "❔"))[0]
+    card(
+        body=(
+            vbadge(v, sub=res.get("mode", ""))
+            + score_bar("P(live) — cao = thật", sc, invert=False)
+            + pills(
+                **{
+                    "P(live)": f"{sc*100:.1f}%",
+                    "Confidence": f"{res.get('confidence',0):.1f}%",
+                    "Latency": f"{res.get('processing_time_ms',0)} ms",
+                    "Threshold": str(thr),
+                }
             )
-            ev = aa.get("evidence", {})
-            if ev:
-                st.caption("Bằng chứng: " + " · ".join(f"{k}={v}" for k, v in ev.items()))
+            + info_box(
+                f"P(live) = <b>{sc:.4f}</b> {'≥' if sc >= thr else '<'} threshold = <b>{thr:.3f}</b> → <b>{v}</b>"
+                f"<br><span style='opacity:.7;font-size:12px'>model: {res.get('model_version','—')}</span>",
+                kind="ok" if sem == "success" else "err" if sem == "danger" else "warn",
+            )
+            + (info_box(f"Spoof type phát hiện: <b>{res['spoof_type']}</b>", kind="warn") if res.get("spoof_type") else "")
+            + (
+                info_box(
+                    f"🔬 Print={aa.get('scores',{}).get('print')} · Screen={aa.get('scores',{}).get('screen')} → <b>{aa.get('attack_type')}</b>",
+                    kind="warn",
+                )
+                if (aa := res.get("attack_analysis"))
+                else ""
+            )
+        ),
+        title="Kết quả Liveness",
+        accent=SEM[sem],
+    )
+    if pf:
+        with st.expander(f"📋 Điểm từng khung ({len(pf)})"):
+            st.table([
+                {"#": i, "verdict": r.get("verdict"), "P(live)": round(r.get("liveness_score", 0), 4)}
+                for i, r in enumerate(pf)
+            ])
+    with st.expander("🔧 JSON đầy đủ"):
+        st.json(res)
 
-def render_liveness(res, per_frame=None):
-    verdict_badge(res.get("verdict", "—"))
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Liveness score", f"{res.get('liveness_score', 0) * 100:.1f}%")
-    c2.metric("Confidence", f"{res.get('confidence', 0):.1f}%")
-    c3.metric("Latency", f"{res.get('processing_time_ms', 0)} ms")
-    if res.get("spoof_type"):
-        st.error(f"Spoof type (heuristic): **{res['spoof_type']}**")
-    st.caption(f"model: {res.get('model_version')} · threshold: {res.get('threshold_used')} · mode: {res.get('mode')}")
-    _explain_liveness(res)
-    if per_frame:
-        with st.expander(f"Điểm từng khung ({len(per_frame)})"):
-            st.table([{"#": i, "verdict": r.get("verdict"),
-                       "liveness_score": round(r.get("liveness_score", 0), 4)}
-                      for i, r in enumerate(per_frame)])
+def render_df(res):
+    pf = res.get("prob_fake", 0)
+    thr = res.get("threshold_used", 0.35)
+    rs = res.get("risk_score", 0)
+    v = res.get("verdict", "—")
+    sem = _VMAP.get(str(v).upper(), ("info", "❔"))[0]
+    card(
+        body=(
+            vbadge(v)
+            + score_bar("Prob fake — thấp = thật", pf, invert=False)
+            + pills(
+                **{
+                    "Risk": f"{rs*100:.1f}%",
+                    "Verdict": v,
+                    "Decision": str(res.get("decision_hint", "—")).upper(),
+                    "Latency": f"{res.get('processing_time_ms',0)} ms",
+                }
+            )
+            + info_box(
+                f"prob_fake=<b>{pf:.4f}</b> · threshold=<b>{thr:.2f}</b><br>"
+                f"risk_band=<b>{res.get('risk_band','—')}</b> → <b>{str(res.get('decision_hint','')).upper()}</b>"
+                f"<br><span style='opacity:.7;font-size:12px'>model: {res.get('model_version','—')}</span>",
+                kind="ok" if sem == "success" else "err" if sem == "danger" else "warn",
+            )
+        ),
+        title="Kết quả Deepfake",
+        accent=SEM[sem],
+    )
+    if res.get("heatmap") or res.get("frequency"):
+        c1, c2 = st.columns(2)
+        with c1:
+            show_b64(res.get("heatmap"), "Grad-CAM")
+        with c2:
+            show_b64(res.get("frequency"), "Phổ DCT")
+    with st.expander("🔧 JSON đầy đủ"):
+        st.json(res)
 
-def render_deepfake(res):
-    verdict_badge(res.get("verdict", "—"))
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Risk score", f"{res.get('risk_score', 0) * 100:.1f}%", help="P(deepfake) đã calibrate")
-    c2.metric("Decision hint", str(res.get("decision_hint", "—")).upper())
-    c3.metric("Latency", f"{res.get('processing_time_ms', 0)} ms")
-    st.caption(f"risk_band: {res.get('risk_band')} · prob_fake: {res.get('prob_fake')} · model: {res.get('model_version')}")
-    _explain_deepfake(res)
-    g1, g2 = st.columns(2)
-    with g1:
-        show_b64(res.get("heatmap"), "Grad-CAM (vùng nghi)")
-    with g2:
-        show_b64(res.get("frequency"), "Phổ DCT")
+def render_dfv(res):
+    v = res.get("verdict", "—")
+    sem = _VMAP.get(str(v).upper(), ("info", "❔"))[0]
+    card(
+        body=(
+            vbadge(v)
+            + score_bar("Prob fake (gộp)", res.get("prob_fake", 0))
+            + pills(
+                **{
+                    "Frames fake": f"{res.get('frames_fake',0)}/{res.get('frames_analyzed',0)}",
+                    "Confidence": str(res.get("confidence", "—")),
+                    "Latency": f"{res.get('processing_time_ms',0)} ms",
+                }
+            )
+        ),
+        title="Deepfake · Video",
+        accent=SEM[sem],
+    )
+    with st.expander("🔧 JSON đầy đủ"):
+        st.json(res)
 
-def render_deepfake_video(res):
-    verdict_badge(res.get("verdict", "—"))
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Prob fake (gộp)", f"{res.get('prob_fake', 0) * 100:.1f}%")
-    c2.metric("Frames fake", f"{res.get('frames_fake', 0)}/{res.get('frames_analyzed', 0)}")
-    c3.metric("Latency", f"{res.get('processing_time_ms', 0)} ms")
-    st.caption(f"confidence: {res.get('confidence')} · model: {res.get('model_version')}")
+def render_any(res):
+    (render_dfv if "frames_analyzed" in res else render_df)(res)
 
-def render_deepfake_any(res):
-    (render_deepfake_video if "frames_analyzed" in res else render_deepfake)(res)
-
-def deepfake_decision(res):
-    """PASS/REVIEW/FAIL từ kết quả deepfake (ảnh dùng decision_hint, video dùng verdict)."""
+def df_decision(res):
     if "decision_hint" in res:
         return {"pass": "PASS", "review": "REVIEW", "reject": "FAIL"}.get(res.get("decision_hint"), "REVIEW")
     return {"REAL": "PASS", "FAKE": "FAIL", "UNCERTAIN": "REVIEW"}.get(res.get("verdict"), "REVIEW")
 
-# Lịch sử phiên (client-side — API key không có endpoint list detections)
+# ════════════════════════════════════════════════════════════════════════════
+# HEADER
+# ════════════════════════════════════════════════════════════════════════════
+st.markdown(
+    f"<div style='background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 60%,#1e40af 100%);"
+    f"border-radius:18px;padding:30px 36px;margin-bottom:24px;"
+    f"display:flex;align-items:center;gap:22px;position:relative;overflow:hidden;"
+    f"box-shadow:0 10px 30px -8px rgba(30,58,138,0.4)'>"
+    f"<div style='position:absolute;top:-30px;right:-30px;width:200px;height:200px;"
+    f"background:radial-gradient(circle,{ACCENT}33,transparent 70%);border-radius:50%'></div>"
+    f"<div style='position:absolute;bottom:-50px;left:30%;width:300px;height:300px;"
+    f"background:radial-gradient(circle,{PRIMARY}22,transparent 70%);border-radius:50%'></div>"
+    f"<div style='font-size:3rem;filter:drop-shadow(0 0 20px #3b82f6aa);position:relative;z-index:1'>🛡️</div>"
+    f"<div style='position:relative;z-index:1'>"
+    f"<div style='color:#f8fafc;font-size:1.85rem;font-weight:800;letter-spacing:-0.025em'>DeepGuard eKYC</div>"
+    f"<div style='color:#94a3b8;font-size:0.875rem;margin-top:4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap'>"
+    f"<span>Dev Integration Demo</span>"
+    f"<span style='opacity:.4'>·</span>"
+    f"<span>Mode: <b style='color:#60a5fa'>{mode_clean}</b></span>"
+    f"<span style='opacity:.4'>·</span>"
+    f"<code style='background:rgba(30,41,59,0.7);padding:3px 10px;border-radius:5px;"
+    f"color:#7dd3fc;font-size:12px'>{api_url}</code>"
+    f"</div></div></div>",
+    unsafe_allow_html=True,
+)
+
+# ════════════════════════════════════════════════════════════════════════════
+# MAIN LAYOUT
+# ════════════════════════════════════════════════════════════════════════════
 st.session_state.setdefault("history", [])
 
-def _hist(mode, ident, verdict, score):
+def _hist(m, rid, v, s):
     st.session_state["history"].append({
         "time": datetime.now().strftime("%H:%M:%S"),
-        "mode": mode,
-        "verdict": verdict or "—",
-        "score": f"{score:.3f}" if isinstance(score, (int, float)) else "—",
-        "id": str(ident) if ident is not None else "—",
+        "mode": m,
+        "verdict": v or "—",
+        "score": f"{s:.3f}" if isinstance(s, (int, float)) else "—",
+        "id": str(rid) if rid else "—",
     })
 
-# ───────────────────────────── Main ─────────────────────────────
-st.title("DeepGuard eKYC — Dev Integration Demo")
-st.caption(f"Mode: **{mode}** · endpoint: `{api_url}`")
+left, right = st.columns([5, 7], gap="large")
 
-left, right = st.columns([5, 7])
-
+# ─── LEFT: INPUT ─────────────────────────────────────────────────────────────
 with left:
-    st.subheader("Đầu vào")
-    up = st.file_uploader("Ảnh hoặc video khuôn mặt", type=IMAGE_TYPES + VIDEO_TYPES)
-    media_is_video = False
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:12px'>"
+        f"<div style='color:{PRIMARY};font-weight:700;font-size:14px'>01 · MEDIA INPUT</div>"
+        f"<div style='flex:1;height:1px;background:{LINE}'></div></div>",
+        unsafe_allow_html=True,
+    )
+    up = st.file_uploader("Ảnh hoặc video", type=IMAGE_TYPES + VIDEO_TYPES, label_visibility="collapsed")
+    is_video = False
     if up:
         ext = (up.name.rsplit(".", 1)[-1] or "").lower()
-        media_is_video = (up.type or "").startswith("video") or ext in VIDEO_TYPES
-        if media_is_video:
+        is_video = (up.type or "").startswith("video") or ext in VIDEO_TYPES
+        if is_video:
             st.video(up)
-            st.caption(f"Video · liveness sẽ gộp {n_frames} khung; deepfake gọi /detect/video.")
+            st.caption(f"🎬 Video · {n_frames} khung sẽ được trích · Deepfake → /detect/video")
         else:
-            st.image(up, caption=up.name, use_container_width=True)
-    run = st.button("▶ Chạy kiểm tra", type="primary",
-                    disabled=not (api_key and up), use_container_width=True)
-    if not api_key:
-        st.caption("⚠️ Cần API key để chạy.")
+            st.image(up, use_container_width=True)
+    else:
+        st.markdown(
+            f"<div style='border:2px dashed {LINE};border-radius:14px;padding:40px 20px;"
+            f"text-align:center;background:{SURFACE}'>"
+            f"<div style='font-size:2.5rem;opacity:.4'>📁</div>"
+            f"<div style='color:{MUTED};font-size:13px;margin-top:8px'>"
+            f"Kéo thả hoặc bấm để upload<br><span style='font-size:11px'>"
+            f"JPG · PNG · WEBP · MP4 · MOV …</span></div></div>",
+            unsafe_allow_html=True,
+        )
 
+    run = st.button("▶  Chạy kiểm tra", type="primary", disabled=not (api_key and up), use_container_width=True)
+    if not api_key:
+        _r(info_box("Cần API key để chạy.", kind="warn"))
+    elif not up:
+        _r(info_box("Upload ảnh/video để bắt đầu.", kind="info"))
+
+# ─── RIGHT: RESULTS ─────────────────────────────────────────────────────────
 with right:
-    st.subheader("Kết quả")
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:12px'>"
+        f"<div style='color:{PRIMARY};font-weight:700;font-size:14px'>02 · KẾT QUẢ PHÂN TÍCH</div>"
+        f"<div style='flex:1;height:1px;background:{LINE}'></div></div>",
+        unsafe_allow_html=True,
+    )
+
     if run:
         data = up.getvalue()
-        mime = up.type or ("video/mp4" if media_is_video else "image/jpeg")
+        mime = up.type or ("video/mp4" if is_video else "image/jpeg")
         try:
-            with st.spinner("Đang gọi API…"):
-                if mode == "Liveness":
-                    if media_is_video:
-                        agg, pf = call_liveness_video(data, n_frames, filename=up.name)
-                        render_liveness(agg, per_frame=pf)
-                        _hist("Liveness·video", "—", agg.get("verdict"), agg.get("liveness_score"))
-                        with st.expander("Response JSON (gộp + từng khung)"):
-                            st.json({"aggregate": agg, "frames": pf})
+            with st.spinner("Đang phân tích…"):
+                if "Liveness" in mode:
+                    if is_video:
+                        res, pf = live_video(data, n_frames, up.name)
+                        render_live(res, pf)
+                        _hist("Live·video", "—", res.get("verdict"), res.get("liveness_score"))
                     else:
-                        res = call_liveness(data, up.name, mime)
-                        render_liveness(res)
+                        res = call_live(data, up.name, mime)
+                        render_live(res)
                         _hist("Liveness", res.get("check_id"), res.get("verdict"), res.get("liveness_score"))
-                        with st.expander("Response JSON"):
-                            st.json(res)
 
-                elif mode == "Deepfake":
-                    res = call_deepfake_video(data, up.name, mime) if media_is_video \
-                        else call_deepfake(data, up.name, mime)
-                    render_deepfake_any(res)
+                elif "Deepfake" in mode:
+                    res = call_dfv(data, up.name, mime) if is_video else call_df(data, up.name, mime)
+                    render_any(res)
                     _hist("Deepfake", res.get("request_id") or res.get("job_id"),
                           res.get("verdict"), res.get("risk_score", res.get("prob_fake")))
-                    with st.expander("Response JSON"):
-                        st.json(res)
 
-                else:  # eKYC cascade: liveness trước, LIVE mới chạy deepfake
-                    if media_is_video:
-                        live_res, pf = call_liveness_video(data, n_frames, filename=up.name)
+                else:  # eKYC cascade
+                    _step_ph = st.empty()
+                    _step_ph.markdown(step_indicator(
+                        [("Liveness", "active"), ("Deepfake", "pending"), ("Decision", "pending")], 0,
+                    ), unsafe_allow_html=True)
+                    if is_video:
+                        lr, pf = live_video(data, n_frames, up.name)
                     else:
-                        live_res, pf = call_liveness(data, up.name, mime), None
-                    # Spec 2.1: SPOOF -> dừng (FAIL); UNCERTAIN -> dừng (REVIEW); chỉ LIVE mới chạy deepfake.
-                    verdict_live = live_res.get("verdict")
-                    stopped = verdict_live == "SPOOF"
-                    uncertain = verdict_live == "UNCERTAIN"
-                    if stopped or uncertain:
-                        df_res = None
-                    elif media_is_video:
-                        df_res = call_deepfake_video(data, up.name, mime)
-                    else:
-                        df_res = call_deepfake(data, up.name, mime)
-
-                    # Quyết định eKYC
+                        lr, pf = call_live(data, up.name, mime), None
+                    vlive = lr.get("verdict")
+                    stopped = vlive == "SPOOF"
+                    unc = vlive == "UNCERTAIN"
+                    dr = None
+                    if not stopped and not unc:
+                        _step_ph.markdown(step_indicator(
+                            [("Liveness", "done"), ("Deepfake", "active"), ("Decision", "pending")], 1,
+                        ), unsafe_allow_html=True)
+                        dr = call_dfv(data, up.name, mime) if is_video else call_df(data, up.name, mime)
+                    final = "FAIL" if stopped else "REVIEW" if unc else df_decision(dr)
+                    reason = (
+                        "Presentation attack phát hiện — cascade dừng tại bước liveness."
+                        if stopped else
+                        "Liveness UNCERTAIN — chuyển người duyệt (spec 2.1)."
+                        if unc else
+                        f"Liveness {vlive} ✓ → Deepfake → {final}."
+                    )
+                    _step_ph.markdown(step_indicator(
+                        [
+                            ("Liveness", "done" if not unc else "active"),
+                            ("Deepfake", "skipped" if (stopped or unc) else "done"),
+                            ("Decision", "done"),
+                        ], 2,
+                    ), unsafe_allow_html=True)
+                    _r(vbadge(f"eKYC: {final}", sub=reason))
+                    st.divider()
+                    st.markdown("**Bước 1 · Liveness**")
+                    render_live(lr, pf)
+                    st.divider()
+                    st.markdown("**Bước 2 · Deepfake**")
                     if stopped:
-                        final, reason = "FAIL", "Presentation attack (liveness = SPOOF) — chặn ngay, không chạy deepfake."
-                    elif uncertain:
-                        final, reason = "REVIEW", "Liveness UNCERTAIN — dừng cascade, chuyển người duyệt (đúng spec 2.1)."
-                    else:
-                        final = deepfake_decision(df_res)
-                        reason = f"Liveness {verdict_live} → Deepfake → {final}."
-
-                    st.subheader("Kết quả eKYC")
-                    verdict_badge(final)
-                    st.info(reason)
-                    _hist("eKYC", (df_res or {}).get("request_id") or live_res.get("check_id"),
-                          final, (df_res or {}).get("risk_score"))
-                    st.markdown("##### Bước 1 · Liveness (bộ lọc chạy trước)")
-                    render_liveness(live_res, per_frame=pf)
-                    st.markdown("##### Bước 2 · Deepfake")
-                    if stopped:
-                        st.warning("Bỏ qua — đã bị chặn ở bước liveness.")
-                    elif df_res is not None:
-                        render_deepfake_any(df_res)
-                    with st.expander("Response JSON (liveness + deepfake)"):
-                        st.json({"liveness": live_res, "deepfake": df_res})
-
+                        _r(info_box("⏭️ Bỏ qua — đã chặn ở bước liveness.", kind="warn"))
+                    elif dr:
+                        render_any(dr)
+                    _hist("eKYC", (dr or {}).get("request_id") or lr.get("check_id"),
+                          final, (dr or {}).get("risk_score"))
         except requests.HTTPError as e:
-            st.error(f"API lỗi {e.response.status_code}: {e.response.text[:300]}")
+            _r(info_box(f"API {e.response.status_code}: {e.response.text[:300]}", kind="err"))
         except requests.RequestException as e:
-            st.error(f"Không gọi được API ({api_url}). Stack đã chạy chưa? Chi tiết: {e}")
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Lỗi: {e}")
+            _r(info_box(f"Không gọi được API (<code>{api_url}</code>)<br>{e}", kind="err"))
+        except Exception as e:
+            _r(info_box(f"Lỗi: {e}", kind="err"))
     else:
-        st.caption("Nhập key, chọn mode, upload ảnh/video rồi bấm **Chạy kiểm tra**.")
+        empty_state(
+            "🛰️",
+            "Sẵn sàng phân tích",
+            "Nhập API key → upload ảnh/video → bấm <b>Chạy kiểm tra</b>. "
+            "Kết quả liveness & deepfake sẽ hiển thị tại đây.",
+        )
 
-st.divider()
-hist_col, lookup_col = st.columns([7, 5])
-with hist_col:
-    st.subheader("Lịch sử phiên này")
-    st.caption("Client tự lưu các lần chạy trong phiên (API key không có endpoint list).")
+# ════════════════════════════════════════════════════════════════════════════
+# FOOTER: HISTORY + LOOKUP
+# ════════════════════════════════════════════════════════════════════════════
+st.markdown(
+    f"<div style='height:1px;background:{LINE};margin:30px 0 20px'></div>",
+    unsafe_allow_html=True,
+)
+hc, lc = st.columns([7, 5], gap="large")
+
+with hc:
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:10px'>"
+        f"<span style='color:{MUTED};font-size:11px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:0.1em'>📜 Lịch sử phiên</span>"
+        f"<div style='flex:1;height:1px;background:{LINE}'></div></div>",
+        unsafe_allow_html=True,
+    )
     if st.session_state["history"]:
         st.table(list(reversed(st.session_state["history"])))
-        if st.button("Xóa lịch sử phiên"):
+        if st.button("🗑️ Xóa lịch sử", use_container_width=False):
             st.session_state["history"] = []
             st.rerun()
     else:
         st.caption("— Chưa có lần chạy nào.")
-with lookup_col:
-    st.subheader("Tra cứu theo request_id")
-    st.caption("GET /v1/results/{id} — chỉ áp dụng cho deepfake (request_id).")
-    rid = st.text_input("request_id", key="lookup_rid")
-    if st.button("Tra cứu", disabled=not (api_key and rid.strip())):
-        try:
-            res = call_result(rid.strip())
-            render_deepfake_any(res)
-            with st.expander("Response JSON"):
-                st.json(res)
-        except requests.HTTPError as e:
-            st.error(f"Lỗi {e.response.status_code}: {e.response.text[:200]}")
-        except requests.RequestException as e:
-            st.error(f"Không gọi được API: {e}")
 
-with st.expander("cURL tương đương (ảnh)"):
-    ep = {"Liveness": "/v1/detect/liveness", "Deepfake": "/v1/detect/image",
-          "eKYC (cascade)": "/v1/detect/liveness  → /v1/detect/image"}[mode]
+with lc:
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:10px'>"
+        f"<span style='color:{MUTED};font-size:11px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:0.1em'>🔎 Tra cứu</span>"
+        f"<div style='flex:1;height:1px;background:{LINE}'></div></div>",
+        unsafe_allow_html=True,
+    )
+    st.caption("`GET /v1/results/{id}` — Deepfake image")
+    rid = st.text_input("request_id", key="rid", placeholder="Nhập ID…")
+    if st.button("🔍 Tra cứu", disabled=not (api_key and rid.strip()), use_container_width=True):
+        try:
+            render_any(call_get(rid.strip()))
+        except requests.HTTPError as e:
+            _r(info_box(f"{e.response.status_code}: {e.response.text[:200]}", kind="err"))
+        except Exception as e:
+            _r(info_box(str(e), kind="err"))
+
+# ─── cURL ────────────────────────────────────────────────────────────────────
+ep = {
+    "🧬 Liveness": "/v1/detect/liveness",
+    "🔍 Deepfake": "/v1/detect/image",
+    "🏛️ eKYC Cascade": "/v1/detect/liveness → /v1/detect/image",
+}[mode]
+with st.expander("💻 cURL tương đương"):
     st.code(
         f"curl -X POST '{api_url}{ep.split()[0]}' \\\n"
-        f"  -H 'Authorization: Bearer <API_KEY>' \\\n"
+        f"  -H 'Authorization: Bearer <KEY>' \\\n"
         f"  -F 'file=@face.jpg'",
         language="bash",
     )
