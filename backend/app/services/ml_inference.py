@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 
 from app.config import get_settings
+from app.core.exceptions import service_unavailable
 from app.services.ml_model import (
     FREQ_WEIGHT,
     _get_model_and_transforms, _get_detector, _crop_face, _predict_face,
@@ -145,8 +146,10 @@ def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True, threshold
                        files={"file": ("upload.jpg", image_bytes, "image/jpeg")}, timeout=60.0)
         r.raise_for_status()
         j = r.json()
-    except Exception:
-        return _mock_inference(image_bytes, threshold)
+    except Exception as e:
+        # BUG-1: KHÔNG fallback mock âm thầm khi đang chạy model thật (SFDCT_INFER_URL set).
+        # Serving lỗi -> 503 rõ ràng để biết ngay, tránh trả kết quả MOCK mà tưởng thật.
+        raise service_unavailable(f"Model serving SFDCT (:8501) không phản hồi: {e}")
     prob_fake = float(j.get("prob_fake", 0.0))
     thr = settings.MODEL_THRESHOLD if threshold is None else threshold
     verdict, confidence = _verdict_from_prob(prob_fake, thr)

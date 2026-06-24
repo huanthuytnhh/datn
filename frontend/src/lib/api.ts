@@ -210,6 +210,7 @@ export interface LivenessListItem {
   mode: string;
   processing_time_ms: number;
   model_version: string;
+  source?: string;                  // 'api' | 'playground'
   created_at: string;
 }
 
@@ -312,6 +313,12 @@ export const playgroundDetectVideo = (file: File, sampleRate = 3) => {
   const form = new FormData();
   form.append("file", file);
   return req<VideoDetectionResponse>(`/playground/detect/video?sample_rate=${sampleRate}`, { method: "POST", body: form });
+};
+export const playgroundDetectLiveness = (file: File, threshold?: number) => {
+  const form = new FormData();
+  form.append("file", file);
+  const q = threshold != null ? `?threshold=${threshold}` : "";
+  return req<LivenessResponse>(`/playground/detect/liveness${q}`, { method: "POST", body: form });
 };
 
 // ── Webhooks ─────────────────────────────────────────────────────────────────

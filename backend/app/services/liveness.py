@@ -34,6 +34,7 @@ import numpy as np
 from PIL import Image
 
 from app.config import get_settings
+from app.core.exceptions import service_unavailable
 
 settings = get_settings()
 
@@ -115,10 +116,10 @@ def _real_liveness(image_bytes: bytes, threshold: float = None) -> LivenessResul
         )
         r.raise_for_status()
         j = r.json()
-        print("DEBUG LIVENESS SERVER RESPONSE:", j)
     except Exception as e:
-        print("DEBUG LIVENESS EXCEPTION:", e)
-        return _mock_liveness(image_bytes)
+        # BUG-1: serving liveness lỗi -> 503 rõ ràng, KHÔNG fallback mock âm thầm.
+        # (cũng bỏ 2 dòng print DEBUG rò rỉ vào log mỗi request)
+        raise service_unavailable(f"Model serving liveness (:8502) không phản hồi: {e}")
 
     score = float(j.get("liveness_score", 0.5))
     threshold = settings.LIVENESS_THRESHOLD if threshold is None else threshold

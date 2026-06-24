@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useAuthStore } from '@/store/auth';
 import {
-  detectLivenessPassive,
+  playgroundDetectLiveness,
   type LivenessResponse,
 } from '@/lib/api';
 
@@ -25,7 +24,6 @@ const SPOOF_LABEL: Record<string, string> = {
 type Source = 'upload' | 'webcam';
 
 export default function LivenessPage() {
-  const apiKey = useAuthStore((s) => s.apiKey);
   const [source, setSource] = useState<Source>('upload');
 
   // Upload state
@@ -103,7 +101,6 @@ export default function LivenessPage() {
 
   // Cả upload và webcam đều chấm bằng passive (1 ảnh) — không challenge, không gesture.
   const runCheck = async () => {
-    if (!apiKey) { setError('Chưa có API Key. Vào API Keys → tạo key'); return; }
     let target: File | null = file;
     if (source === 'webcam') {
       if (!streamActive) { setError('Hãy bật webcam trước'); return; }
@@ -113,8 +110,7 @@ export default function LivenessPage() {
     if (!target) { setError('Chưa chọn ảnh'); return; }
     setError(''); setResult(null); setRunning(true);
     try {
-      const res = await detectLivenessPassive(target, apiKey, threshold);
-      console.log('Liveness Full Response:', res);
+      const res = await playgroundDetectLiveness(target, threshold);
       setResult(res);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Liveness check thất bại');
@@ -333,10 +329,12 @@ export default function LivenessPage() {
                     <p className="text-[9px] font-black text-slate-400 uppercase">Mode</p>
                     <p className="text-xs font-bold text-slate-700 uppercase">{result.mode}</p>
                   </div>
-                  <div className="p-3 bg-slate-50 rounded-xl">
-                    <p className="text-[9px] font-black text-slate-400 uppercase">Frames</p>
-                    <p className="text-xs font-bold text-slate-700">{result.frame_count}</p>
-                  </div>
+                  {result.mode !== 'passive' && (
+                    <div className="p-3 bg-slate-50 rounded-xl">
+                      <p className="text-[9px] font-black text-slate-400 uppercase">Frames</p>
+                      <p className="text-xs font-bold text-slate-700">{result.frame_count}</p>
+                    </div>
+                  )}
                   <div className="p-3 bg-slate-50 rounded-xl">
                     <p className="text-[9px] font-black text-slate-400 uppercase">Latency</p>
                     <p className="text-xs font-bold text-slate-700">{result.processing_time_ms}ms</p>

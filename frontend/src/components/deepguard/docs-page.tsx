@@ -45,7 +45,7 @@ const METHOD_STYLE: Record<Method, { color: string; bg: string; border: string }
 };
 
 const AUTH_HEADER: Record<AuthKind, string> = {
-  'API Key': 'X-API-Key: dg_live_…',
+  'API Key': 'Authorization: Bearer dg_live_…',
   'Bearer JWT': 'Authorization: Bearer <token>',
   Public: 'Không yêu cầu',
 };
@@ -618,9 +618,9 @@ function endpointCode(ep: Endpoint, lang: 'curl' | 'python' | 'js'): string {
   const url = `${BASE_URL}${ep.path}`;
   const isForm = ep.params.some((p) => p.in === 'form-data');
   const auth =
-    ep.auth === 'API Key' ? '-H "X-API-Key: dg_live_…"' : ep.auth === 'Bearer JWT' ? '-H "Authorization: Bearer <token>"' : '';
+    ep.auth === 'API Key' ? '-H "Authorization: Bearer dg_live_…"' : ep.auth === 'Bearer JWT' ? '-H "Authorization: Bearer <token>"' : '';
   const authHeaderObj =
-    ep.auth === 'API Key' ? '"X-API-Key": "dg_live_a91f…"' : ep.auth === 'Bearer JWT' ? '"Authorization": "Bearer <token>"' : '';
+    ep.auth === 'API Key' ? '"Authorization": "Bearer dg_live_a91f…"' : ep.auth === 'Bearer JWT' ? '"Authorization": "Bearer <token>"' : '';
 
   const bodyParams = ep.params.filter((p) => p.in === 'body');
   const jsonBody = bodyParams.length

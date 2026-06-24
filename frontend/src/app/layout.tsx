@@ -46,6 +46,7 @@ export default function RootLayout({
       </head>
       <body
         className={`${inter.variable} ${firaCode.variable} antialiased`}
+        suppressHydrationWarning
       >
         {children}
         <Toaster />

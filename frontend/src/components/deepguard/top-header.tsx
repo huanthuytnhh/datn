@@ -1,9 +1,11 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useNavigation, type Page } from '@/store/navigation';
 import { Icon } from '@/components/deepguard/shared';
 import { RadiusQuickToggle } from '@/components/deepguard/radius-switcher';
 import { useOnboardingStore } from '@/store/onboarding';
+import { notificationsList } from '@/lib/api';
 
 const META: Record<string, { title: string; sub?: string }> = {
   dashboard: { title: 'Dashboard', sub: 'Tổng quan' },
@@ -30,6 +32,14 @@ export default function TopHeader() {
   const { currentPage, navigate } = useNavigation();
   const openTip = useOnboardingStore((s) => s.openTip);
   const meta = META[currentPage] ?? { title: 'DeepGuard' };
+
+  // Số thông báo chưa đọc — chỉ hiện chấm đỏ khi > 0 (thay vì hardcode luôn sáng).
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    notificationsList({ unread_only: true, limit: 1 })
+      .then((res) => setUnread(res.unread))
+      .catch(() => setUnread(0));
+  }, [currentPage]);
 
   return (
     <header
@@ -102,11 +112,14 @@ export default function TopHeader() {
           className="relative w-8 h-8 flex items-center justify-center text-slate-400 hover:text-dgblue transition-colors rounded-lg hover:bg-white/70"
         >
           <Icon name="notifications" className="text-[18px]" fill={currentPage === 'notifications'} />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-dgfake rounded-full" />
+          {unread > 0 && (
+            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-dgfake rounded-full" />
+          )}
         </button>
 
         {currentPage === 'playground' && (
           <button
+            onClick={() => window.print()}
             className="flex items-center gap-1.5 px-3.5 h-8 rounded-lg text-white text-[12px] font-semibold transition-all hover:opacity-90"
             style={{ background: '#0050cb', boxShadow: '0 2px 10px rgba(0,80,203,0.3)' }}
           >
@@ -116,6 +129,7 @@ export default function TopHeader() {
         )}
         {currentPage === 'detail' && (
           <button
+            onClick={() => window.print()}
             className="flex items-center gap-1.5 px-3.5 h-8 rounded-lg text-slate-700 text-[12px] font-semibold transition-all hover:bg-slate-100"
             style={{ background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.09)' }}
           >

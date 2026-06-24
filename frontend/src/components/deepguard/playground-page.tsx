@@ -311,27 +311,25 @@ export default function PlaygroundPage() {
   /* ── Code snippets ── */
   const pythonCode = `import requests
 
-url = "https://api.deepguard.io/v1/detect/image"
-headers = {'x-api-key': 'demo-key-vietbank-2024'}
-payload = {'threshold': ${threshold.toFixed(4)}, 'include_heatmap': ${includeHeatmap}}
-files = [('file', open('${selectedFile?.name ?? 'target_media.jpg'}','rb'))]
+url = "https://deepguard.ddns.net/api/v1/detect/image?threshold=${threshold.toFixed(4)}"
+headers = {'Authorization': 'Bearer <YOUR_API_KEY>'}
+files = {'file': open('${selectedFile?.name ?? 'target_media.jpg'}', 'rb')}
 
-response = requests.post(url, headers=headers, data=payload, files=files)
+response = requests.post(url, headers=headers, files=files)
 print(response.json())`;
 
-  const curlCode = `curl -X POST "https://api.deepguard.io/v1/detect/image?threshold=${threshold.toFixed(4)}" \\
-  -H "x-api-key: demo-key-vietbank-2024" \\
-  -F "include_heatmap=${includeHeatmap}" \\
+  const curlCode = `curl -X POST "https://deepguard.ddns.net/api/v1/detect/image?threshold=${threshold.toFixed(4)}" \\
+  -H "Authorization: Bearer <YOUR_API_KEY>" \\
   -F "file=@${selectedFile?.name ?? 'target_media.jpg'}"`;
 
   const jsCode = `const formData = new FormData();
 formData.append('file', fileInput.files[0]);
 
 const response = await fetch(
-  'https://api.deepguard.io/v1/detect/image?threshold=${threshold.toFixed(4)}',
+  'https://deepguard.ddns.net/api/v1/detect/image?threshold=${threshold.toFixed(4)}',
   {
     method: 'POST',
-    headers: { 'x-api-key': 'demo-key-vietbank-2024' },
+    headers: { 'Authorization': 'Bearer <YOUR_API_KEY>' },
     body: formData
   }
 );

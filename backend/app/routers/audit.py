@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +23,7 @@ class AuditLogItem(BaseModel):
     resource_id: Optional[uuid.UUID] = None
     user_id: Optional[uuid.UUID] = None
     user_email: Optional[str] = None
-    metadata: dict = {}
+    metadata: dict = Field(default_factory=dict)
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     created_at: datetime

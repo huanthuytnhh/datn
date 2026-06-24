@@ -1,0 +1,12 @@
+# Ép line-ending LF cho mọi file text -> chống lỗi CRLF khi sửa từ Windows.
+* text=auto eol=lf
+# Nhị phân: không đụng tới
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.bmp binary
+*.ico binary
+*.pth binary
+*.bin binary
+*.lock binary

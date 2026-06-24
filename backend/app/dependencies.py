@@ -87,12 +87,6 @@ async def get_api_key_auth(
     return api_key
 
 
-async def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role not in ("admin", "sysadmin"):
-        raise forbidden("Admin access required")
-    return current_user
-
-
 def require_role(*roles: str):
     """Dependency factory: chỉ cho phép các role chỉ định.
 

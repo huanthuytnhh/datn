@@ -159,7 +159,6 @@ def _sfdct_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
 
     frame_results: list[dict] = []
     service_errors = 0
-    truncated = False
     try:
         cap = cv2.VideoCapture(tmp_path)
         if not cap.isOpened():
@@ -176,15 +175,15 @@ def _sfdct_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
                 take = (frame_id in wanted) if wanted is not None else (frame_id % sample_rate == 0)
                 if take:
                     if wanted is None and len(frame_results) >= SFDCT_MAX_FRAMES:
-                        truncated = True
-                        break
+                        break  # video dài: cắt còn SFDCT_MAX_FRAMES frame gửi SFDCT
                     # Gửi NGUYÊN frame sang :8501 để service tự crop mặt (giống path ảnh
                     # _sfdct_inference) -> backend KHÔNG cần torch/MTCNN, hết lỗi
                     # "No module named 'torch'" khi xử lý video.
                     ok, buf = cv2.imencode(".jpg", frame)            # frame là BGR
                     if ok:
                         try:
-                            r = client.post(url, files={"file": ("frame.jpg", buf.tobytes(), "image/jpeg")})
+                            r = client.post(url, params={"gradcam": "false"},
+                                            files={"file": ("frame.jpg", buf.tobytes(), "image/jpeg")})
                             r.raise_for_status()
                             prob = float(r.json().get("prob_fake", 0.0))
                             frame_results.append({
@@ -200,13 +199,10 @@ def _sfdct_inference_video(video_bytes: bytes, sample_rate: int = 3) -> dict:
     finally:
         os.unlink(tmp_path)
 
-    if truncated:
-        print(f"[DeepGuard] video: cắt còn {SFDCT_MAX_FRAMES} frame gửi SFDCT (video dài, sample_rate={sample_rate}).")
-
     if not frame_results:
-        if service_errors:                       # SFDCT down -> fallback mock (giống _sfdct_inference cho ảnh)
-            print(f"[DeepGuard] SFDCT :8501 lỗi {service_errors} frame -> fallback mock video.")
-            return _mock_inference_video(video_bytes, sample_rate)
+        if service_errors:                       # BUG-1: SFDCT lỗi mọi frame -> 503 rõ ràng, KHÔNG mock âm thầm
+            from app.core.exceptions import service_unavailable
+            raise service_unavailable(f"Model serving SFDCT (:8501) lỗi toàn bộ {service_errors} frame video")
         return {                                 # mở được video nhưng không detect được mặt nào
             "verdict": "UNCERTAIN", "confidence": 50.0, "prob_fake": 0.5,
             "frames_analyzed": 0, "frames_fake": 0, "frame_results": [],

@@ -26,6 +26,9 @@ def classify_attack_type(rgb_image: np.ndarray) -> dict:
             "evidence": {tên_đặc_trưng: giá_trị, ...}
         }
     """
+    # Resize về kích thước cố định TRƯỚC khi FFT → ngưỡng moiré_peaks tuyệt đối
+    # nhất quán bất kể độ phân giải ảnh đầu vào.
+    rgb_image = cv2.resize(rgb_image, (256, 256), interpolation=cv2.INTER_AREA)
     h, w = rgb_image.shape[:2]
 
     # --- 1) Phân tích tần số (FFT) → phát hiện moiré (print) ---

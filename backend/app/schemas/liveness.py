@@ -51,6 +51,7 @@ class LivenessListItem(BaseModel):
     mode: str
     processing_time_ms: int
     model_version: str
+    source: str = "api"               # 'api' | 'playground'
     created_at: datetime
 
     model_config = {"from_attributes": True}

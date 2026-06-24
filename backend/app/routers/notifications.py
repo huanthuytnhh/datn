@@ -59,11 +59,11 @@ async def list_notifications(
     q = q.order_by(desc(Notification.created_at)).limit(limit)
     items = (await db.execute(q)).scalars().all()
 
-    total = (await db.execute(select(func.count()).select_from(select(Notification).where(base).subquery()))).scalar_one()
+    total = (await db.execute(
+        select(func.count()).select_from(Notification).where(base)
+    )).scalar_one()
     unread = (await db.execute(
-        select(func.count()).select_from(
-            select(Notification).where(and_(base, Notification.read.is_(False))).subquery()
-        )
+        select(func.count()).select_from(Notification).where(and_(base, Notification.read.is_(False)))
     )).scalar_one()
 
     return NotificationListResponse(

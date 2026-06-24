@@ -1239,6 +1239,7 @@ function LoopKpi({ label, value, sub, delta }: { label: string; value: string; s
 
 function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
   const navigate = useNavigation((s) => s.navigate);
+  const setSelectedRequestId = useNavigation((s) => s.setSelectedRequestId);
   const { overview, usage, recent, reqSpark, fakeSpark, loading, shared } = d;
   const [tab, setTab] = useState<'review' | 'all' | 'FAKE' | 'REAL'>('review');
 
@@ -1459,7 +1460,7 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
                       const color = r.verdict === 'FAKE' ? DG.fake : r.verdict === 'REAL' ? DG.real : DG.uncertain;
                       const vIcon = r.verdict === 'FAKE' ? 'priority_high' : r.verdict === 'REAL' ? 'check' : 'warning';
                       return (
-                        <tr key={r.request_id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => navigate('history')}>
+                        <tr key={r.request_id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedRequestId(r.request_id); navigate('detail'); }}>
                           <td className="py-3 flex items-center gap-3">
                             <span className="w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0" style={{ background: color }}>
                               <Icon name={vIcon} className="text-[16px]" fill />
@@ -1480,10 +1481,8 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
                           </td>
                           <td className="py-3 text-slate-500 text-xs">{timeAgo(r.created_at)}</td>
                           <td className="py-3"><VerdictBadge verdict={r.verdict} /></td>
-                          <td className="py-3 text-right text-slate-300 hover:text-slate-500">
-                            <svg className="w-4 h-4 inline" fill="currentColor" viewBox="0 0 24 24">
-                              <circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />
-                            </svg>
+                          <td className="py-3 text-right text-slate-300">
+                            <Icon name="chevron_right" className="text-[18px] inline" />
                           </td>
                         </tr>
                       );
@@ -1586,22 +1585,6 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
               <p style={{ fontSize: 11.5, color: '#64748b', marginBottom: 3 }}>Chào, {ROLE_LABEL[role]}</p>
               <h2 style={{ fontSize: 17, fontWeight: 900, color: '#0a1628', letterSpacing: '-0.03em' }}>DeepGuard Copilot</h2>
             </div>
-            {/* Model tabs */}
-            <div style={{
-              display: 'flex', padding: 3, borderRadius: 14, marginBottom: 16,
-              background: 'rgba(255,255,255,.7)', border: '1px solid rgba(0,71,204,.1)',
-              boxShadow: 'inset 0 1px 3px rgba(0,0,0,.04)',
-            }}>
-              <button style={{
-                flex: 1, padding: '8px 6px', fontSize: 12, fontWeight: 800,
-                borderRadius: 11, background: 'white', color: L_BRAND_DK,
-                border: `1px solid rgba(0,71,204,.15)`,
-                boxShadow: '0 1px 4px rgba(0,71,204,.12)',
-                cursor: 'pointer',
-              }}>SFDCT</button>
-              <button style={{ flex: 1, padding: '8px 6px', fontSize: 12, fontWeight: 600, color: '#94a3b8', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: 11 }}>B4 baseline</button>
-              <button style={{ flex: 1, padding: '8px 6px', fontSize: 12, fontWeight: 600, color: '#94a3b8', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: 11 }}>Liveness</button>
-            </div>
             {/* Action grid */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 'auto' }}>
               {copilotActions.map((a) => (
@@ -1631,31 +1614,6 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: '#374151' }}>{a.label}</span>
                 </button>
               ))}
-            </div>
-            {/* Input */}
-            <div style={{ marginTop: 16, position: 'relative' }}>
-              <input
-                style={{
-                  width: '100%', padding: '11px 44px 11px 14px', borderRadius: 13,
-                  background: 'white', border: '1px solid rgba(0,71,204,.12)',
-                  fontSize: 12.5, color: '#1e293b', outline: 'none',
-                  boxShadow: '0 1px 4px rgba(0,71,204,.07)',
-                  boxSizing: 'border-box',
-                }}
-                placeholder="Hỏi Copilot về phát hiện, ngưỡng, tenant…"
-                type="text"
-              />
-              <button style={{
-                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                width: 28, height: 28, borderRadius: 9, border: 'none', cursor: 'pointer',
-                background: 'linear-gradient(135deg,#0047cc,#1a6fff)',
-                color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 2px 8px rgba(0,71,204,.3)',
-              }}>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </button>
             </div>
         </motion.div>
       </div>

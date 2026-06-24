@@ -7,7 +7,7 @@ với badge riêng — api_key_id = NULL (đã cho phép nullable ở schema).
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, UploadFile, File, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
@@ -22,6 +22,11 @@ from app.services.risk import to_risk_score, risk_band, decision_hint, threshold
 from app.services import storage
 from app.schemas.detect import DetectionResponse, VideoDetectionResponse, FrameResult
 from app.core.exceptions import bad_request
+import io
+from PIL import Image
+from app.services.liveness import run_liveness_check
+from app.routers._liveness_helpers import _save_liveness, _to_response
+from app.schemas.liveness import LivenessResponse
 
 settings = get_settings()
 
@@ -167,3 +172,31 @@ async def playground_detect_video(
         processing_time_ms=processing_ms,
         created_at=start_ts,
     )
+
+
+@router.post("/detect/liveness", response_model=LivenessResponse)
+async def playground_detect_liveness(
+    request: Request,
+    file: UploadFile = File(...),
+    threshold: float = Query(default=None, ge=0.0, le=1.0,
+        description="Ngưỡng LIVE/SPOOF override (0-1). Bỏ trống => LIVENESS_THRESHOLD ở config."),
+    current_user: User = Depends(_playground_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Passive liveness bằng JWT cho Playground (KHÔNG cần API key). Lưu source='playground'."""
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise bad_request(f"Unsupported file type: {file.content_type}")
+    image_bytes = await file.read()
+    if len(image_bytes) > MAX_IMAGE_SIZE:
+        raise bad_request("File size exceeds 10 MB limit")
+    try:
+        Image.open(io.BytesIO(image_bytes)).verify()
+    except Exception:
+        raise bad_request("File không phải ảnh hợp lệ (không giải mã được).")
+
+    result = await run_liveness_check(image_bytes, threshold=threshold)
+    row = await _save_liveness(
+        db, tenant_id=current_user.tenant_id, api_key_id=None,
+        result=result, mode="passive", request=request, source="playground",
+    )
+    return _to_response(row)

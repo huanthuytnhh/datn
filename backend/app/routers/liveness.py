@@ -1,9 +1,11 @@
+import io
 import uuid
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from PIL import Image
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from deepguard_db.app.db.database import get_db
@@ -70,6 +72,10 @@ async def detect_liveness_passive(
     image_bytes = await file.read()
     if len(image_bytes) > MAX_IMAGE_SIZE:
         raise bad_request("File size exceeds 10 MB limit")
+    try:                                  # BUG-3: validate ảnh thật, chặn file rác giả header
+        Image.open(io.BytesIO(image_bytes)).verify()
+    except Exception:
+        raise bad_request("File không phải ảnh hợp lệ (không giải mã được).")
 
     result = await run_liveness_check(image_bytes, threshold=threshold)
     row = await _save_liveness(

@@ -132,7 +132,7 @@ class FaceMatcher:
         max_sim  = float(max(similarities))
         mean_sim = float(np.mean(similarities))
 
-        is_match = max_sim >= self.threshold
+        is_match = mean_sim >= self.threshold
 
         return {
             "is_match":     is_match,

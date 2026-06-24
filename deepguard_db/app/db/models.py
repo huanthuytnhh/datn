@@ -459,7 +459,8 @@ class LivenessCheck(Base, TimestampMixin):
 
     check_id:           Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    api_key_id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False)
+    api_key_id:         Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
+    source:             Mapped[str]      = mapped_column(String(20), nullable=False, default="api")  # 'api' | 'playground'
 
     # Liveness result
     verdict:            Mapped[LivenessVerdict] = mapped_column(PGEnum(LivenessVerdict, name="liveness_verdict"), nullable=False, index=True)

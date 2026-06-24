@@ -122,25 +122,36 @@ async def ekyc_verify(
     """
     request_id = str(uuid.uuid4())
     t_start = datetime.now(timezone.utc)
-
-    # Save uploads tạm
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as id_tmp:
-        id_tmp.write(await id_card.read())
-        id_path = id_tmp.name
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as vid_tmp:
-        vid_tmp.write(await selfie_video.read())
-        vid_path = vid_tmp.name
-
+    id_path = vid_path = None
     loop = asyncio.get_event_loop()
 
     try:
+        # Save uploads tạm (trong try để finally luôn dọn, tránh leak nếu ghi lỗi giữa chừng)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as id_tmp:
+            id_tmp.write(await id_card.read())
+            id_path = id_tmp.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as vid_tmp:
+            vid_tmp.write(await selfie_video.read())
+            vid_path = vid_tmp.name
+
         # ── STEP 1: Liveness check ────────────────────────────────────────
         liveness = get_liveness()
         liveness_result = await loop.run_in_executor(
             _executor, liveness.check_video, vid_path
         )
         liveness_pass = liveness_result.get("is_live", False)
+
+        # Cascade (spec 2.1): liveness KHÔNG pass -> dừng ngay, bỏ deepfake + face-match.
+        if not liveness_pass:
+            elapsed_ms = int((datetime.now(timezone.utc) - t_start).total_seconds() * 1000)
+            return EkycResult(
+                request_id=request_id, verdict="FAIL", overall_pass=False,
+                liveness_pass=False, deepfake_pass=False, face_match_pass=False,
+                liveness_detail=liveness_result,
+                deepfake_detail={"skipped": "Liveness không PASS — cascade dừng trước deepfake"},
+                face_match_detail={"skipped": "Liveness không PASS"},
+                processing_time_ms=elapsed_ms, created_at=t_start.isoformat(),
+            )
 
         # ── STEP 2: Deepfake check (sample 3 frames giữa video) ───────────
         import cv2
@@ -150,28 +161,42 @@ async def ekyc_verify(
         repr_frame_bytes = None       # representative frame → dashboard thumbnail + hash
         repr_w = repr_h = None
 
-        for i in [total_frames//4, total_frames//2, 3*total_frames//4]:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-            ret, frame = cap.read()
-            if not ret:
-                continue
+        # Thu thập tối đa 3 frame — chịu được total_frames<=0 (WebM/codec không metadata)
+        frames_to_check = []
+        if total_frames > 0:
+            for i in [total_frames // 4, total_frames // 2, 3 * total_frames // 4]:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+                ret, frame = cap.read()
+                if ret:
+                    frames_to_check.append(frame)
+        else:
+            fid = 0
+            while len(frames_to_check) < 3:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                if fid % 10 == 0:
+                    frames_to_check.append(frame)
+                fid += 1
+        cap.release()
 
+        for frame in frames_to_check:
             _, buf = cv2.imencode(".jpg", frame)
             frame_bytes = buf.tobytes()
             if repr_frame_bytes is None:
                 repr_frame_bytes = frame_bytes
                 repr_h, repr_w = int(frame.shape[0]), int(frame.shape[1])
-
             if DEEPFAKE_AVAILABLE and _run_deepfake_inference is not None:
                 df_result = await _run_deepfake_inference(frame_bytes)
                 deepfake_probs.append(df_result.prob_fake)
             else:
-                # Standalone fallback nếu backend không có
-                deepfake_probs.append(0.15)
+                deepfake_probs.append(0.15)  # standalone fallback nếu backend không có
 
-        cap.release()
-
-        avg_prob_fake = sum(deepfake_probs) / len(deepfake_probs) if deepfake_probs else 1.0
+        if not deepfake_probs:
+            # Không trích được frame nào -> KHÔNG mặc định FAKE (tránh FAIL oan); báo lỗi rõ.
+            raise HTTPException(status_code=422,
+                                detail="Không trích được frame từ video selfie (codec/định dạng không hỗ trợ?)")
+        avg_prob_fake = sum(deepfake_probs) / len(deepfake_probs)
         deepfake_pass = avg_prob_fake < 0.6197  # threshold calibrated
 
         deepfake_detail = {

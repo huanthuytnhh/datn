@@ -415,9 +415,9 @@ function V3Ticker() {
 
 /* ── Features bento ─────────────────────────────────────── */
 const CODE_SNIP = `response = requests.post(
-  "https://api.deepguard.io/v1/detect",
-  headers={"X-API-Key": "dg_***"},
-  files={"image": open("face.jpg","rb")}
+  "https://deepguard.ddns.net/api/v1/detect/image",
+  headers={"Authorization": "Bearer dg_***"},
+  files={"file": open("face.jpg","rb")}
 )`;
 
 function V3Features() {

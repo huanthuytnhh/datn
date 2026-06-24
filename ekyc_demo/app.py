@@ -355,8 +355,11 @@ with right:
                         live_res, pf = call_liveness_video(data, n_frames)
                     else:
                         live_res, pf = call_liveness(data, up.name, mime), None
-                    stopped = live_res.get("verdict") == "SPOOF"
-                    if stopped:
+                    # Spec 2.1: SPOOF -> dừng (FAIL); UNCERTAIN -> dừng (REVIEW); chỉ LIVE mới chạy deepfake.
+                    verdict_live = live_res.get("verdict")
+                    stopped = verdict_live == "SPOOF"
+                    uncertain = verdict_live == "UNCERTAIN"
+                    if stopped or uncertain:
                         df_res = None
                     elif media_is_video:
                         df_res = call_deepfake_video(data, up.name, mime)
@@ -366,11 +369,11 @@ with right:
                     # Quyết định eKYC
                     if stopped:
                         final, reason = "FAIL", "Presentation attack (liveness = SPOOF) — chặn ngay, không chạy deepfake."
-                    elif df_res is None:
-                        final, reason = "REVIEW", "Liveness không phải LIVE rõ ràng — cần người duyệt."
+                    elif uncertain:
+                        final, reason = "REVIEW", "Liveness UNCERTAIN — dừng cascade, chuyển người duyệt (đúng spec 2.1)."
                     else:
                         final = deepfake_decision(df_res)
-                        reason = f"Liveness {live_res.get('verdict')} → Deepfake → {final}."
+                        reason = f"Liveness {verdict_live} → Deepfake → {final}."
 
                     st.subheader("Kết quả eKYC")
                     verdict_badge(final)

@@ -16,3 +16,4 @@ numpy==1.26.4
 opencv-python-headless==4.10.0.84
 aiofiles==24.1.0
 boto3>=1.34,<2
+pytest>=8

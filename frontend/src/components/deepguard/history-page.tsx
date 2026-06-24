@@ -202,7 +202,7 @@ export default function HistoryPage() {
           model_version: it.model_version,
           image_hash: '',
           created_at: it.created_at,
-          source: 'liveness',
+          source: it.source,
           kind: 'liveness',
           spoof_type: it.spoof_type,
         }));
@@ -227,7 +227,7 @@ export default function HistoryPage() {
         (q === '' ||
           r.request_id.toLowerCase().includes(q) ||
           r.model_version.toLowerCase().includes(q) ||
-          r.image_hash.toLowerCase().includes(q)),
+          (r.image_hash !== '' && r.image_hash.toLowerCase().includes(q))),
     );
   }, [rows, startMs, kindFilter, verdictFilter, confidenceFilter, query]);
 
@@ -538,7 +538,7 @@ export default function HistoryPage() {
                                 <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{ background: 'rgba(0,71,204,.1)', color: '#0047cc' }}>Playground</span>
                               )}
                             </div>
-                            <p className="text-[10px] text-slate-400 font-mono truncate">{r.image_hash.slice(0, 16)}</p>
+                            <p className="text-[10px] text-slate-400 font-mono truncate">{r.image_hash ? r.image_hash.slice(0, 16) : r.request_id.slice(0, 16) || '—'}</p>
                           </div>
                         </div>
                       </td>

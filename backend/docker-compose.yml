@@ -24,7 +24,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/deepguard
       MOCK_ML: "true"
-      SECRET_KEY: change-this-in-production
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
     depends_on:
       db:
         condition: service_healthy

@@ -6,12 +6,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
-from deepguard_db.app.db.models import User, Webhook
+from deepguard_db.app.db.models import User, Webhook, WebhookStatus
 from deepguard_db.app.db import crud
 
 from app.dependencies import require_role
 from app.schemas.webhooks import CreateWebhookRequest, UpdateWebhookRequest, WebhookOut
-from app.core.exceptions import not_found
+from app.core.exceptions import not_found, bad_request
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -67,7 +67,10 @@ async def update_webhook(
     if body.events is not None:
         webhook.events = body.events
     if body.status is not None:
-        webhook.status = body.status
+        try:
+            webhook.status = WebhookStatus(body.status)
+        except ValueError:
+            raise bad_request(f"Invalid status: {body.status}")
 
     await db.commit()
     await db.refresh(webhook)

@@ -1,7 +1,9 @@
+import io
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, UploadFile, File, Request, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Request, Query, HTTPException
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepguard_db.app.db.database import get_db
@@ -28,6 +30,14 @@ MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10 MB
 MAX_VIDEO_SIZE = 200 * 1024 * 1024  # 200 MB
 
 
+def _assert_valid_image(image_bytes: bytes) -> None:
+    # BUG-3: validate ảnh THẬT (không chỉ content_type) — chặn file rác giả header image/*.
+    try:
+        Image.open(io.BytesIO(image_bytes)).verify()
+    except Exception:
+        raise bad_request("File không phải ảnh hợp lệ (không giải mã được).")
+
+
 @router.post("/detect/image", response_model=DetectionResponse)
 async def detect_image(
     request: Request,
@@ -43,6 +53,7 @@ async def detect_image(
     image_bytes = await file.read()
     if len(image_bytes) > MAX_IMAGE_SIZE:
         raise bad_request("File size exceeds 10 MB limit")
+    _assert_valid_image(image_bytes)   # BUG-3: chặn file rác giả header image/*
 
     result = await run_inference(image_bytes, threshold=threshold, model=model)
 
@@ -209,6 +220,11 @@ async def detect_video(
             created_at=start_ts,
         )
 
+    except HTTPException:
+        # BUG-1: giữ nguyên 503 từ serving (đừng nuốt thành 400 chung chung)
+        job.status = JobStatus.FAILED
+        await db.commit()
+        raise
     except Exception as exc:
         job.status = JobStatus.FAILED
         job.error_message = str(exc)[:1000]

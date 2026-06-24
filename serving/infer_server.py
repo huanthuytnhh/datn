@@ -14,12 +14,13 @@ import sys
 import time
 import base64
 import hashlib
+import threading
 from collections import OrderedDict
 
 import numpy as np
 import torch
 import cv2
-from fastapi import FastAPI, UploadFile, File, Query
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse
 
 torch.set_num_threads(os.cpu_count() or 2)
@@ -62,6 +63,7 @@ DEFAULT_MODEL = os.environ.get("SFDCT_DEFAULT_MODEL", "sfdct")
 app = FastAPI(title="Deepfake Inference Service (multi-model)", version="2.0")
 
 _loaded: dict = {}   # name -> (model, cfg)  (lazy-load cache)
+_lock = threading.Lock()  # bảo vệ load model + ghi cache khỏi race nhiều request
 
 # Cache kết quả theo (sha256 ảnh, gradcam, model) — demo xoay quanh vài preset nên hit rate cao
 _CACHE_MAX = 64
@@ -69,14 +71,20 @@ _cache: "OrderedDict[tuple, dict]" = OrderedDict()
 
 
 def _resolve(name):
-    return name if name in MODELS else DEFAULT_MODEL
+    if name is None:
+        return DEFAULT_MODEL
+    if name not in MODELS:
+        raise HTTPException(status_code=400, detail=f"Unknown model: {name}")
+    return name
 
 
 def _get_model(name):
     name = _resolve(name)
     if name not in _loaded:
-        spec = MODELS[name]
-        _loaded[name] = infer_mod.load_model(spec["cfg"], spec["ckpt"], DEVICE)
+        with _lock:
+            if name not in _loaded:   # double-checked: tránh load 2 lần khi 2 request đua
+                spec = MODELS[name]
+                _loaded[name] = infer_mod.load_model(spec["cfg"], spec["ckpt"], DEVICE)
     return _loaded[name]
 
 
@@ -110,12 +118,15 @@ async def predict(file: UploadFile = File(...), gradcam: bool = Query(default=Tr
     name = _resolve(model)
 
     key = (hashlib.sha256(raw).hexdigest(), gradcam, name)
-    if key in _cache:
-        _cache.move_to_end(key)
-        resp = dict(_cache[key])
-        resp["processing_time_ms"] = int((time.perf_counter() - start) * 1000)
-        resp["cached"] = True
-        return resp
+    with _lock:
+        hit = _cache.get(key)
+        if hit is not None:
+            _cache.move_to_end(key)
+            hit = dict(hit)
+    if hit is not None:
+        hit["processing_time_ms"] = int((time.perf_counter() - start) * 1000)
+        hit["cached"] = True
+        return hit
 
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
@@ -153,7 +164,8 @@ async def predict(file: UploadFile = File(...), gradcam: bool = Query(default=Tr
         "device": DEVICE,
         "processing_time_ms": int((time.perf_counter() - start) * 1000),
     }
-    _cache[key] = resp
-    if len(_cache) > _CACHE_MAX:
-        _cache.popitem(last=False)
+    with _lock:
+        _cache[key] = resp
+        if len(_cache) > _CACHE_MAX:
+            _cache.popitem(last=False)
     return resp

@@ -17,14 +17,16 @@ async def _save_liveness(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    api_key_id: uuid.UUID,
+    api_key_id: uuid.UUID | None,
     result: LivenessResult,
     mode: str,
     request: Request,
+    source: str = "api",
 ) -> LivenessCheck:
     row = LivenessCheck(
         tenant_id=tenant_id,
         api_key_id=api_key_id,
+        source=source,
         verdict=LivenessVerdict(result.verdict),
         liveness_score=result.liveness_score,
         confidence=result.confidence,
@@ -46,11 +48,12 @@ async def _save_liveness(
     db.add(row)
     await db.flush()
 
-    # Same quota accounting as detection
-    await db.execute(
-        update(ApiKeyModel).where(ApiKeyModel.id == api_key_id)
-        .values(quota_used=ApiKeyModel.quota_used + 1)
-    )
+    # Same quota accounting as detection — chỉ khi có API key (playground JWT: api_key_id=None -> bỏ qua)
+    if api_key_id is not None:
+        await db.execute(
+            update(ApiKeyModel).where(ApiKeyModel.id == api_key_id)
+            .values(quota_used=ApiKeyModel.quota_used + 1)
+        )
     await crud.increment_tenant_usage(db, tenant_id)
     await db.commit()
     await db.refresh(row)

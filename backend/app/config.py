@@ -55,6 +55,15 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
+_DEFAULT_SECRET_KEY = "dev-secret-key-change-in-production"
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.SECRET_KEY == _DEFAULT_SECRET_KEY:
+        print(
+            "[WARN] SECRET_KEY đang dùng giá trị mặc định — "
+            "đặt SECRET_KEY trong .env trước khi deploy"
+        )
+    return settings

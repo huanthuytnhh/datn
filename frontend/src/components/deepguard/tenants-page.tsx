@@ -110,7 +110,6 @@ function keyStatusStyle(status: string): { label: string; color: string; bg: str
 }
 
 const PLANS: Plan[] = ['Starter', 'Pro', 'Enterprise'];
-const REGIONS = ['Hà Nội', 'TP.HCM', 'Đà Nẵng', 'Cần Thơ', 'Hải Phòng'];
 /** Roles a sysadmin may assign here — sysadmin itself is excluded (backend 400s). */
 const EDITABLE_ROLES: Role[] = ['viewer', 'developer', 'compliance', 'admin'];
 
@@ -1122,7 +1121,7 @@ export default function TenantsPage() {
         </div>
       )}
 
-      {/* Create modal — 3-step wizard (no backend endpoint yet) */}
+      {/* Create modal — 3-step wizard (submits via tenantsCreate → POST /tenants) */}
       {showCreate && (
         <Modal onClose={() => setShowCreate(false)} max="max-w-lg">
           <div className="px-6 pt-6 pb-5">
@@ -1230,25 +1229,6 @@ export default function TenantsPage() {
                     className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-medium text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
                   />
                 </Field>
-                <Field label="Domain">
-                  <input
-                    value={form.domain}
-                    onChange={(e) => setForm({ ...form, domain: e.target.value })}
-                    placeholder="vietbank.vn"
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-medium text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
-                  />
-                </Field>
-                <Field label="Khu vực">
-                  <select
-                    value={form.region}
-                    onChange={(e) => setForm({ ...form, region: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all appearance-none cursor-pointer"
-                  >
-                    {REGIONS.map((r) => (
-                      <option key={r}>{r}</option>
-                    ))}
-                  </select>
-                </Field>
               </div>
             )}
             {!createdResult && wizStep === 1 && (
@@ -1322,7 +1302,7 @@ export default function TenantsPage() {
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Tóm tắt</p>
                   <div className="flex justify-between text-[11px]">
                     <span className="text-slate-500">Tổ chức</span>
-                    <span className="font-bold text-slate-700">{form.name || '—'} · {form.region}</span>
+                    <span className="font-bold text-slate-700">{form.name || '—'}</span>
                   </div>
                   <div className="flex justify-between text-[11px]">
                     <span className="text-slate-500">Gói</span>
