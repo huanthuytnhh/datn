@@ -130,9 +130,10 @@ def call_result(request_id):
     return r.json()
 
 # ───────────────────────────── Video frame extraction ─────────────────────────────
-def extract_frames(video_bytes, n):
+def extract_frames(video_bytes, n, filename="video.mp4"):
     """Trích n khung đều nhau từ video → list jpeg bytes (cv2, BGR→JPEG đúng màu)."""
-    suffix = ".mp4"
+    import pathlib
+    suffix = pathlib.Path(filename).suffix or ".mp4"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
         tf.write(video_bytes)
         path = tf.name
@@ -157,9 +158,9 @@ def extract_frames(video_bytes, n):
         os.unlink(path)
     return frames
 
-def call_liveness_video(video_bytes, n):
+def call_liveness_video(video_bytes, n, filename="video.mp4"):
     """Gộp liveness trên N khung (majority-vote). Trả (aggregate_dict, per_frame_list)."""
-    frames = extract_frames(video_bytes, n)
+    frames = extract_frames(video_bytes, n, filename=filename)
     if not frames:
         raise RuntimeError("Không trích được khung hình từ video (codec không hỗ trợ?)")
     per_frame = [call_liveness(fb, f"frame_{i}.jpg", "image/jpeg") for i, fb in enumerate(frames)]
@@ -329,7 +330,7 @@ with right:
             with st.spinner("Đang gọi API…"):
                 if mode == "Liveness":
                     if media_is_video:
-                        agg, pf = call_liveness_video(data, n_frames)
+                        agg, pf = call_liveness_video(data, n_frames, filename=up.name)
                         render_liveness(agg, per_frame=pf)
                         _hist("Liveness·video", "—", agg.get("verdict"), agg.get("liveness_score"))
                         with st.expander("Response JSON (gộp + từng khung)"):
@@ -352,7 +353,7 @@ with right:
 
                 else:  # eKYC cascade: liveness trước, LIVE mới chạy deepfake
                     if media_is_video:
-                        live_res, pf = call_liveness_video(data, n_frames)
+                        live_res, pf = call_liveness_video(data, n_frames, filename=up.name)
                     else:
                         live_res, pf = call_liveness(data, up.name, mime), None
                     # Spec 2.1: SPOOF -> dừng (FAIL); UNCERTAIN -> dừng (REVIEW); chỉ LIVE mới chạy deepfake.

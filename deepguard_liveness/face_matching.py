@@ -135,10 +135,11 @@ class FaceMatcher:
         is_match = mean_sim >= self.threshold
 
         return {
-            "is_match":     is_match,
-            "similarity":   round(max_sim, 4),
+            "is_match":        is_match,
+            "similarity":      round(mean_sim, 4),   # same metric used for the decision
             "mean_similarity": round(mean_sim, 4),
-            "threshold":    self.threshold,
+            "max_similarity":  round(max_sim, 4),    # kept for debugging
+            "threshold":       self.threshold,
             "frames_compared": len(video_embs),
-            "method":       "InsightFace ArcFace + cosine similarity",
+            "method":          "InsightFace ArcFace + cosine similarity",
         }

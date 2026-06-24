@@ -275,6 +275,14 @@ async def ekyc_verify(
         )
 
     finally:
-        # Cleanup temp files
-        os.unlink(id_path)
-        os.unlink(vid_path)
+        # Cleanup temp files — guard None (id_path/vid_path may still be None if save failed)
+        if id_path:
+            try:
+                os.unlink(id_path)
+            except OSError:
+                pass
+        if vid_path:
+            try:
+                os.unlink(vid_path)
+            except OSError:
+                pass
