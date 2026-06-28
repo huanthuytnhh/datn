@@ -4,10 +4,14 @@ Detector priority: MTCNN (facenet-pytorch) → OpenCV Haar cascade → trả ngu
 MTCNN là primary (xử lý mặt nghiêng, mắt nhắm, nhiều góc tốt hơn).
 Haar là fallback khi MTCNN không khả dụng.
 
-Hệ số mở rộng 1.3x = khớp extract_face_MTCNN của DeepfakeBench (expand_scale=1.3).
+Crop VUÔNG (expand×) là FALLBACK. Parity thật với train = ALIGN 5-điểm (xem
+face_align.py / align_or_crop_face): DeepfakeBench dùng img_align_crop (similarity
+5-điểm → template ArcFace, scale=1.3, ~1.43 trên box MTCNN), KHÔNG phải box×1.3.
 """
 import os
 import cv2
+
+import face_align
 
 _EXPAND = float(os.environ.get("LIVENESS_CROP_EXPAND", "1.3"))
 
@@ -88,3 +92,53 @@ def crop_face_bgr(bgr, expand=None):
     if x1 <= x0 or y1 <= y0:
         return bgr, False
     return bgr[y0:y1, x0:x1], True
+
+
+def _detect_face_landmarks(bgr):
+    """MTCNN: trả (box=(x,y,w,h), landmarks5) của mặt lớn nhất (prob>=0.9).
+    landmarks5 thứ tự [leye, reye, nose, lmouth, rmouth] — khớp template ArcFace.
+    None nếu không có MTCNN / không thấy mặt (Haar không cho landmark nên bỏ qua)."""
+    mtcnn = _get_mtcnn()
+    if mtcnn is None:
+        return None
+    try:
+        from PIL import Image
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        boxes, probs, points = mtcnn.detect(Image.fromarray(rgb), landmarks=True)
+        if boxes is None:
+            return None
+        best, best_area = None, 0.0
+        for b, p, pt in zip(boxes, probs, points):
+            if (p or 0) < 0.9:
+                continue
+            w, h = float(b[2] - b[0]), float(b[3] - b[1])
+            if w > 0 and h > 0 and w * h > best_area:
+                best_area = w * h
+                best = ((int(b[0]), int(b[1]), int(w), int(h)), pt)
+        return best
+    except Exception:
+        return None
+
+
+def align_or_crop_face(bgr, outsize=256, align_scale=1.3, expand=None):
+    """Parity train/serve cho deepfake: ưu tiên ALIGN 5-điểm (giống DeepfakeBench
+    img_align_crop). Thiếu landmark → fallback crop VUÔNG expand×.
+    Trả (crop_bgr, found, method, face_px, resample_ratio):
+      face_px        = cạnh box mặt trên ảnh gốc (px) — mặt to/nhỏ thật.
+      resample_ratio = outsize / cạnh_vùng_nguồn. >1 = PHÓNG TO (bịa/xoá tần số),
+                       <1 = thu nhỏ (an toàn). Align: = warp_scale. Square: =256/cạnh_crop.
+                       Ngưỡng cảnh báo do caller quyết (xem SFDCT_UPSCALE_TOL)."""
+    det = _detect_face_landmarks(bgr)
+    if det is not None:
+        box, lmk = det
+        face_px = max(box[2], box[3])
+        aligned, wscale = face_align.align_face(
+            bgr, lmk, outsize=outsize, scale=align_scale, return_scale=True)
+        if aligned is not None:
+            return aligned, True, "align", face_px, float(wscale)
+    crop, found = crop_face_bgr(bgr, expand=expand)
+    if found:
+        src = max(crop.shape[0], crop.shape[1])
+        e = expand if expand else _EXPAND
+        return crop, True, "square", int(round(src / e)), float(outsize) / float(src)
+    return crop, False, "none", 0, 0.0
