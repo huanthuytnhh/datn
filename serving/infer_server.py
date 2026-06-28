@@ -30,10 +30,17 @@ sys.path.insert(0, os.path.join(REPO, "tools"))        # tools/infer.py
 sys.path.insert(0, os.path.join(REPO, "training"))     # detectors/...
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # cho `import face_crop`
 import infer as infer_mod                              # tools/infer.py
-from face_crop import crop_face_bgr                    # crop mặt -> khớp train/serve
+from face_crop import crop_face_bgr, align_or_crop_face  # crop/align mặt -> parity train/serve
+from quality import assess as assess_quality            # chấm chất lượng ảnh (flag-only)
 
 THR = float(os.environ.get("SFDCT_THRESHOLD", "0.5"))
 FACE_CROP = os.environ.get("SFDCT_FACE_CROP", "1") == "1"
+# Crop mặt. Default = square (SFDCT_ALIGN=0): validate trên video thật cho thấy
+# square > align (warp của align nhoè chính artifact giả -> bỏ sót fake). Align code
+# vẫn giữ, bật lại bằng SFDCT_ALIGN=1 nếu sau này dùng landmark dlib-81.
+ALIGN = os.environ.get("SFDCT_ALIGN", "0") == "1"
+ALIGN_SCALE = float(os.environ.get("SFDCT_ALIGN_SCALE", "1.3"))       # scale lúc train (chỉ dùng khi ALIGN=1)
+FALLBACK_EXPAND = float(os.environ.get("SFDCT_CROP_EXPAND", "1.30"))  # expand crop vuông (validate: tốt nhất)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Registry đa-model. Mỗi entry: config (đúng kiến trúc ckpt) + checkpoint + nhãn version.
@@ -124,35 +131,53 @@ async def predict(file: UploadFile = File(...), gradcam: bool = Query(default=Tr
             _cache.move_to_end(key)
             hit = dict(hit)
     if hit is not None:
-        hit["processing_time_ms"] = int((time.perf_counter() - start) * 1000)
+        total_time_ms = int((time.perf_counter() - start) * 1000)
+        hit["processing_time_ms"] = total_time_ms
         hit["cached"] = True
+        if "timing_details_ms" in hit:
+            hit["timing_details_ms"] = dict(hit["timing_details_ms"])
+            hit["timing_details_ms"]["total_serving_ms"] = total_time_ms
+        print(f"[DEBUG TIMING DEEPFAKE] model={name} CACHED total={total_time_ms}ms", flush=True)
         return hit
 
+    t_decode_start = time.perf_counter()
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+    t_decode = time.perf_counter() - t_decode_start
+
     if bgr is None:
         return JSONResponse({"error": "cannot decode image"}, status_code=400)
+
+    t_crop_start = time.perf_counter()
     face_found = False
-    bgr_orig = bgr
+    crop_method = "none"
+    face_px, ratio = 0, 0.0
     if FACE_CROP:
-        bgr, face_found = crop_face_bgr(bgr)
+        if ALIGN:
+            bgr, face_found, crop_method, face_px, ratio = align_or_crop_face(
+                bgr, outsize=256, align_scale=ALIGN_SCALE, expand=FALLBACK_EXPAND)
+        else:
+            bgr, face_found = crop_face_bgr(bgr, expand=FALLBACK_EXPAND)
+            crop_method = "square" if face_found else "none"
+            if face_found:
+                src = max(bgr.shape[0], bgr.shape[1])
+                face_px = int(round(src / FALLBACK_EXPAND))
+                ratio = 256.0 / src
+    t_crop = time.perf_counter() - t_crop_start
+
+    t_model_start = time.perf_counter()
     mdl, cfg = _get_model(name)
     mean = cfg.get("mean", [0.5, 0.5, 0.5]); std = cfg.get("std", [0.5, 0.5, 0.5])
     res = int(cfg.get("resolution", 256))
+    t_model = time.perf_counter() - t_model_start
 
-    # --- expand sweep (debug) ---
-    if FACE_CROP and face_found:
-        _summary = []
-        for _e in [round(1.0 + 0.05 * i, 2) for i in range(11)]:  # 1.00 → 1.50
-            _c, _f = crop_face_bgr(bgr_orig, expand=_e)
-            _sz = f"{_c.shape[1]}x{_c.shape[0]}" if _f else "no-face"
-            _rgb = cv2.cvtColor(cv2.resize(_c, (res, res), interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)
-            _x = ((_rgb.astype(np.float32) / 255.0 - np.array(mean)) / np.array(std)).transpose(2, 0, 1)
-            _pf = _prob_only(mdl, torch.from_numpy(_x).float().unsqueeze(0))
-            _summary.append(f"e{_e:.2f}={int(_pf*100)}")
-            print(f"[expand] e={_e:.2f}  crop={_sz}  prob={_pf:.4f}  ({int(_pf*100)}/100)", flush=True)
-        print(f"[expand] ── {' │ '.join(_summary)}", flush=True)
+    t_quality_start = time.perf_counter()
+    crop_resized = cv2.resize(bgr, (res, res), interpolation=cv2.INTER_LINEAR)
+    rgb = cv2.cvtColor(crop_resized, cv2.COLOR_BGR2RGB)
+    # Guard chất lượng (flag-only): mặt nhỏ/mờ/tối/cháy sáng/không mặt -> cờ low_quality.
+    quality = assess_quality(crop_resized, face_px, ratio, face_found) if FACE_CROP else None
+    t_quality = time.perf_counter() - t_quality_start
 
-    rgb = cv2.cvtColor(cv2.resize(bgr, (res, res), interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)
+    t_infer_start = time.perf_counter()
     x = ((rgb.astype(np.float32) / 255.0 - np.array(mean)) / np.array(std)).transpose(2, 0, 1)
     x = torch.from_numpy(x).float().unsqueeze(0)
 
@@ -166,18 +191,41 @@ async def predict(file: UploadFile = File(...), gradcam: bool = Query(default=Tr
         cam_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
     else:
         prob = _prob_only(mdl, x)
+    t_infer = time.perf_counter() - t_infer_start
+
     verdict = "FAKE" if prob >= THR else "REAL"
+    t_total = time.perf_counter() - start
+
+    timing_details = {
+        "decode_ms": int(t_decode * 1000),
+        "crop_ms": int(t_crop * 1000),
+        "quality_ms": int(t_quality * 1000),
+        "model_load_ms": int(t_model * 1000),
+        "inference_gradcam_ms": int(t_infer * 1000),
+        "total_serving_ms": int(t_total * 1000),
+    }
+
+    print(f"[DEBUG TIMING DEEPFAKE] model={name} "
+          f"decode={timing_details['decode_ms']}ms "
+          f"crop={timing_details['crop_ms']}ms "
+          f"quality={timing_details['quality_ms']}ms "
+          f"model_load={timing_details['model_load_ms']}ms "
+          f"inference={timing_details['inference_gradcam_ms']}ms "
+          f"total={timing_details['total_serving_ms']}ms", flush=True)
 
     resp = {
         "prob_fake": round(float(prob), 4),
         "verdict": verdict,
         "threshold": THR,
         "face_cropped": face_found,
+        "crop_method": crop_method,
+        "quality": quality,
         "gradcam": cam_b64,
         "model": name,
         "model_version": MODELS[name]["version"],
         "device": DEVICE,
-        "processing_time_ms": int((time.perf_counter() - start) * 1000),
+        "processing_time_ms": timing_details["total_serving_ms"],
+        "timing_details_ms": timing_details,
     }
     with _lock:
         _cache[key] = resp

@@ -82,49 +82,77 @@ def health():
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     start = time.perf_counter()
+    t_decode_start = time.perf_counter()
     image_bytes = await file.read()
     # B4: ảnh rác/rỗng → 400 ngay (không để lọt xuống inference rồi 500 → client dịch 503 che lỗi input)
     try:
         Image.open(io.BytesIO(image_bytes)).verify()
     except Exception:
         return JSONResponse(status_code=400, content={"error": "Ảnh không hợp lệ (không giải mã được)."})
+
+    bgr = None
+    if FACE_CROP:
+        bgr = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    t_decode = time.perf_counter() - t_decode_start
+
+    t_crop_start = time.perf_counter()
     face_found = False
     try:
-        if FACE_CROP:
-            bgr = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
-            if bgr is not None:
-                crop, face_found = crop_face_bgr(bgr)
-                # INTER_CUBIC khớp pipeline eval (gen_fig_liveness_roc.py:30)
-                crop = cv2.resize(crop, (RESOLUTION, RESOLUTION), interpolation=cv2.INTER_CUBIC)
-                img = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
-            else:
-                img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        if FACE_CROP and bgr is not None:
+            crop, face_found = crop_face_bgr(bgr)
+            # INTER_CUBIC khớp pipeline eval (gen_fig_liveness_roc.py:30)
+            crop = cv2.resize(crop, (RESOLUTION, RESOLUTION), interpolation=cv2.INTER_CUBIC)
+            img = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
         else:
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        t_crop = time.perf_counter() - t_crop_start
+
+        t_infer_start = time.perf_counter()
         x = _transform(img).unsqueeze(0).to(DEVICE)   # [1,3,256,256]
         with torch.no_grad():
             logits = _get_model()(x)                   # [1,2]
             probs = F.softmax(logits, dim=1)[0]        # [P(live), P(spoof)]
         prob_live = float(probs[0].cpu())
         prob_spoof = float(probs[1].cpu())
+        t_infer = time.perf_counter() - t_infer_start
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
     # --- Heuristic attack-type classification (chỉ khi spoof) ---
     attack_info = None
+    t_attack = 0.0
     if prob_spoof > 0.5:
+        t_attack_start = time.perf_counter()
         try:
             from attack_classifier import classify_attack_type
             rgb_np = np.array(img)   # PIL → numpy HxWx3 RGB
             attack_info = classify_attack_type(rgb_np)
         except Exception as exc:
             attack_info = {"error": str(exc)}
+        t_attack = time.perf_counter() - t_attack_start
+
+    t_total = time.perf_counter() - start
+    timing_details = {
+        "decode_ms": int(t_decode * 1000),
+        "crop_ms": int(t_crop * 1000),
+        "inference_ms": int(t_infer * 1000),
+        "attack_classifier_ms": int(t_attack * 1000),
+        "total_serving_ms": int(t_total * 1000),
+    }
+
+    print(f"[DEBUG TIMING LIVENESS] "
+          f"decode={timing_details['decode_ms']}ms "
+          f"crop={timing_details['crop_ms']}ms "
+          f"inference={timing_details['inference_ms']}ms "
+          f"attack={timing_details['attack_classifier_ms']}ms "
+          f"total={timing_details['total_serving_ms']}ms", flush=True)
 
     result = {
         "liveness_score": round(prob_live, 4),
         "prob_spoof": round(prob_spoof, 4),
         "face_cropped": face_found,
-        "processing_time_ms": int((time.perf_counter() - start) * 1000),
+        "processing_time_ms": timing_details["total_serving_ms"],
+        "timing_details_ms": timing_details,
         "model_version": MODEL_VERSION,
         "device": DEVICE,
     }

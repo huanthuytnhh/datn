@@ -133,6 +133,10 @@ def _real_liveness(image_bytes: bytes, threshold: float = None) -> LivenessResul
     else:
         spoof_type = "unknown"
     elapsed = int((time.perf_counter() - start) * 1000)
+    serving_details = j.get("timing_details_ms")
+    print(f"[DEBUG TIMING BE-LIVENESS] total_be_request={elapsed}ms "
+          f"serving_reported={j.get('processing_time_ms')}ms "
+          f"serving_details={serving_details}", flush=True)
 
     return LivenessResult(
         verdict=verdict,
@@ -140,7 +144,7 @@ def _real_liveness(image_bytes: bytes, threshold: float = None) -> LivenessResul
         confidence=confidence,
         spoof_type=spoof_type,
         threshold_used=threshold,
-        processing_time_ms=elapsed + j.get("processing_time_ms", 0),
+        processing_time_ms=elapsed,
         model_version=j.get("model_version", "b4-liveness"),
         image_width=w,
         image_height=h,

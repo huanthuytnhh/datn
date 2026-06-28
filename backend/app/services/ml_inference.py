@@ -39,6 +39,7 @@ class InferenceResult:
     image_hash: str
     image_thumb: Optional[str] = None  # base64 JPEG data URL of input
     heatmap: Optional[str] = None      # base64 Grad-CAM overlay (data URL) — từ microservice SFDCT
+    quality: Optional[dict] = None     # cờ chất lượng ảnh từ serving (flag-only): low_quality + reasons
 
 
 def _real_inference(image_bytes: bytes, threshold: float = None) -> InferenceResult:
@@ -141,6 +142,7 @@ def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True, threshold
         _q = {"gradcam": str(include_heatmap).lower()}
         if model:
             _q["model"] = model
+        # Forward NGUYÊN bytes upload gốc (KHÔNG re-encode) -> serving decode 1 lần, giữ artifact.
         r = httpx.post(settings.SFDCT_INFER_URL.rstrip("/") + "/predict",
                        params=_q,
                        files={"file": ("upload.jpg", image_bytes, "image/jpeg")}, timeout=60.0)
@@ -157,15 +159,22 @@ def _sfdct_inference(image_bytes: bytes, include_heatmap: bool = True, threshold
         thumb = _encode_image_thumb(image_bytes)
     except Exception:
         thumb = None
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    serving_details = j.get("timing_details_ms")
+    print(f"[DEBUG TIMING BE-DEEPFAKE] total_be_request={elapsed_ms}ms "
+          f"serving_reported={j.get('processing_time_ms')}ms "
+          f"serving_details={serving_details}", flush=True)
+
     return InferenceResult(
         verdict=verdict, confidence=confidence,
         prob_fake=round(prob_fake, 4), prob_cnn=round(prob_fake, 4),
         spatial_score=None, frequency_score=None,
         threshold_used=thr, face_detected=True,
-        processing_time_ms=int((time.perf_counter() - start) * 1000),
+        processing_time_ms=elapsed_ms,
         model_version=j.get("model_version", settings.MODEL_VERSION),
         image_width=width, image_height=height, image_hash=image_hash,
         image_thumb=thumb, heatmap=j.get("gradcam"),
+        quality=j.get("quality"),
     )
 
 

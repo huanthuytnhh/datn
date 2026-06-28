@@ -10,21 +10,38 @@ export S3_BUCKET=deepguard-evidence S3_REGION=us-east-1 \
        AWS_ENDPOINT_URL=http://localhost:9000 \
        AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin
 
-wait_up(){ for i in $(seq 1 90); do curl -s "$1" >/dev/null 2>&1 && { echo "  ✓ $2"; return 0; }; sleep 1; done; echo "  ✗ $2 CHƯA lên — xem log."; }
+wait_up(){
+  local t_start=$(date +%s)
+  for i in $(seq 1 90); do
+    if curl -s "$1" >/dev/null 2>&1; then
+      local t_end=$(date +%s)
+      echo "  ✓ $2 (took $((t_end - t_start))s)"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "  ✗ $2 CHƯA lên — xem log."
+}
 svc(){ fuser -k "$1/tcp" 2>/dev/null; sleep 1; setsid bash -c "$2 >>$3 2>&1" </dev/null & }
 
 echo "[1/6] Postgres :5432"
 docker start deepguard-db >/dev/null 2>&1 || docker run -d --name deepguard-db \
   -e POSTGRES_DB=deepguard -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
   -p 5432:5432 postgres:15-alpine >/dev/null
-until docker exec deepguard-db pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done; echo "  ✓ Postgres"
+t_pg_start=$(date +%s)
+until docker exec deepguard-db pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
+t_pg_end=$(date +%s)
+echo "  ✓ Postgres (took $((t_pg_end - t_pg_start))s)"
 
 echo "[2/6] MinIO :9000/:9001"
 docker start deepguard-minio >/dev/null 2>&1 || docker run -d --name deepguard-minio \
   -p 9000:9000 -p 9001:9001 -v "$HOME/.minio-deepguard:/data" \
   -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
   minio/minio:latest server /data --console-address ":9001" >/dev/null
-until curl -s http://localhost:9000/minio/health/live >/dev/null 2>&1; do sleep 2; done; echo "  ✓ MinIO"
+t_minio_start=$(date +%s)
+until curl -s http://localhost:9000/minio/health/live >/dev/null 2>&1; do sleep 2; done
+t_minio_end=$(date +%s)
+echo "  ✓ MinIO (took $((t_minio_end - t_minio_start))s)"
 
 echo "[3/6] Serving deepfake :8501 (nạp model ~30s)"
 svc 8501 "cd '$APP' && serving/.venv310/bin/uvicorn serving.infer_server:app --port 8501" /tmp/serving_deepfake.log
