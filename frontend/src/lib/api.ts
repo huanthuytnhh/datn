@@ -1,4 +1,6 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const isBrowser = typeof window !== "undefined";
+const autoBase = isBrowser && window.location.hostname !== "localhost" ? "/api" : "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? autoBase;
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
