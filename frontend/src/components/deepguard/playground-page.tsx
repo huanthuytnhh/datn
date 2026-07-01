@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useT } from '@/lib/i18n';
 import {
   playgroundDetectImage,
   playgroundDetectVideo,
@@ -14,11 +15,24 @@ import { DG, verdictStyle, riskBandStyle } from '@/lib/dg';
    Sample presets — wired as real file inputs to detectImage when the
    asset can be fetched from /samples/*.jpg, else used as visual presets.
    ──────────────────────────────────────────────────────────────── */
-const SAMPLES = [
-  { id: 'real_face', label: 'ẢNH THẬT', src: '/samples/real_01.jpg' },
-  { id: 'gan_fake', label: 'GAN FAKE', src: '/samples/fake_03.jpg' },
-  { id: 'swap_fake', label: 'SWAP FAKE', src: '/samples/fake_01.jpg' },
-] as const;
+function getSamples(t: (k: string) => string) {
+  return [
+    { id: 'real_face', label: t('playground.sample.real_face'), src: '/samples/real_01.jpg' },
+    { id: 'gan_fake', label: t('playground.sample.gan_fake'), src: '/samples/fake_03.jpg' },
+    { id: 'swap_fake', label: t('playground.sample.swap_fake'), src: '/samples/fake_01.jpg' },
+  ] as const;
+}
+
+function getQualityLabel(key: string, t: (k: string) => string): string {
+  const dict: Record<string, string> = {
+    no_face: t('playground.quality.no_face'),
+    low_resolution: t('playground.quality.low_resolution'),
+    blurry: t('playground.quality.blurry'),
+    too_dark: t('playground.quality.too_dark'),
+    too_bright: t('playground.quality.too_bright'),
+  };
+  return dict[key] ?? key;
+}
 
 /* Build the canonical JSON payload from the real DetectionResponse. */
 function resultToJSON(r: DetectionResponse): string {
@@ -40,6 +54,7 @@ function resultToJSON(r: DetectionResponse): string {
       model_version: r.model_version,
       image_width: r.image_width,
       image_height: r.image_height,
+      quality: r.quality ?? null,
       created_at: r.created_at,
     },
     null,
@@ -184,6 +199,8 @@ function SectionDivider({ n, title }: { n: string; title: string }) {
 }
 
 export default function PlaygroundPage() {
+  const t = useT();
+  const samples = getSamples(t);
   const [threshold, setThreshold] = useState(0.35);
   const [includeHeatmap, setIncludeHeatmap] = useState(true);
   const [codeTab, setCodeTab] = useState<'python' | 'curl' | 'js'>('python');
@@ -239,7 +256,7 @@ export default function PlaygroundPage() {
     resetOutputs();
   };
 
-  const pickSample = async (s: (typeof SAMPLES)[number]) => {
+  const pickSample = async (s: any) => {
     setActiveSample(s.id);
     resetOutputs();
     try {
@@ -252,13 +269,13 @@ export default function PlaygroundPage() {
       // Asset not available — keep it as a visual preset (preview the path only).
       setSelectedFile(null);
       setPreviewUrl(s.src);
-      setError('Không tải được sample asset — đây là preset hiển thị.');
+      setError(t('playground.select_asset_err'));
     }
   };
 
   const handleAnalyze = async () => {
     if (!selectedFile) {
-      setError('Vui lòng chọn file hoặc sample trước');
+      setError(t('playground.select_media_err'));
       return;
     }
     setError('');
@@ -302,7 +319,7 @@ export default function PlaygroundPage() {
         );
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Detect thất bại');
+      setError(e instanceof Error ? e.message : t('playground.detect_failed_err'));
     } finally {
       setIsAnalyzing(false);
     }
@@ -400,9 +417,9 @@ console.log(data);`;
             {selectedFile ? (
               <p className="text-xs font-bold text-dgblue max-w-full truncate">{selectedFile.name}</p>
             ) : (
-              <p className="text-xs font-bold text-slate-700">Kéo file hoặc click để chọn</p>
+              <p className="text-xs font-bold text-slate-700">{t('playground.drag_drop')}</p>
             )}
-            <p className="text-[10px] text-slate-400 mt-1">JPG · PNG · WEBP · MP4 (Ảnh 10MB / Video 200MB)</p>
+            <p className="text-[10px] text-slate-400 mt-1">{t('playground.drag_drop_sub')}</p>
           </div>
 
           {/* Error */}
@@ -416,7 +433,7 @@ console.log(data);`;
           {/* Sample presets */}
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.14em] mb-2">Sample Presets</p>
           <div data-tour="pg-samples" className="grid grid-cols-3 gap-2 mb-5">
-            {SAMPLES.map((s) => {
+            {samples.map((s) => {
               const sel = activeSample === s.id;
               return (
                 <button
@@ -468,8 +485,8 @@ console.log(data);`;
               className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-dgblue"
             />
             <div className="flex justify-between mt-1.5">
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.1em]">Nhạy (Real)</span>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.1em]">Chặt (Fake)</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.1em]">{t('playground.sensitivity_low')}</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.1em]">{t('playground.sensitivity_high')}</span>
             </div>
           </div>
 
@@ -479,7 +496,7 @@ console.log(data);`;
               <Icon name="blur_on" className="text-[18px] text-dgblue" />
               <span>
                 <span className="block text-xs font-bold text-slate-700 leading-tight">DCT Heatmap</span>
-                <span className="block text-[10px] text-slate-400 mt-0.5">{includeHeatmap ? 'Bật' : 'Tắt'}</span>
+                <span className="block text-[10px] text-slate-400 mt-0.5">{includeHeatmap ? t('playground.heatmap_status') : t('playground.heatmap_status_off')}</span>
               </span>
             </span>
             <span
@@ -512,12 +529,12 @@ console.log(data);`;
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                ĐANG PHÂN TÍCH…
+                {t('playground.btn_analyzing')}
               </>
             ) : (
               <>
                 <Icon name={isVideo ? 'video_search' : 'rocket_launch'} className="text-[18px] group-hover:rotate-12 transition-transform" />
-                {isVideo ? 'PHÂN TÍCH VIDEO' : 'PHÂN TÍCH'}
+                {isVideo ? t('playground.btn_analyze_video') : t('playground.btn_analyze')}
               </>
             )}
           </button>
@@ -532,7 +549,7 @@ console.log(data);`;
                 onClick={() => setRuns([])}
                 className="text-[10px] font-bold text-dgfake hover:opacity-80 transition-opacity"
               >
-                Xoá
+                {t('playground.btn_clear')}
               </button>
             </div>
             <div className="space-y-1.5">
@@ -588,7 +605,7 @@ console.log(data);`;
                   preload="auto"
                   onError={() => setVideoCanPlay(false)}
                 >
-                  Browser không hỗ trợ định dạng video này.
+                  {t('playground.browser_video_err')}
                 </video>
               ) : previewUrl && isVideo ? (
                 <div className="relative w-full h-full bg-slate-900 flex items-center justify-center">
@@ -598,7 +615,7 @@ console.log(data);`;
                     <Icon name="movie" className="text-[60px] text-slate-500" />
                   )}
                   <div className="absolute inset-x-0 bottom-0 bg-black/70 text-white text-[10px] font-bold px-3 py-2 text-center">
-                    Browser không decode được codec — xem frame bên dưới
+                    {t('playground.browser_codec_err')}
                   </div>
                 </div>
               ) : previewUrl ? (
@@ -606,7 +623,7 @@ console.log(data);`;
               ) : (
                 <div className="flex flex-col items-center gap-2">
                   <Icon name="image" className="text-[56px] text-slate-300" />
-                  <span className="text-xs font-semibold text-slate-400">Chưa có media</span>
+                  <span className="text-xs font-semibold text-slate-400">{t('playground.no_media')}</span>
                 </div>
               )}
 
@@ -615,7 +632,7 @@ console.log(data);`;
                 <img
                   src={result.heatmap}
                   alt="Grad-CAM"
-                  title="Grad-CAM (SFDCT) — vùng model tập trung"
+                  title={t('playground.heatmap')}
                   className="absolute inset-0 w-full h-full object-cover"
                 />
               ) : result && includeHeatmap && v && v !== 'REAL' ? (
@@ -636,7 +653,7 @@ console.log(data);`;
             {/* Result panel */}
             <div className="flex-1 min-w-0 w-full">
               <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">
-                {result ? 'Điểm rủi ro deepfake' : 'Kết quả chẩn đoán'}
+                {result ? t('playground.diagnostic_title_risk') : t('playground.diagnostic_title')}
               </h4>
 
               {/* Ảnh → dẫn bằng risk-score (định vị eKYC); Video → dẫn bằng verdict */}
@@ -662,7 +679,7 @@ console.log(data);`;
                   </div>
                   {rStyle && (
                     <div className="flex items-center gap-2 mb-3 flex-wrap">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">Gợi ý</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">{t('playground.decision_label')}</span>
                       <span className="text-[12px] font-bold" style={{ color: rStyle.color }}>{rStyle.hint}</span>
                       <span className="text-[10px] text-slate-400">
                         · verdict {v} ({result.confidence.toFixed(1)}%)
@@ -680,7 +697,7 @@ console.log(data);`;
                       {videoResult.confidence.toFixed(1)}%
                     </span>
                   ) : (
-                    <span className="text-sm font-medium text-slate-400 self-center">Chọn media &amp; bấm Phân Tích</span>
+                    <span className="text-sm font-medium text-slate-400 self-center">{t('playground.select_media_prompt')}</span>
                   )}
                   {videoResult && (
                     <span className="ml-auto text-[10px] font-bold text-slate-500 font-mono bg-slate-100 px-2 py-1 rounded-md tabular-nums">
@@ -690,9 +707,21 @@ console.log(data);`;
                 </div>
               )}
 
+              {result?.quality?.low_quality && (
+                <div className="flex items-start gap-2 px-3 py-2.5 mb-4 rounded-xl bg-amber-50 border border-amber-300">
+                  <Icon name="warning" className="text-[16px] text-amber-500 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-black text-amber-700">{t('playground.poor_quality_alert')}</p>
+                    <p className="text-[10px] text-amber-600 mt-0.5 leading-snug">
+                      {result.quality.reasons.map((r: string) => getQualityLabel(r, t)).join(' · ')}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {result && (
                 <p className="text-[11px] text-slate-400 mb-5 leading-relaxed">
-                  Face: {result.face_detected ? 'Phát hiện' : 'Không rõ'} · {result.model_version}
+                  {t('playground.face_status').replace('{status}', result.face_detected ? t('playground.face_detected') : t('playground.face_not_detected')).replace('{model}', result.model_version)}
                   {result.image_width && result.image_height
                     ? ` · ${result.image_width}×${result.image_height}px`
                     : ''}
@@ -700,7 +729,7 @@ console.log(data);`;
               )}
               {videoResult && (
                 <p className="text-[11px] text-slate-400 mb-5 leading-relaxed">
-                  {videoResult.frames_analyzed} frame phân tích · {videoResult.frames_fake} fake · {videoResult.model_version}
+                  {t('playground.video_summary').replace('{frames}', String(videoResult.frames_analyzed)).replace('{fake}', String(videoResult.frames_fake)).replace('{model}', videoResult.model_version)}
                 </p>
               )}
 
@@ -776,7 +805,7 @@ console.log(data);`;
         {/* Evidence — Grad-CAM + Frequency (chỉ ảnh, nhìn chuyên nghiệp) */}
         {result && (result.heatmap || result.frequency) && (
           <section className="glass-panel rounded-2xl p-5 shadow-sm border border-white">
-            <SectionDivider n="04" title="Bằng chứng trực quan" />
+            <SectionDivider n="04" title={t('playground.dct_title')} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Grad-CAM overlay */}
               <figure className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 m-0">
@@ -790,7 +819,7 @@ console.log(data);`;
                     />
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-[11px] font-semibold text-slate-400">Heatmap không khả dụng</span>
+                      <span className="text-[11px] font-semibold text-slate-400">{t('playground.dct_heatmap_none')}</span>
                     </div>
                   )}
                 </div>
@@ -799,7 +828,7 @@ console.log(data);`;
                     <Icon name="blur_on" className="text-[15px] text-dgblue" /> Grad-CAM
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
-                    Vùng ảnh model tập trung khi quyết định (nóng = ảnh hưởng mạnh).
+                    {t('playground.dct_heatmap_desc')}
                   </p>
                 </figcaption>
               </figure>
@@ -810,21 +839,21 @@ console.log(data);`;
                   {result.frequency ? (
                     <img
                       src={result.frequency}
-                      alt="Phổ tần số 2D-DCT"
+                      alt={t('playground.dct_spectrum')}
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-[11px] font-semibold text-slate-400">Phổ tần số không khả dụng</span>
+                      <span className="text-[11px] font-semibold text-slate-400">{t('playground.dct_spectrum_none')}</span>
                     </div>
                   )}
                 </div>
                 <figcaption className="px-3.5 py-2.5 bg-white border-t border-slate-100">
                   <p className="text-[11px] font-black text-slate-700 flex items-center gap-1.5">
-                    <Icon name="graphic_eq" className="text-[15px] text-dgblue" /> Phổ tần số (2D-DCT)
+                    <Icon name="graphic_eq" className="text-[15px] text-dgblue" /> {t('playground.dct_spectrum')}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
-                    log|DCT|: đốm/nhiễu ở dải tần cao thường lộ dấu vết tổng hợp GAN.
+                    {t('playground.dct_spectrum_desc')}
                   </p>
                 </figcaption>
               </figure>
@@ -838,8 +867,8 @@ console.log(data);`;
             <div className="flex gap-1">
               {(
                 [
-                  ['visual', 'Phân tích', 'insights'],
-                  ['json', 'Response JSON', 'data_object'],
+                  ['visual', t('playground.btn_analyze'), 'insights'],
+                  ['json', t('playground.json_response'), 'data_object'],
                 ] as const
               ).map(([id, label, ic]) => (
                 <button
@@ -874,18 +903,18 @@ console.log(data);`;
             ) : (
               <div className="flex flex-col items-center justify-center py-11 px-6 text-center">
                 <Icon name="data_object" className="text-[38px] text-slate-300 mb-2.5" />
-                <p className="text-xs font-medium text-slate-400">Response JSON sẽ hiện sau khi phân tích</p>
+                <p className="text-xs font-medium text-slate-400">{t('playground.json_response')}</p>
               </div>
             )
           ) : activeResult ? (
             <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
                 { icon: 'memory', title: 'EfficientNet-B4', sub: 'Spatial-Frequency dual-stream' },
-                { icon: 'blur_on', title: 'DCT Analysis', sub: includeHeatmap ? 'Heatmap bật' : 'Heatmap tắt' },
+                { icon: 'blur_on', title: 'DCT Analysis', sub: includeHeatmap ? t('playground.heatmap_status') : t('playground.heatmap_status_off') },
                 {
                   icon: 'verified',
-                  title: v === 'FAKE' ? 'Dấu hiệu giả mạo' : v === 'REAL' ? 'Không phát hiện' : 'Cần xem xét',
-                  sub: result ? `Ngưỡng ${result.threshold_used.toFixed(2)}` : 'Phân tích video',
+                  title: v === 'FAKE' ? t('playground.decision_fake') : v === 'REAL' ? t('playground.decision_real') : t('playground.decision_uncertain'),
+                  sub: result ? t('playground.threshold_label').replace('{val}', result.threshold_used.toFixed(2)) : t('playground.video_analysis_label'),
                 },
               ].map((b) => (
                 <div key={b.title} className="flex gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-100 items-start">
@@ -900,7 +929,7 @@ console.log(data);`;
           ) : (
             <div className="flex flex-col items-center justify-center py-11 px-6 text-center">
               <Icon name="insights" className="text-[38px] text-slate-300 mb-2.5" />
-              <p className="text-xs font-medium text-slate-400">Chi tiết phân tích kỹ thuật sẽ hiện ở đây</p>
+              <p className="text-xs font-medium text-slate-400">{t('playground.dct_spectrum_prompt')}</p>
             </div>
           )}
         </div>
@@ -913,7 +942,7 @@ console.log(data);`;
             </div>
             {extracting && (
               <p className="text-[10px] font-bold text-slate-500 italic mb-3">
-                Đang trích frame {extracting.done}/{extracting.total}…
+                {t('playground.extracting_frames').replace('{done}', String(extracting.done)).replace('{total}', String(extracting.total))}
               </p>
             )}
             <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
@@ -984,7 +1013,7 @@ console.log(data);`;
               className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-white transition-colors"
             >
               <Icon name={copied ? 'check' : 'content_copy'} className="text-[14px]" />
-              {copied ? 'Đã sao chép!' : 'Copy'}
+              {copied ? t('playground.copied') : 'Copy'}
             </button>
           </div>
           <pre className="p-5 text-[12px] font-mono leading-relaxed overflow-x-auto text-blue-100 custom-scrollbar whitespace-pre">

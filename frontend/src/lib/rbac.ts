@@ -42,9 +42,9 @@ export const PAGE_ACCESS: Record<Page, Role[]> = {
   liveness: ['admin', 'developer'],
   apikeys: ['admin', 'developer'],
   webhooks: [], // DEMO: ẩn (chưa có dispatcher)
-  models: ['sysadmin', 'admin', 'developer', 'compliance'], // edit gated separately by canEdit
+  models: [], // Ẩn trang model threshold theo yêu cầu của user
 
-  audit: [], // DEMO: ẩn (OUT scope)
+  audit: ['sysadmin', 'admin', 'compliance'], // Cho phép sysadmin, admin, compliance xem audit logs
 
   team: ['admin', 'sysadmin'],
   billing: [], // DEMO: ẩn (dữ liệu mẫu)

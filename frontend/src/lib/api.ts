@@ -259,6 +259,12 @@ export const analyticsOverview = (days = 30) =>
 export const analyticsUsage = () => req<UsageInfo>("/analytics/usage");
 
 // ── Detect (uses API key, not JWT) ───────────────────────────────────────────
+export interface QualityInfo {
+  face_px: number; resample_ratio: number; blur_var: number; brightness: number;
+  upscaled: boolean; blurry: boolean; too_dark: boolean; too_bright: boolean;
+  low_quality: boolean; reasons: string[];
+}
+
 export interface DetectionResponse {
   request_id: string;
   // ── Tín hiệu rủi ro (định vị eKYC — khách dùng cái này) ──
@@ -273,6 +279,7 @@ export interface DetectionResponse {
   verdict: string; confidence: number; prob_fake: number;
   threshold_used: number; face_detected: boolean; processing_time_ms: number;
   model_version: string; image_width: number | null; image_height: number | null;
+  quality?: QualityInfo | null;   // cờ chất lượng ảnh (flag-only): low_quality + reasons
   created_at: string;
 }
 

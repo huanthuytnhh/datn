@@ -12,6 +12,7 @@
    ────────────────────────────────────────────── */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useT } from '@/lib/i18n';
 import { motion } from 'framer-motion';
 import { useNavigation } from '@/store/navigation';
 import { useAuthStore } from '@/store/auth';
@@ -48,12 +49,22 @@ import { DG, fmtInt, timeAgo } from '@/lib/dg';
 
 /* range → days lookup for the analytics endpoint */
 const RANGE_DAYS: Record<string, number> = { today: 1, '7d': 7, '30d': 30 };
-const RANGE_OPTIONS: ToggleOption[] = [
-  { id: 'today', label: 'Hôm nay' },
-  { id: '7d', label: '7 ngày' },
-  { id: '30d', label: '30 ngày' },
-];
-const RANGE_LABEL: Record<string, string> = { today: 'Hôm nay', '7d': '7 ngày', '30d': '30 ngày' };
+function getRangeOptions(t: (k: string) => string): ToggleOption[] {
+  return [
+    { id: 'today', label: t('dashboard.range.today') },
+    { id: '7d', label: t('dashboard.range.7d') },
+    { id: '30d', label: t('dashboard.range.30d') },
+  ];
+}
+
+function getRangeLabel(range: string, t: (k: string) => string): string {
+  const labels: Record<string, string> = {
+    today: t('dashboard.range.today'),
+    '7d': t('dashboard.range.7d'),
+    '30d': t('dashboard.range.30d'),
+  };
+  return labels[range] ?? range;
+}
 
 /* ── Build a per-day time-series (total / fake / real) from raw detections ── */
 function buildSeries(detections: DetectionListItem[], days: number) {
@@ -108,6 +119,7 @@ interface KpiCardData {
 }
 
 function KpiCard({ card }: { card: KpiCardData }) {
+  const t = useT();
   return (
     <div className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60 hover:shadow-md hover:-translate-y-0.5 transition-all group dg-rise">
       <div className="flex items-start justify-between mb-3">
@@ -138,7 +150,7 @@ function KpiCard({ card }: { card: KpiCardData }) {
             />
           </div>
           <div className="flex justify-between mt-1.5">
-            <p className="text-[10px] text-slate-400 font-medium">{card.progress.toFixed(1)}% đã dùng</p>
+            <p className="text-[10px] text-slate-400 font-medium">{card.progress.toFixed(1)}% {t('dashboard.used')}</p>
             {card.sub && <p className="text-[10px] text-slate-400 font-medium">{card.sub}</p>}
           </div>
         </div>
@@ -194,12 +206,13 @@ interface SharedAnalytics {
 }
 
 function RequestVolumeChart({ a }: { a: SharedAnalytics }) {
+  const t = useT();
   return (
     <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise h-full">
       <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
         <div>
           <h2 className="text-base font-black text-slate-900">Request volume</h2>
-          <p className="text-xs text-slate-400 mt-0.5">{RANGE_LABEL[a.range]} · theo ngày</p>
+          <p className="text-xs text-slate-400 mt-0.5">{getRangeLabel(a.range, t)} · {t('dashboard.chart.daily')}</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
@@ -235,10 +248,10 @@ function RequestVolumeChart({ a }: { a: SharedAnalytics }) {
       {a.loading ? (
         <div className="skeleton h-[260px] w-full rounded-xl" />
       ) : a.reqSpark.some((v) => v > 0) ? (
-        <InteractiveChart axis={a.axis} points="Ngày" series={a.series} mode={a.mode} />
+        <InteractiveChart axis={a.axis} points={t('dashboard.chart.day_axis')} series={a.series} mode={a.mode} />
       ) : (
         <div className="h-[260px] flex items-center justify-center">
-          <FriendlyEmpty icon="bar_chart" title="Chưa có dữ liệu request trong khoảng này" />
+          <FriendlyEmpty icon="bar_chart" title={t('dashboard.chart.no_data')} />
         </div>
       )}
     </div>
@@ -246,6 +259,7 @@ function RequestVolumeChart({ a }: { a: SharedAnalytics }) {
 }
 
 function VerdictDonut({ a }: { a: SharedAnalytics }) {
+  const t = useT();
   const segs = a.overview
     ? [
         { label: 'Real', value: a.overview.real_detected, color: DG.real },
@@ -257,7 +271,7 @@ function VerdictDonut({ a }: { a: SharedAnalytics }) {
   return (
     <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise h-full">
       <h2 className="text-base font-black text-slate-900 mb-1">Verdict breakdown</h2>
-      <p className="text-xs text-slate-400 mb-4">{RANGE_LABEL[a.range]}</p>
+      <p className="text-xs text-slate-400 mb-4">{getRangeLabel(a.range, t)}</p>
       {a.loading || !a.overview ? (
         <div className="flex flex-col items-center gap-4">
           <div className="skeleton w-[150px] h-[150px] rounded-full" />
@@ -267,7 +281,7 @@ function VerdictDonut({ a }: { a: SharedAnalytics }) {
       ) : (
         <div className="flex flex-col items-center">
           <Donut segments={segs} size={150} stroke={18}>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tổng</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('dashboard.total')}</span>
             <span className="text-2xl font-black text-slate-900 tabular-nums leading-none mt-0.5">
               <AnimatedNumber value={total} />
             </span>
@@ -297,7 +311,7 @@ function RecentDetections({
   recent,
   onRow,
   onViewAll,
-  title = 'Phát hiện gần đây',
+  title,
 }: {
   loading: boolean;
   recent: DetectionListItem[];
@@ -305,24 +319,26 @@ function RecentDetections({
   onViewAll?: () => void;
   title?: string;
 }) {
+  const t = useT();
+  const displayTitle = title ?? t('dashboard.recent_detections');
   return (
     <div className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60 dg-rise">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <span className="w-1.5 h-1.5 bg-dgblue rounded-full" />
-          <h2 className="text-base font-black text-slate-900">{title}</h2>
+          <h2 className="text-base font-black text-slate-900">{displayTitle}</h2>
         </div>
         {onViewAll && (
           <button
             onClick={onViewAll}
             className="text-[11px] font-bold text-dgblue hover:gap-2 flex items-center gap-1 transition-all"
           >
-            Xem tất cả <Icon name="arrow_forward" className="text-[14px]" />
+            {t('dashboard.view_all')} <Icon name="arrow_forward" className="text-[14px]" />
           </button>
         )}
       </div>
       <div className="grid grid-cols-12 gap-3 px-3 py-2 text-[10px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-100">
-        <div className="col-span-3">Thời gian</div>
+        <div className="col-span-3">{t('dashboard.col_time')}</div>
         <div className="col-span-4">Request</div>
         <div className="col-span-2">Verdict</div>
         <div className="col-span-1 text-right">Latency</div>
@@ -340,7 +356,7 @@ function RecentDetections({
             </div>
           ))
         ) : recent.length === 0 ? (
-          <div className="px-3 py-8 text-center text-[13px] text-slate-400 font-semibold">Chưa có dữ liệu phát hiện</div>
+          <div className="px-3 py-8 text-center text-[13px] text-slate-400 font-semibold">{t('dashboard.no_detections')}</div>
         ) : (
           recent.map((det) => (
             <div
@@ -384,6 +400,7 @@ function TopKeysRail({
   canManage: boolean;
   onManage: () => void;
 }) {
+  const t = useT();
   return (
     <div className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60 dg-rise">
       <div className="flex items-center justify-between mb-4">
@@ -396,7 +413,7 @@ function TopKeysRail({
             onClick={onManage}
             className="text-[11px] font-bold text-dgblue hover:gap-2 flex items-center gap-1 transition-all"
           >
-            Quản lý <Icon name="arrow_forward" className="text-[14px]" />
+            {t('dashboard.manage')} <Icon name="arrow_forward" className="text-[14px]" />
           </button>
         )}
       </div>
@@ -410,7 +427,7 @@ function TopKeysRail({
           ))}
         </div>
       ) : keys.length === 0 ? (
-        <div className="py-6 text-center text-[12px] text-slate-400 font-semibold">Chưa có API key nào</div>
+        <div className="py-6 text-center text-[12px] text-slate-400 font-semibold">{t('dashboard.no_apikeys')}</div>
       ) : (
         <div className="space-y-3">
           {keys.map((key) => (
@@ -484,6 +501,7 @@ function PageHeader({
   setRange: (r: string) => void;
   action?: { label: string; icon: string; onClick: () => void };
 }) {
+  const t = useT();
   return (
     <div className="flex flex-wrap items-end justify-between gap-4 dg-rise">
       <div>
@@ -491,7 +509,7 @@ function PageHeader({
         <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
       </div>
       <div className="flex items-center gap-3">
-        <RangeToggle value={range} onChange={setRange} options={RANGE_OPTIONS} />
+        <RangeToggle value={range} onChange={setRange} options={getRangeOptions(t)} />
         {action && (
           <button
             onClick={action.onClick}
@@ -602,16 +620,16 @@ function useSharedAnalytics(role: Role | undefined) {
 type SharedData = ReturnType<typeof useSharedAnalytics>;
 
 /* KPI builder reused by developer / admin / viewer / compliance */
-function buildCoreKpis(overview: AnalyticsOverview, usage: UsageInfo | null, range: string, reqSpark: number[], fakeSpark: number[]): KpiCardData[] {
+function buildCoreKpis(overview: AnalyticsOverview, usage: UsageInfo | null, range: string, reqSpark: number[], fakeSpark: number[], t: (k: string) => string): KpiCardData[] {
   return [
     {
-      title: 'Tổng requests',
+      title: t('dashboard.total_requests'),
       value: overview.total_requests,
       icon: 'data_usage',
       iconBg: DG.primary,
       spark: reqSpark,
       sparkColor: DG.primary,
-      sub: `${RANGE_LABEL[range]} · ${fmtInt(overview.real_detected)} real`,
+      sub: `${getRangeLabel(range, t)} · ${fmtInt(overview.real_detected)} real`,
     },
     {
       title: 'Deepfake detected',
@@ -621,7 +639,7 @@ function buildCoreKpis(overview: AnalyticsOverview, usage: UsageInfo | null, ran
       alert: overview.fake_detected > 0,
       spark: fakeSpark.some((v) => v > 0) ? fakeSpark : undefined,
       sparkColor: DG.fake,
-      sub: `${overview.fake_rate.toFixed(1)}% tỉ lệ fake`,
+      sub: `${overview.fake_rate.toFixed(1)}% ${t('dashboard.fake_rate')}`,
     },
     {
       title: 'Avg latency',
@@ -632,14 +650,14 @@ function buildCoreKpis(overview: AnalyticsOverview, usage: UsageInfo | null, ran
       sub: `P95 ${overview.p95_latency_ms}ms`,
     },
     {
-      title: 'Quota tháng',
+      title: t('dashboard.monthly_quota'),
       value: usage ? usage.usage_percent : 0,
       suffix: '%',
       decimals: 1,
       icon: 'database',
       iconBg: DG.real,
       progress: usage ? usage.usage_percent : 0,
-      sub: usage ? `${fmtInt(usage.remaining)} còn lại` : undefined,
+      sub: usage ? `${fmtInt(usage.remaining)} ${t('dashboard.remaining')}` : undefined,
     },
   ];
 }
@@ -650,20 +668,21 @@ function buildCoreKpis(overview: AnalyticsOverview, usage: UsageInfo | null, ran
 function DeveloperDashboard({ d, role }: { d: SharedData; role: Role }) {
   const navigate = useNavigation((s) => s.navigate);
   const setSelectedRequestId = useNavigation((s) => s.setSelectedRequestId);
+  const t = useT();
   const { overview, usage, recent, topKeys, loading, error, reqSpark, fakeSpark, range, setRange, shared } = d;
   const canManageKeys = canEdit(role, 'apikeys');
   const handleRow = (id: string) => { setSelectedRequestId(id); navigate('detail'); };
-  const kpis = overview ? buildCoreKpis(overview, usage, range, reqSpark, fakeSpark) : [];
+  const kpis = overview ? buildCoreKpis(overview, usage, range, reqSpark, fakeSpark, t) : [];
 
   return (
     <div className="space-y-6">
       <PageHeader
-        subtitle="Tổng quan tích hợp API — DeepGuard Workspace"
+        subtitle={t('dashboard.organization_overview_default')}
         range={range}
         setRange={setRange}
         action={{ label: 'Test API', icon: 'rocket_launch', onClick: () => navigate('playground') }}
       />
-      {error && <ErrorBanner message="Không tải được dữ liệu dashboard. Vui lòng thử lại." />}
+      {error && <ErrorBanner message={t('dashboard.err_load')} />}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {loading || !overview ? Array.from({ length: 4 }).map((_, i) => <KpiSkeleton key={i} />) : kpis.map((c) => <KpiCard key={c.title} card={c} />)}
@@ -682,7 +701,7 @@ function DeveloperDashboard({ d, role }: { d: SharedData; role: Role }) {
         </div>
         <div className="space-y-5">
           <TopKeysRail loading={loading} keys={topKeys} canManage={canManageKeys} onManage={() => navigate('apikeys')} />
-          <QuickLink icon="rocket_launch" title="Test Detection API" hint="Thử nghiệm trực tiếp trong Playground" onClick={() => navigate('playground')} />
+          <QuickLink icon="rocket_launch" title="Test Detection API" hint={t('dashboard.test_api_playground')} onClick={() => navigate('playground')} />
         </div>
       </div>
 
@@ -697,6 +716,7 @@ function DeveloperDashboard({ d, role }: { d: SharedData; role: Role }) {
 function AdminDashboard({ d, role }: { d: SharedData; role: Role }) {
   const navigate = useNavigation((s) => s.navigate);
   const setSelectedRequestId = useNavigation((s) => s.setSelectedRequestId);
+  const t = useT();
   const { overview, usage, recent, topKeys, loading, error, reqSpark, fakeSpark, range, setRange, shared } = d;
 
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
@@ -720,11 +740,11 @@ function AdminDashboard({ d, role }: { d: SharedData; role: Role }) {
           icon: 'corporate_fare',
           iconBg: DG.primary,
           progress: quotaPct,
-          sub: tenant ? `${fmtInt(tenant.current_usage)} / ${fmtInt(tenant.monthly_quota)}` : usage ? `${fmtInt(usage.remaining)} còn lại` : undefined,
+          sub: tenant ? `${fmtInt(tenant.current_usage)} / ${fmtInt(tenant.monthly_quota)}` : usage ? `${fmtInt(usage.remaining)} ${t('dashboard.remaining')}` : undefined,
         },
-        { title: 'Tổng requests', value: overview.total_requests, icon: 'data_usage', iconBg: DG.primary, spark: reqSpark, sparkColor: DG.primary, sub: `${RANGE_LABEL[range]}` },
+        { title: t('dashboard.total_requests'), value: overview.total_requests, icon: 'data_usage', iconBg: DG.primary, spark: reqSpark, sparkColor: DG.primary, sub: `${getRangeLabel(range, t)}` },
         {
-          title: 'Tỉ lệ fake',
+          title: t('dashboard.fake_rate'),
           value: overview.fake_rate,
           suffix: '%',
           decimals: 1,
@@ -742,12 +762,12 @@ function AdminDashboard({ d, role }: { d: SharedData; role: Role }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        subtitle={tenant ? `Tổng quan tổ chức — ${tenant.name} · gói ${tenant.plan}` : 'Tổng quan tổ chức — DeepGuard Workspace'}
+        subtitle={tenant ? t('dashboard.organization_overview').replace('{name}', tenant.name).replace('{plan}', tenant.plan) : t('dashboard.organization_overview_default')}
         range={range}
         setRange={setRange}
-        action={{ label: 'Mời thành viên', icon: 'group_add', onClick: () => navigate('team') }}
+        action={{ label: t('dashboard.invite_members'), icon: 'group_add', onClick: () => navigate('team') }}
       />
-      {error && <ErrorBanner message="Không tải được dữ liệu tổ chức. Vui lòng thử lại." />}
+      {error && <ErrorBanner message={t('dashboard.err_tenant')} />}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {loading || !overview ? Array.from({ length: 4 }).map((_, i) => <KpiSkeleton key={i} />) : kpis.map((c) => <KpiCard key={c.title} card={c} />)}
@@ -772,19 +792,19 @@ function AdminDashboard({ d, role }: { d: SharedData; role: Role }) {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 bg-dgblue rounded-full" />
-                <h2 className="text-[13px] font-black text-slate-900">Hoạt động nhóm</h2>
+                <h2 className="text-[13px] font-black text-slate-900">{t('dashboard.group_activity')}</h2>
               </div>
               <button onClick={() => navigate('team')} className="text-[11px] font-bold text-dgblue hover:gap-2 flex items-center gap-1 transition-all">
-                Quản lý <Icon name="arrow_forward" className="text-[14px]" />
+                {t('dashboard.manage')} <Icon name="arrow_forward" className="text-[14px]" />
               </button>
             </div>
             <p className="text-[12px] text-slate-500 leading-relaxed">
-              Quản lý thành viên, vai trò và lời mời cho <span className="font-bold text-slate-700">{tenant?.name ?? 'tổ chức'}</span>.
+              {t('dashboard.manage_members_desc')} <span className="font-bold text-slate-700">{tenant?.name ?? 'tổ chức'}</span>.
             </p>
           </div>
 
-          <QuickLink icon="receipt_long" title="Billing & gói dịch vụ" hint={tenant ? `Gói hiện tại: ${tenant.plan}` : 'Xem hóa đơn và hạn mức'} onClick={() => navigate('billing')} color={DG.real} />
-          <QuickLink icon="settings" title="Cài đặt tổ chức" hint="Cấu hình tenant & bảo mật" onClick={() => navigate('settings')} />
+          <QuickLink icon="receipt_long" title={t('dashboard.settings.billing_title')} hint={tenant ? t('dashboard.settings.billing_desc_plan').replace('{plan}', tenant.plan) : t('dashboard.settings.billing_desc')} onClick={() => navigate('billing')} color={DG.real} />
+          <QuickLink icon="settings" title={t('dashboard.settings.tenant_title')} hint={t('dashboard.settings.tenant_desc')} onClick={() => navigate('settings')} />
         </div>
       </div>
 
@@ -799,6 +819,7 @@ function AdminDashboard({ d, role }: { d: SharedData; role: Role }) {
 function ComplianceDashboard({ d }: { d: SharedData }) {
   const navigate = useNavigation((s) => s.navigate);
   const setSelectedRequestId = useNavigation((s) => s.setSelectedRequestId);
+  const t = useT();
   const { overview, usage, recent, loading, error, reqSpark, fakeSpark, range, setRange, shared } = d;
 
   const [fakes, setFakes] = useState<DetectionListItem[]>([]);
@@ -817,17 +838,17 @@ function ComplianceDashboard({ d }: { d: SharedData }) {
 
   const kpis: KpiCardData[] = overview
     ? [
-        { title: 'Deepfake cần soát', value: overview.fake_detected, icon: 'gpp_maybe', iconBg: DG.fake, alert: overview.fake_detected > 0, spark: fakeSpark.some((v) => v > 0) ? fakeSpark : undefined, sparkColor: DG.fake, sub: `${overview.fake_rate.toFixed(1)}% tỉ lệ fake` },
-        { title: 'Tổng requests', value: overview.total_requests, icon: 'data_usage', iconBg: DG.primary, spark: reqSpark, sparkColor: DG.primary, sub: `${RANGE_LABEL[range]}` },
-        { title: 'Uncertain', value: overview.uncertain, icon: 'help', iconBg: DG.uncertain, sub: 'Cần kiểm tra thủ công' },
-        { title: 'Real', value: overview.real_detected, icon: 'verified', iconBg: DG.real, sub: 'Hợp lệ' },
+        { title: t('dashboard.deepfake_to_review'), value: overview.fake_detected, icon: 'gpp_maybe', iconBg: DG.fake, alert: overview.fake_detected > 0, spark: fakeSpark.some((v) => v > 0) ? fakeSpark : undefined, sparkColor: DG.fake, sub: `${overview.fake_rate.toFixed(1)}% ${t('dashboard.fake_rate')}` },
+        { title: t('dashboard.total_requests'), value: overview.total_requests, icon: 'data_usage', iconBg: DG.primary, spark: reqSpark, sparkColor: DG.primary, sub: `${getRangeLabel(range, t)}` },
+        { title: t('dashboard.uncertain'), value: overview.uncertain, icon: 'help', iconBg: DG.uncertain, sub: t('dashboard.uncertain_desc') },
+        { title: t('dashboard.real'), value: overview.real_detected, icon: 'verified', iconBg: DG.real, sub: t('dashboard.real_desc') },
       ]
     : [];
 
   return (
     <div className="space-y-6">
-      <PageHeader subtitle="Hàng đợi rà soát tuân thủ — DeepGuard" range={range} setRange={setRange} />
-      {error && <ErrorBanner message="Không tải được dữ liệu tuân thủ. Vui lòng thử lại." />}
+      <PageHeader subtitle={t('dashboard.compliance_queue')} range={range} setRange={setRange} />
+      {error && <ErrorBanner message={t('dashboard.err_compliance')} />}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {loading || !overview ? Array.from({ length: 4 }).map((_, i) => <KpiSkeleton key={i} />) : kpis.map((c) => <KpiCard key={c.title} card={c} />)}
@@ -839,10 +860,10 @@ function ComplianceDashboard({ d }: { d: SharedData }) {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 bg-dgfake rounded-full animate-pulse" />
-              <h2 className="text-base font-black text-slate-900">Deepfake cần rà soát</h2>
+              <h2 className="text-base font-black text-slate-900">{t('dashboard.deepfake_review')}</h2>
             </div>
             <button onClick={() => navigate('history')} className="text-[11px] font-bold text-dgblue hover:gap-2 flex items-center gap-1 transition-all">
-              Xem lịch sử <Icon name="arrow_forward" className="text-[14px]" />
+              {t('nav.history')} <Icon name="arrow_forward" className="text-[14px]" />
             </button>
           </div>
           {fakesLoading ? (
@@ -856,9 +877,9 @@ function ComplianceDashboard({ d }: { d: SharedData }) {
               ))}
             </div>
           ) : fakesErr ? (
-            <ErrorBanner message="Không tải được danh sách cần rà soát." />
+            <ErrorBanner message={t('dashboard.err_review_list')} />
           ) : fakes.length === 0 ? (
-            <FriendlyEmpty icon="task_alt" title="Không có deepfake nào cần rà soát" hint="Tất cả phát hiện đã được xử lý." />
+            <FriendlyEmpty icon="task_alt" title={t('dashboard.no_review_needed')} hint={t('dashboard.all_processed')} />
           ) : (
             <div className="divide-y divide-slate-50">
               {fakes.map((det) => (
@@ -897,25 +918,25 @@ function ComplianceDashboard({ d }: { d: SharedData }) {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 bg-dgblue rounded-full" />
-                <h2 className="text-[13px] font-black text-slate-900">Nhật ký kiểm toán</h2>
+                <h2 className="text-[13px] font-black text-slate-900">{t('dashboard.audit_log')}</h2>
               </div>
               <button onClick={() => navigate('audit')} className="text-[11px] font-bold text-dgblue hover:gap-2 flex items-center gap-1 transition-all">
-                Mở <Icon name="arrow_forward" className="text-[14px]" />
+                {t('dashboard.open')} <Icon name="arrow_forward" className="text-[14px]" />
               </button>
             </div>
-            <p className="text-[12px] text-slate-500 leading-relaxed">Theo dõi toàn bộ hành động truy cập và thay đổi cấu hình của tổ chức.</p>
+            <p className="text-[12px] text-slate-500 leading-relaxed">{t('dashboard.audit_log_desc')}</p>
           </div>
 
           {/* Compliance / retention status */}
           <div className="glass-panel rounded-2xl p-5 shadow-sm border border-white/60 dg-rise">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-1.5 h-1.5 bg-dgreal rounded-full" />
-              <h2 className="text-[13px] font-black text-slate-900">Trạng thái tuân thủ</h2>
+              <h2 className="text-[13px] font-black text-slate-900">{t('dashboard.compliance_status')}</h2>
             </div>
             <div className="space-y-3">
               {[
-                { icon: 'verified_user', label: 'Lưu trữ dữ liệu', value: '90 ngày', color: DG.real },
-                { icon: 'lock', label: 'Mã hóa khi lưu', value: 'Bật', color: DG.real },
+                { icon: 'verified_user', label: t('dashboard.data_retention'), value: t('dashboard.data_retention_val'), color: DG.real },
+                { icon: 'lock', label: t('dashboard.encryption_at_rest'), value: t('dashboard.encryption_at_rest_val'), color: DG.real },
                 { icon: 'history_edu', label: 'Ghi nhật ký kiểm toán', value: error ? 'Lỗi' : 'Hoạt động', color: error ? DG.fake : DG.real },
               ].map((row) => (
                 <div key={row.label} className="flex items-center gap-3">
@@ -944,7 +965,8 @@ function PlanBadge({ plan }: { plan: string }) {
 }
 function StatusDot({ status }: { status: string }) {
   const s = (status || '').toLowerCase();
-  const label = s === 'active' ? 'Hoạt động' : s === 'pending' ? 'Chờ duyệt' : s === 'suspended' ? 'Tạm ngưng' : status;
+  const t = useT();
+  const label = s === 'active' ? t('dashboard.active') : s === 'pending' ? t('dashboard.pending') : s === 'suspended' ? t('dashboard.suspended') : status;
   const color = s === 'active' ? DG.real : s === 'pending' ? DG.uncertain : DG.fake;
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] font-bold" style={{ color }}>
@@ -956,6 +978,7 @@ function StatusDot({ status }: { status: string }) {
 
 function SysadminDashboard() {
   const navigate = useNavigation((s) => s.navigate);
+  const t = useT();
   const [range, setRange] = useState('7d');
   const [platform, setPlatform] = useState<PlatformOverview | null>(null);
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
@@ -978,19 +1001,19 @@ function SysadminDashboard() {
 
   const kpis: KpiCardData[] = platform
     ? [
-        { title: 'Tenants', value: platform.total_tenants, icon: 'corporate_fare', iconBg: DG.primary, sub: `${fmtInt(platform.active_tenants)} đang hoạt động` },
-        { title: 'Người dùng', value: platform.total_users, icon: 'group', iconBg: DG.primary, sub: 'Toàn nền tảng' },
-        { title: 'Tổng requests', value: platform.total_requests, icon: 'data_usage', iconBg: DG.real, sub: `${RANGE_LABEL[range]}` },
-        { title: 'Tỉ lệ fake', value: platform.fake_rate, suffix: '%', decimals: 1, icon: 'gpp_maybe', iconBg: DG.fake, alert: platform.fake_detected > 0, sub: `${fmtInt(platform.fake_detected)} deepfake` },
-        { title: 'Avg latency', value: platform.avg_latency_ms, suffix: 'ms', icon: 'bolt', iconBg: DG.uncertain, sub: 'Toàn hệ thống' },
+        { title: 'Tenants', value: platform.total_tenants, icon: 'corporate_fare', iconBg: DG.primary, sub: `${fmtInt(platform.active_tenants)} ${t('dashboard.active').toLowerCase()}` },
+        { title: t('dashboard.users'), value: platform.total_users, icon: 'group', iconBg: DG.primary, sub: t('dashboard.all_platform') },
+        { title: t('dashboard.total_requests'), value: platform.total_requests, icon: 'data_usage', iconBg: DG.real, sub: `${getRangeLabel(range, t)}` },
+        { title: t('dashboard.fake_rate'), value: platform.fake_rate, suffix: '%', decimals: 1, icon: 'gpp_maybe', iconBg: DG.fake, alert: platform.fake_detected > 0, sub: `${fmtInt(platform.fake_detected)} deepfake` },
+        { title: 'Avg latency', value: platform.avg_latency_ms, suffix: 'ms', icon: 'bolt', iconBg: DG.uncertain, sub: t('dashboard.all_system') },
       ]
     : [];
 
   return (
     <div className="space-y-6">
-      <PageHeader subtitle="Vận hành nền tảng — DeepGuard Platform Ops" range={range} setRange={setRange} action={{ label: 'Quản lý tenants', icon: 'corporate_fare', onClick: () => navigate('tenants') }} />
+      <PageHeader subtitle={t('dashboard.platform_ops')} range={range} setRange={setRange} action={{ label: t('dashboard.manage_tenants'), icon: 'corporate_fare', onClick: () => navigate('tenants') }} />
 
-      {error && <ErrorBanner message="Chưa thể tải dữ liệu nền tảng. Các endpoint đang được hoàn thiện — vui lòng thử lại sau." />}
+      {error && <ErrorBanner message={t('dashboard.err_platform_load')} />}
 
       {/* Platform KPIs (5) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
@@ -1099,15 +1122,16 @@ function SysadminDashboard() {
 function ViewerDashboard({ d }: { d: SharedData }) {
   const navigate = useNavigation((s) => s.navigate);
   const setSelectedRequestId = useNavigation((s) => s.setSelectedRequestId);
+  const t = useT();
   const { overview, usage, recent, loading, error, reqSpark, fakeSpark, range, setRange, shared } = d;
   const openDetail = (id: string) => { setSelectedRequestId(id); navigate('detail'); };
-  const kpis = overview ? buildCoreKpis(overview, usage, range, reqSpark, fakeSpark) : [];
+  const kpis = overview ? buildCoreKpis(overview, usage, range, reqSpark, fakeSpark, t) : [];
 
   return (
     <div className="space-y-6">
       {/* No action button for viewer */}
-      <PageHeader subtitle="Tổng quan (chỉ đọc) — DeepGuard Workspace" range={range} setRange={setRange} />
-      {error && <ErrorBanner message="Không tải được dữ liệu dashboard. Vui lòng thử lại." />}
+      <PageHeader subtitle={t('dashboard.viewer_subtitle')} range={range} setRange={setRange} />
+      {error && <ErrorBanner message={t('dashboard.err_load')} />}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {loading || !overview ? Array.from({ length: 4 }).map((_, i) => <KpiSkeleton key={i} />) : kpis.map((c) => <KpiCard key={c.title} card={c} />)}
@@ -1240,6 +1264,7 @@ function LoopKpi({ label, value, sub, delta }: { label: string; value: string; s
 function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
   const navigate = useNavigation((s) => s.navigate);
   const setSelectedRequestId = useNavigation((s) => s.setSelectedRequestId);
+  const t = useT();
   const { overview, usage, recent, reqSpark, fakeSpark, loading, shared } = d;
   const [tab, setTab] = useState<'review' | 'all' | 'FAKE' | 'REAL'>('review');
 
@@ -1261,19 +1286,43 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
   // Cảnh báo ưu tiên — suy ra từ dữ liệu thật (giữ phong cách "task row" của LoopAI).
   const alerts: { color: string; title: string; meta: string; desc: string; page: Parameters<typeof navigate>[0] }[] = [];
   if (overview && overview.fake_detected > 0)
-    alerts.push({ color: DG.fake, title: `${fmtInt(overview.fake_detected)} deepfake cần xem xét`, meta: `Tỉ lệ ${overview.fake_rate.toFixed(1)}%`, desc: 'Các trường hợp nghi giả mạo cần con người duyệt.', page: 'history' });
+    alerts.push({
+      color: DG.fake,
+      title: t('dashboard.focus.fake_need_review').replace('{count}', String(overview.fake_detected)),
+      meta: t('dashboard.focus.trend_rate').replace('{rate}', overview.fake_rate.toFixed(1)),
+      desc: t('dashboard.focus.fake_need_review_desc'),
+      page: 'history'
+    });
   if (usage && usage.usage_percent >= 80)
-    alerts.push({ color: DG.uncertain, title: 'Sắp chạm hạn mức tháng', meta: `${usage.usage_percent.toFixed(0)}% đã dùng`, desc: `Còn ${fmtInt(usage.remaining)} request trong kỳ.`, page: (role === 'admin' ? 'billing' : 'analytics') });
+    alerts.push({
+      color: DG.uncertain,
+      title: t('dashboard.focus.quota_warning'),
+      meta: t('dashboard.focus.quota_warning_sub').replace('{pct}', usage.usage_percent.toFixed(0)),
+      desc: t('dashboard.focus.quota_warning_desc').replace('{remaining}', fmtInt(usage.remaining)),
+      page: (role === 'admin' ? 'billing' : 'analytics')
+    });
   if (overview && overview.avg_latency_ms > 800)
-    alerts.push({ color: DG.uncertain, title: 'Độ trễ cao hơn thường lệ', meta: `P95 ${overview.p95_latency_ms}ms`, desc: 'Theo dõi sức khỏe cụm suy luận.', page: 'status' });
+    alerts.push({
+      color: DG.uncertain,
+      title: t('dashboard.focus.latency_warning'),
+      meta: `P95 ${overview.p95_latency_ms}ms`,
+      desc: t('dashboard.focus.latency_warning_desc'),
+      page: 'status'
+    });
   if (alerts.length === 0)
-    alerts.push({ color: DG.real, title: 'Hệ thống đang ổn định', meta: 'OK', desc: 'Không có cảnh báo ưu tiên.', page: 'analytics' });
+    alerts.push({
+      color: DG.real,
+      title: t('dashboard.focus.system_stable'),
+      meta: 'OK',
+      desc: t('dashboard.focus.system_stable_desc'),
+      page: 'analytics'
+    });
 
   const copilotActions: { icon: string; label: string; page: Parameters<typeof navigate>[0] }[] = [
-    { icon: 'visibility', label: 'Xem phát hiện', page: 'history' },
-    { icon: 'insights', label: 'Phân tích', page: 'analytics' },
-    { icon: 'menu_book', label: 'Tài liệu', page: 'docs' },
-    { icon: 'monitor_heart', label: 'Trạng thái', page: 'status' },
+    { icon: 'visibility', label: t('dashboard.focus.action_view_detections'), page: 'history' },
+    { icon: 'insights', label: t('dashboard.focus.action_analytics'), page: 'analytics' },
+    { icon: 'menu_book', label: t('dashboard.focus.action_docs'), page: 'docs' },
+    { icon: 'monitor_heart', label: t('dashboard.focus.action_status'), page: 'status' },
   ];
 
   /* Framer variants for stagger entrance */
@@ -1297,13 +1346,13 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
           ) : (
             <>
               <motion.div variants={itemV}>
-                <LoopKpi label="Tổng requests" value={fmtInt(overview.total_requests)} sub={`${fmtInt(overview.real_detected)} real`} delta={reqTrend ? { ...reqTrend, goodUp: true } : null} />
+                <LoopKpi label={t('dashboard.total_requests')} value={fmtInt(overview.total_requests)} sub={`${fmtInt(overview.real_detected)} real`} delta={reqTrend ? { ...reqTrend, goodUp: true } : null} />
               </motion.div>
               <motion.div variants={itemV}>
-                <LoopKpi label="Deepfake detected" value={fmtInt(overview.fake_detected)} sub={`${overview.fake_rate.toFixed(1)}% tỉ lệ`} delta={fakeTrend ? { ...fakeTrend, goodUp: false } : null} />
+                <LoopKpi label="Deepfake detected" value={fmtInt(overview.fake_detected)} sub={t('dashboard.focus.trend_rate').replace('{rate}', overview.fake_rate.toFixed(1))} delta={fakeTrend ? { ...fakeTrend, goodUp: false } : null} />
               </motion.div>
               <motion.div variants={itemV}>
-                <LoopKpi label="Độ trễ TB" value={`${fmtInt(overview.avg_latency_ms)}ms`} sub={`P95 ${overview.p95_latency_ms}ms`} delta={null} />
+                <LoopKpi label={t('dashboard.focus.avg_latency')} value={`${fmtInt(overview.avg_latency_ms)}ms`} sub={`P95 ${overview.p95_latency_ms}ms`} delta={null} />
               </motion.div>
             </>
           )}
@@ -1321,17 +1370,17 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
         >
             <div className="flex flex-wrap justify-between items-center gap-3 mb-5">
               <div>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#0047cc', letterSpacing: '.1em', textTransform: 'uppercase' }}>Phân tích</span>
-                <h2 className="text-base font-bold text-slate-900 mt-0.5">Phát hiện theo thời gian</h2>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#0047cc', letterSpacing: '.1em', textTransform: 'uppercase' }}>{t('playground.btn_analyze')}</span>
+                <h2 className="text-base font-bold text-slate-900 mt-0.5">{t('dashboard.detections_over_time')}</h2>
               </div>
               <div className="flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1.5 text-slate-500">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: L_TEAL }} /> Thực tế
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: L_TEAL }} /> {t('dashboard.actual')}
                 </span>
                 <span className="flex items-center gap-1.5 text-slate-500">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: L_PROJ }} /> Dự báo AI
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: L_PROJ }} /> {t('dashboard.ai_forecast')}
                 </span>
-                <RangeToggle options={RANGE_OPTIONS} value={shared.range} onChange={shared.setRange} />
+                <RangeToggle options={getRangeOptions(t)} value={shared.range} onChange={shared.setRange} />
               </div>
             </div>
             <div className="flex flex-col md:flex-row gap-5 h-64">
@@ -1347,7 +1396,7 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
                       <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
                     <p style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.6 }}>
-                      Lưu lượng & tỉ lệ nghi giả theo {RANGE_LABEL[shared.range].toLowerCase()}. Nét đứt = trung bình; chấm nhạt = dự báo xu hướng AI.
+                      {t('dashboard.trend_hint').replace('{range}', getRangeLabel(shared.range, t).toLowerCase())}
                     </p>
                   </div>
                 </div>
@@ -1364,7 +1413,7 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
                     transition: 'all .28s cubic-bezier(.22,1,.36,1)',
                   }}
                 >
-                  <span>Xem phân tích</span>
+                  <span>{t('dashboard.view_analysis')}</span>
                   <span style={{
                     width: 26, height: 26, borderRadius: '50%',
                     background: 'rgba(255,255,255,.2)', border: '1px solid rgba(255,255,255,.3)',
@@ -1386,7 +1435,7 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
                 <LoopChart actual={reqSpark} axis={shared.axis} />
               ) : (
                 <div className="flex-1 flex items-center justify-center">
-                  <FriendlyEmpty icon="bar_chart" title="Chưa có dữ liệu trong khoảng này" />
+                  <FriendlyEmpty icon="bar_chart" title={t('dashboard.chart.no_data')} />
                 </div>
               )}
             </div>
@@ -1405,20 +1454,20 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
             <div className="flex justify-between items-center mb-5">
               <div>
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#0047cc', letterSpacing: '.1em', textTransform: 'uppercase' }}>Log</span>
-                <h2 className="text-base font-bold text-slate-900 mt-0.5">Phát hiện gần đây</h2>
+                <h2 className="text-base font-bold text-slate-900 mt-0.5">{t('dashboard.recent_detections')}</h2>
               </div>
               <button
                 onClick={() => navigate('history')}
                 className="flex items-center gap-1.5 text-xs font-semibold transition-colors hover:opacity-80"
                 style={{ color: L_BRAND }}
               >
-                Xem lịch sử
+                {t('nav.history')}
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
               </button>
             </div>
             {/* Tabs */}
             <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #f1f5f9', marginBottom: 16, paddingBottom: 0 }}>
-              {([['review', 'Cần xem xét'], ['all', 'Tất cả'], ['FAKE', 'FAKE'], ['REAL', 'REAL']] as const).map(([id, label]) => (
+              {([['review', t('dashboard.uncertain')], ['all', t('dashboard.total')], ['FAKE', 'FAKE'], ['REAL', 'REAL']] as const).map(([id, label]) => (
                 <button
                   key={id} onClick={() => setTab(id)}
                   style={{
@@ -1448,11 +1497,11 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
               {loading ? (
                 <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-12 rounded-lg" />)}</div>
               ) : rows.length === 0 ? (
-                <FriendlyEmpty icon="history" title="Không có mục nào" />
+                <FriendlyEmpty icon="history" title={t('dashboard.focus.no_items')} />
               ) : (
                 <table className="w-full text-left text-sm">
                   <thead className="text-xs text-slate-400 border-b border-slate-50">
-                    <tr><th className="py-3 font-semibold">Nguồn</th><th className="py-3 font-semibold">Mã</th><th className="py-3 font-semibold">Risk</th><th className="py-3 font-semibold">Thời gian</th><th className="py-3 font-semibold">Kết luận</th><th className="py-3 font-semibold text-right">More</th></tr>
+                    <tr><th className="py-3 font-semibold">{t('dashboard.focus.col_source')}</th><th className="py-3 font-semibold">{t('dashboard.focus.col_id')}</th><th className="py-3 font-semibold">{t('dashboard.focus.col_risk')}</th><th className="py-3 font-semibold">{t('dashboard.col_time')}</th><th className="py-3 font-semibold">{t('dashboard.focus.col_verdict')}</th><th className="py-3 font-semibold text-right">More</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {rows.map((r) => {
@@ -1467,7 +1516,7 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
                             </span>
                             <div>
                               <p className="font-semibold text-slate-800">{r.model_version}</p>
-                              <p className="text-xs text-slate-400">Phát hiện ảnh</p>
+                              <p className="text-xs text-slate-400">{t('dashboard.focus.image_detect')}</p>
                             </div>
                           </td>
                           <td className="py-3 text-slate-400 font-mono text-xs">{r.image_hash?.slice(0, 10)}…</td>
@@ -1510,14 +1559,14 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
             <div className="flex justify-between items-center mb-5">
               <div>
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#0047cc', letterSpacing: '.1em', textTransform: 'uppercase' }}>Alerts</span>
-                <h2 className="text-base font-bold text-slate-900 mt-0.5">Cảnh báo ưu tiên</h2>
+                <h2 className="text-base font-bold text-slate-900 mt-0.5">{t('dashboard.priority_alerts')}</h2>
               </div>
               <button
                 onClick={() => navigate('analytics')}
                 className="text-xs font-semibold hover:opacity-70 transition-opacity"
                 style={{ color: L_BRAND_DK }}
               >
-                Xem tất cả
+                {t('dashboard.view_all')}
               </button>
             </div>
             <div className="space-y-3">
@@ -1582,7 +1631,7 @@ function FocusDashboard({ d, role }: { d: SharedData; role: Role }) {
                   <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <p style={{ fontSize: 11.5, color: '#64748b', marginBottom: 3 }}>Chào, {ROLE_LABEL[role]}</p>
+              <p style={{ fontSize: 11.5, color: '#64748b', marginBottom: 3 }}>{t('dashboard.welcome_role').replace('{role}', ROLE_LABEL[role] ?? String(role))}</p>
               <h2 style={{ fontSize: 17, fontWeight: 900, color: '#0a1628', letterSpacing: '-0.03em' }}>DeepGuard Copilot</h2>
             </div>
             {/* Action grid */}

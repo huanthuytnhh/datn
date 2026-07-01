@@ -478,7 +478,7 @@ export default function ApiKeysPage() {
                   <ActionMenu canRevoke={canWrite && k.status !== 'revoked'} onAction={(l) => l === t('apikeys.revoke_action') && handleRevoke(k)} />
                 </div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">{t('apikeys.col_quota')} · {k.rpm} RPM</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">{t('apikeys.col_quota')}</span>
                   <Sparkline data={k.spark} color={DG.primary} w={80} h={24} />
                 </div>
                 <div className="flex items-baseline gap-1 mb-1.5">
@@ -507,7 +507,6 @@ export default function ApiKeysPage() {
                   <th className="px-4 py-3.5">{t('apikeys.col_status')}</th>
                   <th className="px-4 py-3.5">{t('apikeys.col_quota')}</th>
                   <th className="px-4 py-3.5">{t('apikeys.col_7days')}</th>
-                  <th className="px-4 py-3.5">RPM</th>
                   <th className="px-4 py-3.5">{t('apikeys.col_last_used')}</th>
                   <th className="px-4 py-3.5">{t('apikeys.col_created')}</th>
                   <th className="px-6 py-3.5 text-right">{t('apikeys.col_actions')}</th>
@@ -550,7 +549,6 @@ export default function ApiKeysPage() {
                       <td className="px-4 py-4">
                         <Sparkline data={k.spark} color={DG.primary} w={78} h={26} />
                       </td>
-                      <td className="px-4 py-4 text-[11px] font-bold text-slate-600 tabular-nums">{k.rpm}</td>
                       <td className="px-4 py-4 text-[11px] text-slate-500 font-medium">{lastUsedLabel(k.lastUsed)}</td>
                       <td className="px-4 py-4 text-[11px] text-slate-500 font-medium">{createdLabel(k.created)}</td>
                       <td className="px-6 py-4 text-right">
@@ -635,7 +633,7 @@ export default function ApiKeysPage() {
                     className="w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all"
                   />
                 </Field>
-                <div className="grid grid-cols-2 gap-3">
+                <div>
                   <Field label={t('apikeys.col_quota')}>
                     <div className="relative">
                       <input
@@ -645,17 +643,6 @@ export default function ApiKeysPage() {
                         className="w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all pr-12"
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase">req</span>
-                    </div>
-                  </Field>
-                  <Field label="Rate limit">
-                    <div className="relative">
-                      <input
-                        type="number"
-                        value={form.rpm}
-                        onChange={(e) => setForm({ ...form, rpm: Math.max(1, parseInt(e.target.value) || 1) })}
-                        className="w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all pr-12"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase">rpm</span>
                     </div>
                   </Field>
                 </div>
@@ -737,9 +724,8 @@ export default function ApiKeysPage() {
                   {[
                     [t('apikeys.modal_field_name'), form.name || '—'],
                     [t('apikeys.col_quota'), fmtInt(form.quota)],
-                    ['Rate limit', `${form.rpm} rpm`],
                   ].map(([l, v]) => (
-                    <div key={l} className="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <div key={l} className="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-100 flex-1">
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.1em]">{l}</p>
                       <p className="text-[12px] font-bold text-slate-700 mt-0.5 truncate tabular-nums">{v}</p>
                     </div>

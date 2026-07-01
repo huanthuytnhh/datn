@@ -5,6 +5,7 @@ import {
   playgroundDetectLiveness,
   type LivenessResponse,
 } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 
 const VERDICT_COLOR: Record<string, string> = {
   LIVE:      '#2e7d32',
@@ -12,18 +13,19 @@ const VERDICT_COLOR: Record<string, string> = {
   UNCERTAIN: '#ed6c02',
 };
 
-const SPOOF_LABEL: Record<string, string> = {
-  print:    'Ảnh in giấy',
-  screen:   'Phát lại qua màn hình',
-  mask_3d:  'Mặt nạ 3D / silicone',
-  deepfake: 'Video deepfake',
-  unknown:  'Không xác định',
+const SPOOF_KEYS: Record<string, string> = {
+  print:    'liveness.spoof_print',
+  screen:   'liveness.spoof_screen',
+  mask_3d:  'liveness.spoof_mask_3d',
+  deepfake: 'liveness.spoof_deepfake',
+  unknown:  'liveness.spoof_unknown',
 };
 
 // Hai cách lấy ảnh, cùng đưa vào ĐÚNG một endpoint passive (1 ảnh → live/spoof).
 type Source = 'upload' | 'webcam';
 
 export default function LivenessPage() {
+  const t = useT();
   const [source, setSource] = useState<Source>('upload');
 
   // Upload state
@@ -103,17 +105,17 @@ export default function LivenessPage() {
   const runCheck = async () => {
     let target: File | null = file;
     if (source === 'webcam') {
-      if (!streamActive) { setError('Hãy bật webcam trước'); return; }
+      if (!streamActive) { setError(t('liveness.err_webcam_inactive')); return; }
       target = await captureFrame();
-      if (!target) { setError('Không chụp được khung hình từ webcam'); return; }
+      if (!target) { setError(t('liveness.err_capture_failed')); return; }
     }
-    if (!target) { setError('Chưa chọn ảnh'); return; }
+    if (!target) { setError(t('liveness.err_no_image')); return; }
     setError(''); setResult(null); setRunning(true);
     try {
       const res = await playgroundDetectLiveness(target, threshold);
       setResult(res);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Liveness check thất bại');
+      setError(e instanceof Error ? e.message : t('liveness.err_check_failed'));
     } finally {
       setRunning(false);
     }
@@ -126,7 +128,7 @@ export default function LivenessPage() {
     <div className="space-y-8">
       {/* Source selector */}
       <div className="glass-panel rounded-2xl p-4 shadow-sm border border-white flex items-center gap-4">
-        <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nguồn ảnh</span>
+        <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">{t('liveness.source_label')}</span>
         <div className="flex gap-2">
           {(['upload', 'webcam'] as const).map((m) => (
             <button
@@ -138,12 +140,12 @@ export default function LivenessPage() {
                   : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
-              {m === 'upload' ? '01. Upload ảnh' : '02. Webcam'}
+              {m === 'upload' ? t('liveness.source_upload') : t('liveness.source_webcam')}
             </button>
           ))}
         </div>
         <p className="text-[10px] text-slate-400 ml-auto italic">
-          Cả hai đều chấm bằng cùng một model liveness (1 ảnh → live/spoof)
+          {t('liveness.source_hint')}
         </p>
       </div>
 
@@ -153,7 +155,7 @@ export default function LivenessPage() {
           <section className="glass-panel rounded-2xl p-6 shadow-sm border border-white">
             <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
               <span className="w-1.5 h-1.5 bg-[#0050cb] rounded-full" />
-              {source === 'upload' ? '01. Media Input' : '01. Camera Feed'}
+              {source === 'upload' ? t('liveness.input_media') : t('liveness.input_camera')}
             </h3>
 
             {source === 'upload' ? (
@@ -179,7 +181,7 @@ export default function LivenessPage() {
                       <div className="w-16 h-16 rounded-full bg-[#0050cb]/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                         <span className="material-symbols-outlined text-4xl text-[#0050cb]/40 group-hover:text-[#0050cb] transition-colors">face</span>
                       </div>
-                      <p className="text-sm font-bold text-slate-700">Chọn ảnh chân dung</p>
+                      <p className="text-sm font-bold text-slate-700">{t('liveness.select_portrait')}</p>
                       <p className="text-[11px] text-slate-400 mt-1">JPG, PNG, WEBP, BMP (Max 10MB)</p>
                     </>
                   )}
@@ -199,7 +201,7 @@ export default function LivenessPage() {
                   {!streamActive && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white">
                       <span className="material-symbols-outlined text-[48px] text-slate-400">videocam_off</span>
-                      <p className="text-xs mt-2">Webcam chưa bật</p>
+                      <p className="text-xs mt-2">{t('liveness.webcam_off')}</p>
                     </div>
                   )}
                 </div>
@@ -210,14 +212,14 @@ export default function LivenessPage() {
                       onClick={startCamera}
                       className="flex-1 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
                     >
-                      <span className="material-symbols-outlined text-[18px]">videocam</span> Bật webcam
+                      <span className="material-symbols-outlined text-[18px]">videocam</span> {t('liveness.btn_webcam_on')}
                     </button>
                   ) : (
                     <button
                       onClick={stopCamera}
                       className="flex-1 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-red-600 hover:bg-red-50 transition-all flex items-center justify-center gap-2"
                     >
-                      <span className="material-symbols-outlined text-[18px]">videocam_off</span> Tắt webcam
+                      <span className="material-symbols-outlined text-[18px]">videocam_off</span> {t('liveness.btn_webcam_off')}
                     </button>
                   )}
                 </div>
@@ -226,7 +228,7 @@ export default function LivenessPage() {
 
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Ngưỡng LIVE / SPOOF</label>
+                <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{t('liveness.threshold_label')}</label>
                 <span className="text-xs font-bold text-[#0050cb]">{(threshold * 100).toFixed(1)}%</span>
               </div>
               <input
@@ -235,7 +237,7 @@ export default function LivenessPage() {
                 className="w-full accent-[#0050cb] cursor-pointer"
               />
               <p className="text-[10px] text-slate-400 mt-1">
-                P(live) &lt; {(threshold * 100).toFixed(1)}% ⇒ SPOOF. Mặc định 12.5%; tăng = chặt hơn (ít spoof lọt nhưng dễ từ chối mặt thật).
+                {t('liveness.threshold_desc').replace('{val}', (threshold * 100).toFixed(1))}
               </p>
             </div>
 
@@ -254,12 +256,12 @@ export default function LivenessPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  ĐANG KIỂM TRA...
+                  {t('liveness.checking')}
                 </>
               ) : (
                 <>
                   <span className="material-symbols-outlined group-hover:scale-110 transition-transform">verified_user</span>
-                  {source === 'upload' ? 'CHECK LIVENESS' : 'CHỤP & KIỂM TRA'}
+                  {source === 'upload' ? t('liveness.btn_check') : t('liveness.btn_capture_check')}
                 </>
               )}
             </button>
@@ -269,12 +271,12 @@ export default function LivenessPage() {
         {/* RIGHT: Result */}
         <div className="lg:col-span-7 space-y-6">
           <div className="glass-panel rounded-3xl p-8 shadow-md relative overflow-hidden">
-            <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-6">Kết quả Liveness</h3>
+            <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-6">{t('liveness.result_title')}</h3>
 
             {!result && !running && (
               <div className="py-12 text-center">
                 <span className="material-symbols-outlined text-[64px] text-slate-200">face_retouching_natural</span>
-                <p className="text-sm text-slate-400 mt-4">Chọn ảnh hoặc bật webcam → nhấn nút để kiểm tra</p>
+                <p className="text-sm text-slate-400 mt-4">{t('liveness.empty_hint')}</p>
               </div>
             )}
 
@@ -296,8 +298,8 @@ export default function LivenessPage() {
                   <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
                     <span className="material-symbols-outlined text-red-600">warning</span>
                     <div>
-                      <p className="text-xs font-black text-red-700 uppercase tracking-widest mb-1">Phát hiện Spoof Attack</p>
-                      <p className="text-sm font-bold text-red-900">{SPOOF_LABEL[result.spoof_type] ?? result.spoof_type}</p>
+                      <p className="text-xs font-black text-red-700 uppercase tracking-widest mb-1">{t('liveness.spoof_detected_alert')}</p>
+                      <p className="text-sm font-bold text-red-900">{t(SPOOF_KEYS[result.spoof_type] ?? 'liveness.spoof_unknown')}</p>
                     </div>
                   </div>
                 )}
@@ -319,7 +321,7 @@ export default function LivenessPage() {
                     />
                   </div>
                   <p className="text-[10px] text-slate-400 italic">
-                    Threshold: {result.threshold_used} · 1.0 = chắc chắn người thật, 0.0 = chắc chắn spoof
+                    {t('liveness.threshold_hint').replace('{val}', String(result.threshold_used))}
                   </p>
                 </div>
 
@@ -354,11 +356,9 @@ export default function LivenessPage() {
 
           {/* Info card */}
           <div className="glass-panel rounded-2xl p-6 border-l-4 border-[#0050cb] shadow-sm">
-            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Liveness vs Deepfake Detection</h4>
+            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">{t('liveness.faq_title')}</h4>
             <p className="text-xs text-slate-600 leading-relaxed">
-              <strong>Liveness</strong> trả lời: <em>&quot;Camera có đang nhìn người thật không?&quot;</em> — chống ảnh in, replay màn hình, mặt nạ 3D.
-              Khác với <strong>Deepfake Detection</strong> (Playground) trả lời: <em>&quot;Media này có bị AI sinh ra không?&quot;</em>
-              Hai pipeline bổ sung cho nhau trong luồng KYC: liveness chặn presentation attack trước, deepfake check media được upload.
+              {t('liveness.faq_desc')}
             </p>
           </div>
         </div>
