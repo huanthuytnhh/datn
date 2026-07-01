@@ -129,6 +129,7 @@ async def playground_detect_image(
         model_version=result.model_version,
         image_width=result.image_width,
         image_height=result.image_height,
+        quality=result.quality,
         created_at=datetime.now(timezone.utc),
     )
 

@@ -182,7 +182,7 @@ async def detect_video(
         from deepguard_db.app.db.models import ApiKey as ApiKeyModel
         await db.execute(
             update(ApiKeyModel).where(ApiKeyModel.id == api_key.id)
-            .values(quota_used=ApiKeyModel.quota_used + 1)
+            .values(quota_used=ApiKeyModel.quota_used + 1, last_used_at=datetime.utcnow())
         )
         await crud.increment_tenant_usage(db, api_key.tenant_id)
         await db.commit()

@@ -42,7 +42,11 @@ async def list_audit_logs(
 ):
     base = select(AuditLog, User.email).join(
         User, User.id == AuditLog.user_id, isouter=True
-    ).where(AuditLog.tenant_id == current_user.tenant_id)
+    )
+    
+    # sysadmin sees logs across all tenants, while other roles are restricted to their own tenant
+    if current_user.role.value != "sysadmin":
+        base = base.where(AuditLog.tenant_id == current_user.tenant_id)
 
     if action:
         base = base.where(AuditLog.action == action)

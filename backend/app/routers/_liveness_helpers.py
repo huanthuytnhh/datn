@@ -50,9 +50,10 @@ async def _save_liveness(
 
     # Same quota accounting as detection — chỉ khi có API key (playground JWT: api_key_id=None -> bỏ qua)
     if api_key_id is not None:
+        from datetime import datetime
         await db.execute(
             update(ApiKeyModel).where(ApiKeyModel.id == api_key_id)
-            .values(quota_used=ApiKeyModel.quota_used + 1)
+            .values(quota_used=ApiKeyModel.quota_used + 1, last_used_at=datetime.utcnow())
         )
     await crud.increment_tenant_usage(db, tenant_id)
     await db.commit()

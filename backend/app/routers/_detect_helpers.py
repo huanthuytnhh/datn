@@ -61,9 +61,10 @@ async def build_detection_response(
         await asyncio.to_thread(metrics.emit_detection, result.verdict, result.prob_fake,
                                 result.processing_time_ms, "api")
 
+    from datetime import datetime
     await db.execute(
         update(ApiKeyModel).where(ApiKeyModel.id == api_key.id)
-        .values(quota_used=ApiKeyModel.quota_used + 1)
+        .values(quota_used=ApiKeyModel.quota_used + 1, last_used_at=datetime.utcnow())
     )
     await crud.increment_tenant_usage(db, api_key.tenant_id)
     await db.commit()
@@ -85,5 +86,6 @@ async def build_detection_response(
         model_version=detection.model_version,
         image_width=detection.image_width,
         image_height=detection.image_height,
+        quality=result.quality,
         created_at=detection.created_at,
     )
