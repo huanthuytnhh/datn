@@ -10,6 +10,13 @@ class CreateApiKeyRequest(BaseModel):
     rate_limit_rpm: int = 60
 
 
+class UpdateApiKeyRequest(BaseModel):
+    name: Optional[str] = None
+    quota_limit: Optional[int] = None
+    rate_limit_rpm: Optional[int] = None
+    status: Optional[str] = None       # active | suspended (revoke phải dùng DELETE)
+
+
 class ApiKeyCreated(BaseModel):
     id: uuid.UUID
     name: str

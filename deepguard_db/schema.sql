@@ -136,7 +136,8 @@ CREATE INDEX idx_webhook_tenant_status ON webhooks (tenant_id, status);
 CREATE TABLE detections (
     request_id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    api_key_id          UUID NOT NULL REFERENCES api_keys(id),
+    api_key_id          UUID REFERENCES api_keys(id),   -- NULL = playground detection
+    source              VARCHAR(20) NOT NULL DEFAULT 'api', -- 'api' | 'playground'
 
     verdict             detection_verdict NOT NULL,
     confidence          FLOAT NOT NULL,
@@ -166,7 +167,8 @@ CREATE TABLE detections (
 );
 CREATE INDEX idx_detection_tenant_created  ON detections (tenant_id, created_at DESC);
 CREATE INDEX idx_detection_verdict_created ON detections (verdict, created_at DESC);
-CREATE INDEX idx_detection_apikey_created  ON detections (api_key_id, created_at DESC);
+CREATE INDEX idx_detection_apikey_created  ON detections (api_key_id, created_at DESC) WHERE api_key_id IS NOT NULL;
+CREATE INDEX idx_detection_source         ON detections (source, created_at DESC);
 
 
 -- ════════════════════════════════════════════════════════════════════════

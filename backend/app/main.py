@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.routers import auth, detect, api_keys, analytics, detections, webhooks
+from app.routers import auth, detect, api_keys, analytics, detections, webhooks, audit, liveness, users, users_invites, tenants, platform, models, notifications, playground
 
 settings = get_settings()
 
@@ -53,6 +53,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Ghi 1 dòng JSON/request vào app.log — forwarder đẩy lên CloudWatch (Phase 2)
+from app.core.request_logging import setup_request_logging
+setup_request_logging(app)
+
 # Routers
 app.include_router(auth.router)
 app.include_router(detect.router)
@@ -60,6 +64,24 @@ app.include_router(api_keys.router)
 app.include_router(analytics.router)
 app.include_router(detections.router)
 app.include_router(webhooks.router)
+app.include_router(audit.router)
+app.include_router(liveness.api_router)
+app.include_router(liveness.dashboard_router)
+app.include_router(users.router)
+app.include_router(users_invites.router)
+app.include_router(tenants.router)
+app.include_router(platform.router)
+app.include_router(models.router)
+app.include_router(notifications.router)
+app.include_router(playground.router)
+
+# Real eKYC pipeline (MediaPipe + InsightFace + B4 deepfake)
+try:
+    from deepguard_liveness import ekyc_router
+    app.include_router(ekyc_router)
+    print("[DeepGuard] eKYC pipeline mounted at /v1/ekyc/verify")
+except Exception as exc:
+    print(f"[DeepGuard] eKYC pipeline NOT mounted: {exc}")
 
 
 @app.get("/health", tags=["system"])

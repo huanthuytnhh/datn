@@ -1,43 +1,282 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigation } from '@/store/navigation';
+import { useAuthStore } from '@/store/auth';
+import { canEdit, type Role } from '@/lib/rbac';
+import { Icon, VerdictBadge, Gauge, ScoreBar } from '@/components/deepguard/shared';
+import { verdictStyle, timeAgo } from '@/lib/dg';
+import {
+  detectionsGet,
+  detectionsAddNote,
+  detectionsList,
+  livenessGet,
+  type DetectionDetail,
+  type DetectionListItem,
+  type LivenessDetail,
+} from '@/lib/api';
+
+// Same small uppercase pill style used on the History page TYPE badge.
+function TypeBadge({ kind }: { kind: 'deepfake' | 'liveness' }) {
+  const k =
+    kind === 'liveness'
+      ? { label: 'Liveness', bg: 'rgba(13,148,136,.1)', color: '#0d9488' }
+      : { label: 'Deepfake', bg: 'rgba(0,71,204,.1)', color: '#0047cc' };
+  return (
+    <span
+      className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide"
+      style={{ background: k.bg, color: k.color }}
+    >
+      {k.label}
+    </span>
+  );
+}
+
+type ViewMode = 'overlay' | 'split' | 'original';
+
+function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('vi-VN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
 
 export default function DetailPage() {
-  const [showHeatmap, setShowHeatmap] = useState(false);
+  const { selectedRequestId, selectedKind, navigate, setSelectedRequestId } = useNavigation();
+  const [detection, setDetection] = useState<DetectionDetail | null>(null);
+  const [liveness, setLiveness] = useState<LivenessDetail | null>(null);
+  const [related, setRelated] = useState<DetectionListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const [viewMode, setViewMode] = useState<ViewMode>('overlay');
+  const [showHeatmap, setShowHeatmap] = useState(true);
   const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const role = useAuthStore((s) => s.user?.role) as Role | undefined;
+  const canNote = canEdit(role, 'detail'); // admin + compliance only
+
+  useEffect(() => {
+    if (!selectedRequestId) {
+      setError('Chưa chọn request — vào trang Lịch sử để chọn một bản ghi.');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
+    setDetection(null);
+    setLiveness(null);
+    setRelated([]);
+
+    if (selectedKind === 'liveness') {
+      livenessGet(selectedRequestId)
+        .then((d) => setLiveness(d))
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'))
+        .finally(() => setLoading(false));
+      return;
+    }
+
+    detectionsGet(selectedRequestId)
+      .then((d) => {
+        setDetection(d);
+        setShowHeatmap(d.verdict !== 'REAL');
+        const end = new Date();
+        const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+        return detectionsList({
+          api_key_id: d.api_key_id,
+          start_date: start.toISOString(),
+          end_date: end.toISOString(),
+          limit: 4,
+        });
+      })
+      .then((page) => {
+        if (page) setRelated(page.items.filter((it) => it.request_id !== selectedRequestId).slice(0, 3));
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu'))
+      .finally(() => setLoading(false));
+  }, [selectedRequestId, selectedKind]);
+
+  const handleSaveNote = async () => {
+    if (!detection || !noteText.trim()) return;
+    setSavingNote(true);
+    try {
+      const updated = await detectionsAddNote(detection.request_id, noteText.trim());
+      setDetection(updated);
+      setNoteText('');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Lưu ghi chú thất bại');
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  const s = useMemo(() => verdictStyle(detection?.verdict ?? 'UNCERTAIN'), [detection]);
+
+  const dimensionsLabel = useMemo(() => {
+    if (!detection || !detection.image_width || !detection.image_height) return '—';
+    return `${detection.image_width}×${detection.image_height}`;
+  }, [detection]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-12rem)]">
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
+          <Icon name="progress_activity" className="text-[18px] animate-spin" />
+          Đang tải chi tiết phát hiện…
+        </div>
+      </div>
+    );
+  }
+
+  const notFound = (
+    <div className="glass-panel rounded-2xl p-8 border border-white/60 flex flex-col items-center text-center max-w-md mx-auto mt-10">
+      <span className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
+        <Icon name="touch_app" className="text-[28px] text-slate-400" />
+      </span>
+      <h3 className="text-sm font-black text-slate-800 mb-1">Không thể hiển thị</h3>
+      <p className="text-xs text-slate-500 mb-5">{error || 'Không tìm thấy bản ghi.'}</p>
+      <button
+        onClick={() => navigate('history')}
+        className="px-5 py-2 bg-dgblue text-white rounded-xl text-xs font-bold shadow-lg shadow-dgblue/25 hover:bg-dgblue/90 transition-all"
+      >
+        Quay lại Lịch sử
+      </button>
+    </div>
+  );
+
+  // ── Liveness check detail (focused view; no notes / related sections) ──
+  if (selectedKind === 'liveness') {
+    if (error || !liveness) return notFound;
+    return <LivenessDetailView liveness={liveness} navigate={navigate} />;
+  }
+
+  if (error || !detection) {
+    return notFound;
+  }
+
+  const isFake = detection.verdict !== 'REAL';
+  const hasImage = Boolean(detection.image_thumb || detection.heatmap_url);
 
   return (
-    <div className="space-y-8">
-      {/* Analysis Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* LEFT: IMAGES & HEATMAP */}
-        <div className="lg:col-span-5 space-y-6">
-          <section className="glass-panel rounded-3xl p-6 shadow-sm border border-white relative">
-            <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center justify-between">
-              Forensic Visualizer
-              <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-mono">Original: 720p</span>
-            </h3>
+    <div className="space-y-5">
+      {/* Breadcrumb header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 dg-rise">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => navigate('history')}
+            className="w-9 h-9 rounded-full hover:bg-white flex items-center justify-center text-slate-500 transition-colors shrink-0"
+          >
+            <Icon name="arrow_back" className="text-[20px]" />
+          </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-black tracking-tight text-slate-900">Chi tiết phát hiện</h1>
+              <VerdictBadge verdict={detection.verdict} size="lg" />
+              <TypeBadge kind="deepfake" />
+            </div>
+            <p className="text-[11px] font-mono text-slate-400 truncate">
+              {detection.request_id} · {fmtDateTime(detection.created_at)}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigator.clipboard?.writeText(detection.request_id)}
+            className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
+          >
+            <Icon name="content_copy" className="text-[16px]" /> Copy ID
+          </button>
+        </div>
+      </div>
 
-            <div className="relative rounded-2xl overflow-hidden aspect-square bg-black shadow-inner group">
-              <img
-                className="w-full h-full object-cover"
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuD6Xh2fYZG4IUwmUpI4pT5YJRx9D1v6chYCGcPepIK_rp1mQZ55fCj04pmjn_johA0YSCzjObWAkfpkdkXmel_hccliR6celubPESRvMQp2z6Hev3dwd9oRrMKrhLN_VyfJrm-DNaqjzejarANOI50Iq3sGPNUEucFjaQBASrdqbi0MtXiuKzP7pX1COdwO7lwdNhCzQHCNx9kCZ0iO7DUtA_kfIWQqafQlrdO3IwTy2dlftU5dDm9jvMYTVereT_gpbO-gUzS5xLb7"
-                alt="Phân tích chi tiết"
-              />
-              {/* Heatmap Overlay */}
-              {showHeatmap && (
-                <div className="absolute inset-0 heatmap-overlay" />
+      {/* Main grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* LEFT — forensic visualizer */}
+        <div className="lg:col-span-5 space-y-5">
+          <section className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Forensic Visualizer</h3>
+              <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] text-slate-500 font-mono">{dimensionsLabel}</span>
+            </div>
+
+            {/* view mode tabs */}
+            <div className="inline-flex p-0.5 rounded-lg bg-slate-100 border border-white mb-4">
+              {([['overlay', 'Overlay'], ['split', 'Split'], ['original', 'Gốc']] as const).map(([m, l]) => (
+                <button
+                  key={m}
+                  onClick={() => setViewMode(m)}
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                    viewMode === m ? 'bg-white text-dgblue shadow-sm' : 'text-slate-400'
+                  }`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative rounded-2xl overflow-hidden aspect-square bg-slate-900 shadow-inner flex items-center justify-center">
+              {!hasImage ? (
+                <div className="text-center px-6">
+                  <Icon name="image_not_supported" className="text-[60px] text-slate-600" />
+                  <p className="text-[11px] text-slate-400 mt-2 leading-snug">
+                    Không có ảnh để hiển thị.
+                    <br />Hash SHA-256 vẫn được giữ làm chứng cứ audit.
+                  </p>
+                </div>
+              ) : !detection.image_thumb ? (
+                /* Raw image hidden (PII-masked by role or not stored) — show the Grad-CAM evidence instead. */
+                <div className="relative w-full h-full">
+                  <img src={detection.heatmap_url!} className="w-full h-full object-cover" alt="Grad-CAM" />
+                  <span className="absolute bottom-2 left-2 text-[9px] font-black text-white bg-black/60 px-2 py-0.5 rounded">GRAD-CAM</span>
+                  <span className="absolute top-2 left-2 text-[9px] text-white/85 bg-black/50 px-2 py-0.5 rounded">Ảnh gốc ẩn theo quyền</span>
+                </div>
+              ) : viewMode === 'split' ? (
+                <div className="grid grid-cols-2 h-full w-full">
+                  <div className="relative border-r-2 border-white/40">
+                    <img src={detection.image_thumb!} className="w-full h-full object-cover" alt="Ảnh gốc" />
+                    <span className="absolute bottom-2 left-2 text-[9px] font-black text-white bg-black/60 px-2 py-0.5 rounded">GỐC</span>
+                  </div>
+                  <div className="relative">
+                    <img src={detection.heatmap_url ?? detection.image_thumb!} className="w-full h-full object-cover" alt="Heatmap" />
+                    {isFake && !detection.heatmap_url && <div className="absolute inset-0 heatmap-overlay" style={{ opacity: 0.85 }} />}
+                    <span className="absolute bottom-2 right-2 text-[9px] font-black text-white bg-black/60 px-2 py-0.5 rounded">HEATMAP</span>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <img src={detection.image_thumb!} className="w-full h-full object-cover" alt="Ảnh gốc" />
+                  {viewMode === 'overlay' && showHeatmap && (
+                    detection.heatmap_url ? (
+                      <img
+                        src={detection.heatmap_url}
+                        className="absolute inset-0 w-full h-full object-cover mix-blend-screen pointer-events-none"
+                        style={{ opacity: 0.8 }}
+                        alt="Heatmap overlay"
+                      />
+                    ) : isFake ? (
+                      <div className="absolute inset-0 heatmap-overlay pointer-events-none" style={{ opacity: 0.7 }} />
+                    ) : null
+                  )}
+                  {viewMode === 'overlay' && showHeatmap && <div className="absolute inset-0 scan-line pointer-events-none" />}
+                  <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-md px-2 py-0.5">
+                    <span className="text-[9px] font-bold text-white uppercase tracking-widest">
+                      {viewMode === 'original' ? 'Original' : 'Overlay'}
+                    </span>
+                  </div>
+                </>
               )}
             </div>
 
-            {/* Controls */}
-            <div className="mt-6 p-4 bg-slate-50/50 rounded-2xl border border-slate-100">
-              <div className="flex items-center justify-between">
+            {/* controls */}
+            <div className="mt-5 space-y-3">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50/60 border border-slate-100">
                 <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-[#0050cb]">layers</span>
+                  <Icon name="layers" className="text-[20px] text-dgblue" fill />
                   <div>
                     <p className="text-xs font-bold text-slate-700">DCT Heatmap Overlay</p>
-                    <p className="text-[10px] text-slate-400">Hiển thị vùng artifact tần số nghi vấn</p>
+                    <p className="text-[10px] text-slate-400">
+                      {detection.heatmap_url ? 'Heatmap thật từ model' : isFake ? 'Mô phỏng vùng artifact' : 'Không có artifact'}
+                    </p>
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -45,18 +284,17 @@ export default function DetailPage() {
                     type="checkbox"
                     checked={showHeatmap}
                     onChange={(e) => setShowHeatmap(e.target.checked)}
+                    disabled={viewMode !== 'overlay'}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0050cb]"></div>
+                  <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-dgblue peer-disabled:opacity-40 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-gray-300 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full peer-checked:after:border-white" />
                 </label>
               </div>
-
-              {/* Legend */}
-              <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-[9px] font-bold text-slate-400 uppercase">Artifact Intensity:</span>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[9px] font-bold text-slate-400 uppercase">Artifact intensity</span>
                 <div className="flex items-center gap-2">
                   <span className="text-[9px] text-blue-500 font-bold uppercase">Cold</span>
-                  <div className="w-24 h-2 rounded-full bg-gradient-to-r from-blue-500 via-orange-400 to-red-600" />
+                  <div className="w-24 h-2 rounded-full" style={{ background: 'linear-gradient(to right,#3b82f6,#f59e0b,#dc2626)' }} />
                   <span className="text-[9px] text-red-600 font-bold uppercase">Hot</span>
                 </div>
               </div>
@@ -64,159 +302,333 @@ export default function DetailPage() {
           </section>
         </div>
 
-        {/* RIGHT: VERDICT & SCORES */}
-        <div className="lg:col-span-7 space-y-6">
-          <section className="glass-panel rounded-3xl p-8 shadow-sm border border-white">
-            <div className="flex justify-between items-start mb-8">
+        {/* RIGHT — verdict + breakdown + meta */}
+        <div className="lg:col-span-7 space-y-5">
+          <section className="glass-panel rounded-2xl p-7 shadow-sm border border-white/60">
+            <div className="flex items-start justify-between gap-4 mb-7">
               <div>
-                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Diagnostic Verdict</h3>
+                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Diagnostic verdict</h3>
                 <div className="flex items-center gap-4">
-                  <span className="text-6xl font-black text-[#ba1a1a] tracking-tighter text-glow-red">FAKE</span>
-                  <div className="h-12 w-[1px] bg-slate-200" />
-                  <div className="flex flex-col">
-                    <span className="text-2xl font-black text-slate-800 leading-none">87.3%</span>
-                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Confidence</span>
+                  <span className="text-5xl font-black tracking-tighter" style={{ color: s.color, textShadow: `0 0 18px ${s.color}28` }}>
+                    {detection.verdict}
+                  </span>
+                  <div className="h-10 w-px bg-slate-200" />
+                  <div>
+                    <p className="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Prob fake</p>
+                    <p className="text-2xl font-black text-slate-800 tabular-nums leading-none">{(detection.prob_fake * 100).toFixed(1)}%</p>
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all shadow-sm">
-                  <span className="material-symbols-outlined">flag</span>
-                </button>
-                <button className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all shadow-sm">
-                  <span className="material-symbols-outlined">verified</span>
-                </button>
-              </div>
+              <Gauge value={detection.confidence} color={s.color} />
             </div>
 
-            {/* Score Breakdown */}
-            <div className="space-y-6 mb-8">
-              <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Explainable AI - Score Breakdown</p>
-
-              {/* Spatial Score */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="font-bold text-slate-600">Spatial Feature Score (CNN)</span>
-                  <span className="font-mono text-[#0050cb] font-bold">0.91</span>
-                </div>
-                <div className="score-bar">
-                  <div className="score-fill bg-[#0050cb] w-[91%]" style={{ boxShadow: '0 0 10px rgba(0, 80, 203, 0.3)' }} />
-                </div>
-              </div>
-
-              {/* Frequency Score */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="font-bold text-slate-600">Frequency Artifact Score (DCT)</span>
-                  <span className="font-mono text-orange-500 font-bold">0.83</span>
-                </div>
-                <div className="score-bar">
-                  <div className="score-fill bg-orange-500 w-[83%]" style={{ boxShadow: '0 0 10px rgba(245, 158, 11, 0.3)' }} />
-                </div>
-              </div>
-
-              {/* Combined */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="font-bold text-slate-600">Final Combined Score</span>
-                  <span className="font-mono text-[#ba1a1a] font-bold">0.87</span>
-                </div>
-                <div className="score-bar">
-                  <div className="score-fill bg-[#ba1a1a] w-[87%]" style={{ boxShadow: '0 0 10px rgba(186, 26, 26, 0.3)' }} />
-                </div>
-              </div>
+            <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Explainable AI · Score breakdown</p>
+            <div className="space-y-4 mb-6">
+              <ScoreBar label="Deepfake probability (prob_fake)" value={detection.prob_fake * 100} raw={detection.prob_fake} color={s.color} />
+              <ScoreBar label="Confidence" value={detection.confidence} color="#0050cb" />
             </div>
 
-            <div className="grid grid-cols-2 gap-4 py-6 border-t border-slate-100">
-              <div>
-                <p className="text-[9px] font-black text-slate-400 uppercase">Threshold Used</p>
-                <p className="text-sm font-bold text-slate-700">0.6197</p>
-              </div>
-              <div>
-                <p className="text-[9px] font-black text-slate-400 uppercase">Processing Latency</p>
-                <p className="text-sm font-bold text-slate-700">142ms</p>
-              </div>
+            <div className="grid grid-cols-3 gap-3 pt-5 border-t border-slate-100">
+              {([
+                ['Threshold', detection.threshold_used.toFixed(2)],
+                ['Latency', `${detection.processing_time_ms}ms`],
+                ['Model', detection.model_version],
+              ] as const).map(([k, v]) => (
+                <div key={k}>
+                  <p className="text-[9px] font-black text-slate-400 uppercase">{k}</p>
+                  <p className="text-sm font-bold text-slate-700 tabular-nums truncate">{v}</p>
+                </div>
+              ))}
             </div>
           </section>
         </div>
       </div>
 
-      {/* METADATA & NOTES */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Metadata */}
-        <div className="lg:col-span-7 glass-panel rounded-3xl p-8 shadow-sm border border-white">
-          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-6">Request Metadata</h3>
-          <div className="grid grid-cols-2 gap-y-4 gap-x-8">
-            <div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase">Tenant Owner</p>
-              <p className="text-xs font-bold text-slate-700">VietBank Demo Environment</p>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase">API Key Prefix</p>
-              <p className="text-xs font-mono font-bold text-slate-700">sk_vbk_8af3...</p>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase">Model Version</p>
-              <p className="text-xs font-bold text-slate-700">b4-baseline-v1.0.2</p>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase">Created Timestamp</p>
-              <p className="text-xs font-bold text-slate-700">2025-05-24 14:32:18 UTC+7</p>
+      {/* Metadata + notes */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="lg:col-span-7 glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-5">Request metadata</h3>
+          <div className="grid grid-cols-2 gap-y-4 gap-x-6">
+            {([
+              ['Tenant', detection.tenant_name ?? '—'],
+              ['API Key', detection.api_key_name ?? '—'],
+              ['Model', detection.model_version],
+              ['IP Address', detection.ip_address ?? '—'],
+              ['Created', fmtDateTime(detection.created_at)],
+              ['Key prefix', detection.api_key_prefix ?? '—'],
+            ] as const).map(([k, v]) => (
+              <div key={k}>
+                <p className="text-[9px] font-bold text-slate-400 uppercase">{k}</p>
+                <p className="text-xs font-bold text-slate-700 font-mono truncate" title={String(v)}>{v}</p>
+              </div>
+            ))}
+            <div className="col-span-2">
+              <p className="text-[9px] font-bold text-slate-400 uppercase">User Agent</p>
+              <p className="text-[11px] font-bold text-slate-600 truncate" title={detection.user_agent ?? ''}>{detection.user_agent ?? '—'}</p>
             </div>
             <div className="col-span-2">
-              <p className="text-[9px] font-bold text-slate-400 uppercase">Image SHA-256 Hash</p>
-              <p className="text-[10px] font-mono font-bold text-slate-500 bg-slate-50 p-2 rounded-lg mt-1 break-all">7a8f3e2d1c0b9a87f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a2</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase">Image SHA-256</p>
+              <p className="text-[10px] font-mono font-bold text-slate-500 bg-slate-50 p-2 rounded-lg mt-1 break-all">{detection.image_hash}</p>
             </div>
           </div>
         </div>
 
-        {/* Audit Notes */}
-        <div className="lg:col-span-5 glass-panel rounded-3xl p-8 shadow-sm border border-white flex flex-col">
-          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Audit &amp; Review Notes</h3>
-          <textarea
-            maxLength={500}
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="Ghi chú kết quả review tại đây (VD: Ảnh có dấu hiệu face-swap quanh vùng mắt)..."
-            className="flex-1 w-full bg-slate-50/50 border border-slate-100 rounded-2xl p-4 text-sm focus:ring-[#0050cb] focus:border-[#0050cb] transition-all resize-none custom-scrollbar min-h-[120px]"
-          />
-          <div className="mt-4 flex justify-between items-center">
-            <span className="text-[10px] text-slate-400 font-bold uppercase">{noteText.length} / 500 ký tự</span>
-            <button className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-all">Lưu ghi chú</button>
-          </div>
+        <div className="lg:col-span-5 glass-panel rounded-2xl p-6 shadow-sm border border-white/60 flex flex-col">
+          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">
+            Audit &amp; review notes <span className="text-slate-400 font-mono">({detection.audit_notes.length})</span>
+          </h3>
+          {detection.audit_notes.length > 0 ? (
+            <div className="mb-4 space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-1">
+              {detection.audit_notes.map((n, i) => (
+                <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100 dg-fade">
+                  <p className="text-xs text-slate-700 leading-relaxed">{n.note}</p>
+                  <p className="text-[9px] text-slate-400 mt-1.5 font-mono flex items-center gap-1">
+                    <Icon name="person" className="text-[12px]" />
+                    {n.author_email} · {timeAgo(n.created_at)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mb-4 flex flex-col items-center justify-center py-6 text-slate-300">
+              <Icon name="rate_review" className="text-[32px]" />
+              <p className="text-[11px] text-slate-400 mt-1">Chưa có ghi chú review</p>
+            </div>
+          )}
+          {canNote ? (
+            <>
+              <textarea
+                maxLength={500}
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Ghi chú kết quả review (VD: Ảnh có dấu hiệu face-swap quanh vùng mắt)…"
+                className="flex-1 w-full bg-slate-50/60 border border-slate-100 rounded-xl p-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-dgblue/20 focus:border-dgblue transition-all resize-none custom-scrollbar min-h-[90px]"
+              />
+              <div className="mt-3 flex justify-between items-center">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tabular-nums">{noteText.length}/500</span>
+                <button
+                  onClick={handleSaveNote}
+                  disabled={savingNote || !noteText.trim()}
+                  className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {savingNote ? 'Đang lưu…' : 'Lưu ghi chú'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-1">
+              <Icon name="lock" className="text-[14px]" /> Chỉ admin/compliance được thêm ghi chú review.
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Related Events */}
-      <section className="mt-4">
-        <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Sự kiện liên quan (Cùng API Key trong 24h)</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="glass-panel p-4 rounded-2xl border border-white flex items-center gap-4 hover:scale-[1.02] transition-all cursor-pointer shadow-sm">
-            <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center text-red-600 font-black text-[10px]">FAKE</div>
-            <div className="flex-1">
-              <p className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">req_23c...8f1</p>
-              <p className="text-xs font-bold text-slate-700">Confidence: 91.2%</p>
-            </div>
-            <span className="material-symbols-outlined text-slate-300">chevron_right</span>
+      {/* Related */}
+      <section className="dg-rise">
+        <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">
+          Sự kiện liên quan · cùng API key trong 24h
+        </h3>
+        {related.length === 0 ? (
+          <p className="text-xs text-slate-400 italic">Không có sự kiện liên quan trong 24h gần nhất.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {related.map((it) => {
+              const rs = verdictStyle(it.verdict);
+              return (
+                <button
+                  key={it.request_id}
+                  onClick={() => setSelectedRequestId(it.request_id)}
+                  className="glass-panel p-4 rounded-2xl border border-white/60 flex items-center gap-3 hover:-translate-y-0.5 hover:shadow-md transition-all text-left shadow-sm"
+                >
+                  <div
+                    className="w-12 h-12 rounded-lg flex items-center justify-center font-black text-[10px] shrink-0"
+                    style={{ color: rs.color, background: rs.bg }}
+                  >
+                    {it.verdict}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-mono text-slate-400 truncate uppercase">
+                      {it.request_id.slice(0, 8)}…{it.request_id.slice(-4)}
+                    </p>
+                    <p className="text-xs font-black mt-0.5" style={{ color: rs.color }}>
+                      {it.verdict} · {it.confidence.toFixed(1)}%
+                    </p>
+                  </div>
+                  <Icon name="chevron_right" className="text-[18px] text-slate-300 shrink-0" />
+                </button>
+              );
+            })}
           </div>
-          <div className="glass-panel p-4 rounded-2xl border border-white flex items-center gap-4 hover:scale-[1.02] transition-all cursor-pointer shadow-sm">
-            <div className="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 font-black text-[10px]">REAL</div>
-            <div className="flex-1">
-              <p className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">req_92a...x4z</p>
-              <p className="text-xs font-bold text-slate-700">Confidence: 96.5%</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ── Liveness (anti-spoofing) detail — focused view reusing the page shell ──
+function LivenessDetailView({
+  liveness,
+  navigate,
+}: {
+  liveness: LivenessDetail;
+  navigate: (p: 'history') => void;
+}) {
+  const s = verdictStyle(liveness.verdict);
+  const isSpoof = liveness.verdict === 'SPOOF';
+  const hasImage = Boolean(liveness.image_thumb);
+  const dimensionsLabel =
+    liveness.image_width && liveness.image_height
+      ? `${liveness.image_width}×${liveness.image_height}`
+      : '—';
+
+  return (
+    <div className="space-y-5">
+      {/* Breadcrumb header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 dg-rise">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => navigate('history')}
+            className="w-9 h-9 rounded-full hover:bg-white flex items-center justify-center text-slate-500 transition-colors shrink-0"
+          >
+            <Icon name="arrow_back" className="text-[20px]" />
+          </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-black tracking-tight text-slate-900">Chi tiết liveness</h1>
+              <VerdictBadge verdict={liveness.verdict} size="lg" />
+              <TypeBadge kind="liveness" />
             </div>
-            <span className="material-symbols-outlined text-slate-300">chevron_right</span>
-          </div>
-          <div className="glass-panel p-4 rounded-2xl border border-white flex items-center gap-4 hover:scale-[1.02] transition-all cursor-pointer shadow-sm opacity-60">
-            <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-[10px]">UNC</div>
-            <div className="flex-1">
-              <p className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">req_0b1...2m7</p>
-              <p className="text-xs font-bold text-slate-700">Confidence: 51.0%</p>
-            </div>
-            <span className="material-symbols-outlined text-slate-300">chevron_right</span>
+            <p className="text-[11px] font-mono text-slate-400 truncate">
+              {liveness.check_id} · {fmtDateTime(liveness.created_at)}
+            </p>
           </div>
         </div>
-      </section>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigator.clipboard?.writeText(liveness.check_id)}
+            className="flex items-center gap-2 px-4 h-9 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
+          >
+            <Icon name="content_copy" className="text-[16px]" /> Copy ID
+          </button>
+        </div>
+      </div>
+
+      {/* Main grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* LEFT — captured frame */}
+        <div className="lg:col-span-5 space-y-5">
+          <section className="glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Ảnh chụp</h3>
+              <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] text-slate-500 font-mono">{dimensionsLabel}</span>
+            </div>
+            <div className="relative rounded-2xl overflow-hidden aspect-square bg-slate-900 shadow-inner flex items-center justify-center">
+              {hasImage ? (
+                <img src={liveness.image_thumb!} className="w-full h-full object-cover" alt="Ảnh liveness" />
+              ) : (
+                <div className="text-center px-6">
+                  <Icon name="image_not_supported" className="text-[60px] text-slate-600" />
+                  <p className="text-[11px] text-slate-400 mt-2 leading-snug">
+                    Ảnh gốc ẩn theo quyền hoặc không lưu.
+                    <br />Hash SHA-256 vẫn được giữ làm chứng cứ audit.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-xl bg-slate-50/60 border border-slate-100">
+                <p className="text-[9px] font-black text-slate-400 uppercase">Mode</p>
+                <p className="text-sm font-bold text-slate-700 capitalize">{liveness.mode}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50/60 border border-slate-100">
+                <p className="text-[9px] font-black text-slate-400 uppercase">Số khung hình</p>
+                <p className="text-sm font-bold text-slate-700 tabular-nums">{liveness.frame_count}</p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* RIGHT — verdict + scores + meta */}
+        <div className="lg:col-span-7 space-y-5">
+          <section className="glass-panel rounded-2xl p-7 shadow-sm border border-white/60">
+            <div className="flex items-start justify-between gap-4 mb-7">
+              <div>
+                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Liveness verdict</h3>
+                <div className="flex items-center gap-4">
+                  <span className="text-5xl font-black tracking-tighter" style={{ color: s.color, textShadow: `0 0 18px ${s.color}28` }}>
+                    {liveness.verdict}
+                  </span>
+                  <div className="h-10 w-px bg-slate-200" />
+                  <div>
+                    <p className="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Liveness score</p>
+                    <p className="text-2xl font-black text-slate-800 tabular-nums leading-none">{(liveness.liveness_score * 100).toFixed(1)}%</p>
+                  </div>
+                </div>
+              </div>
+              <Gauge value={liveness.confidence} color={s.color} />
+            </div>
+
+            <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Score breakdown</p>
+            <div className="space-y-4 mb-6">
+              <ScoreBar label="Liveness score" value={liveness.liveness_score * 100} raw={liveness.liveness_score} color={s.color} />
+              <ScoreBar label="Confidence" value={liveness.confidence} color="#0050cb" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 pt-5 border-t border-slate-100">
+              {([
+                ['Threshold', liveness.threshold_used.toFixed(2)],
+                ['Latency', `${liveness.processing_time_ms}ms`],
+                ['Model', liveness.model_version],
+              ] as const).map(([k, v]) => (
+                <div key={k}>
+                  <p className="text-[9px] font-black text-slate-400 uppercase">{k}</p>
+                  <p className="text-sm font-bold text-slate-700 tabular-nums truncate">{v}</p>
+                </div>
+              ))}
+            </div>
+
+            {isSpoof && (
+              <div className="mt-5 flex items-center gap-3 p-3 rounded-xl bg-red-50 border border-red-100">
+                <Icon name="gpp_maybe" className="text-[20px] text-red-600" fill />
+                <div>
+                  <p className="text-xs font-bold text-slate-700">Loại giả mạo (spoof)</p>
+                  <p className="text-[11px] text-slate-500 capitalize">{liveness.spoof_type ?? 'unknown'}</p>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* Metadata */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="lg:col-span-12 glass-panel rounded-2xl p-6 shadow-sm border border-white/60">
+          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-5">Request metadata</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-6">
+            {([
+              ['Tenant', liveness.tenant_name ?? '—'],
+              ['API Key', liveness.api_key_name ?? '—'],
+              ['Key prefix', liveness.api_key_prefix ?? '—'],
+              ['Mode', liveness.mode],
+              ['IP Address', liveness.ip_address ?? '—'],
+              ['Created', fmtDateTime(liveness.created_at)],
+            ] as const).map(([k, v]) => (
+              <div key={k}>
+                <p className="text-[9px] font-bold text-slate-400 uppercase">{k}</p>
+                <p className="text-xs font-bold text-slate-700 font-mono truncate" title={String(v)}>{v}</p>
+              </div>
+            ))}
+            <div className="col-span-2 md:col-span-3">
+              <p className="text-[9px] font-bold text-slate-400 uppercase">User Agent</p>
+              <p className="text-[11px] font-bold text-slate-600 truncate" title={liveness.user_agent ?? ''}>{liveness.user_agent ?? '—'}</p>
+            </div>
+            <div className="col-span-2 md:col-span-3">
+              <p className="text-[9px] font-bold text-slate-400 uppercase">Image SHA-256</p>
+              <p className="text-[10px] font-mono font-bold text-slate-500 bg-slate-50 p-2 rounded-lg mt-1 break-all">{liveness.image_hash || '—'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

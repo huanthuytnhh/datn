@@ -44,7 +44,10 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  /* Base = "Sharp & Modern" (4px), the default radius mode.
+     Token-based utilities (rounded-sm/md/lg/xl) follow --radius; the radius mode
+     is switched globally via <html data-radius="…"> (see "Radius modes" below). */
+  --radius: 0.25rem;
   --background: oklch(0.97 0.005 250);
   --foreground: oklch(0.145 0.02 250);
   --card: oklch(1 0 0);
@@ -76,6 +79,54 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.45 0.2 260);
+}
+
+/* ───────────────────────────────────────────────
+   Radius modes — switched via <html data-radius="…">
+   (driven by the appearance store + no-FOUC script in layout.tsx)
+     slight    = 8px  · soft, modern-SaaS standard
+     sharp     = 4px  · crisp developer-tool feel  (default — matches base :root)
+     geometric = 0px  · flat / strictly square
+
+   Token utilities (rounded-sm/md/lg/xl) follow --radius automatically.
+   The large panel/card radii (rounded-2xl/3xl) are NOT token-based, so we scale
+   them per mode too — otherwise switching wouldn't visibly change cards, which
+   dominate the UI. Genuinely circular elements (rounded-full: avatars, status
+   dots, spinners, pills) intentionally stay round in every mode.
+   ─────────────────────────────────────────────── */
+:root[data-radius='slight'] {
+  --radius: 0.5rem; /* tokens: sm 4 · md 6 · lg 8 · xl 12 */
+}
+:root[data-radius='slight'] :is(.rounded-2xl) {
+  border-radius: 1rem;
+} /* cards 16px */
+:root[data-radius='slight'] :is(.rounded-3xl) {
+  border-radius: 1.5rem;
+}
+
+:root[data-radius='sharp'] {
+  --radius: 0.25rem; /* tokens: sm 0 · md 2 · lg 4 · xl 8 */
+}
+:root[data-radius='sharp'] :is(.rounded-2xl) {
+  border-radius: 0.625rem;
+} /* cards 10px */
+:root[data-radius='sharp'] :is(.rounded-3xl) {
+  border-radius: 0.875rem;
+}
+
+:root[data-radius='geometric'] {
+  --radius: 0px;
+}
+/* Strictly square: flatten every corner radius (token + panel) to 0. */
+:root[data-radius='geometric'] :is(
+    .rounded-sm,
+    .rounded-md,
+    .rounded-lg,
+    .rounded-xl,
+    .rounded-2xl,
+    .rounded-3xl
+  ) {
+  border-radius: 0 !important;
 }
 
 @layer base {
@@ -231,4 +282,92 @@ input[type="range"]::-webkit-slider-thumb {
 
 .animate-pulse-ring {
   animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+/* ───────────────────────────────────────────────
+   DeepGuard v3 design tokens (ported from frontend-claude prototype)
+   Light mode only for now.
+   ─────────────────────────────────────────────── */
+@theme {
+  --color-dgblue: #0050cb;
+  --color-dgfake: #ba1a1a;
+  --color-dgreal: #2e7d32;
+  --color-dgwarn: #ed6c02;
+  --color-dguncertain: #ed6c02;
+}
+
+:root {
+  --dg-primary: #0050cb;
+  --dg-fake: #ba1a1a;
+  --dg-real: #2e7d32;
+  --dg-uncertain: #ed6c02;
+  --blob-opacity: 0.18;
+  --panel-alpha: 0.88;
+  /* semantic surface/text tokens */
+  --c-canvas: #f0f4f8;
+  --c-surface: #ffffff;
+  --c-surface2: #f8fafc;
+  --c-border: rgba(0, 0, 0, 0.07);
+  --c-t1: #0a1628;
+  --c-t2: #475569;
+  --c-t3: #94a3b8;
+  --c-overlay: rgba(255, 255, 255, 0.88);
+  --c-shadow: rgba(0, 0, 0, 0.07);
+}
+
+/* drive glass + blobs off the tokens so they stay consistent */
+.glass-panel {
+  background: rgba(255, 255, 255, var(--panel-alpha));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+.glass-panel:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 8px 28px rgba(0, 0, 0, 0.07);
+}
+.bg-blob {
+  opacity: var(--blob-opacity);
+  animation: blob-float 14s ease-in-out infinite;
+}
+
+@keyframes blob-float {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-18px) scale(1.02); }
+}
+
+/* entrance animations */
+@keyframes dg-rise { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes dg-fade { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes feed-in { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.dg-rise { animation: dg-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.dg-fade { animation: dg-fade 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.feed-in { animation: feed-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.animate-spin-dg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* skeleton shimmer */
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.skeleton {
+  background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 50%, #eef2f7 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
+
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ── Dark sidebar scrollbar ── */
+.custom-scrollbar-dark::-webkit-scrollbar { width: 3px; }
+.custom-scrollbar-dark::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar-dark::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
+.custom-scrollbar-dark::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+/* ── Top header chrome — consistent with sidebar ── */
+header.dg-header {
+  background: rgba(248,250,252,0.9);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dg-rise, .dg-fade, .feed-in { animation: none !important; opacity: 1 !important; transform: none !important; }
 }

@@ -5,7 +5,7 @@ FastAPI dependency injection — auth guards, db session, tenant context.
 import sys
 import os
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,8 +22,12 @@ from app.core.exceptions import unauthorized, forbidden
 _jwt_scheme     = HTTPBearer(scheme_name="JWT Token",     description="Dashboard JWT — from POST /auth/login")
 _api_key_scheme = HTTPBearer(scheme_name="API Key",       description="Detect API key — plain key from POST /api-keys")
 
+# Khi must_change_password=True, chỉ cho phép các route này (để user đổi mật khẩu)
+_MUST_CHANGE_ALLOWED = {"/auth/change-password", "/auth/me", "/auth/logout"}
+
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_jwt_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -50,6 +54,15 @@ async def get_current_user(
     if not user or not user.is_active or user.deleted_at is not None:
         raise unauthorized("User not found or inactive")
 
+    # Tổ chức bị tạm ngưng/khóa → chặn toàn bộ truy cập
+    tenant = await crud.get_tenant(db, user.tenant_id)
+    if not tenant or tenant.status.value != "active":
+        raise forbidden("Tổ chức đã bị tạm ngưng. Liên hệ quản trị nền tảng.")
+
+    # Buộc đổi mật khẩu: chặn mọi route trừ đổi mật khẩu / xem hồ sơ / logout
+    if user.must_change_password and request.url.path not in _MUST_CHANGE_ALLOWED:
+        raise forbidden("Bạn phải đổi mật khẩu trước khi tiếp tục (must_change_password)")
+
     return user
 
 
@@ -63,6 +76,10 @@ async def get_api_key_auth(
     if not api_key:
         raise unauthorized("Invalid API key")
 
+    # Tổ chức bị tạm ngưng → key ngừng hoạt động (validate_api_key đã selectinload tenant)
+    if api_key.tenant is None or api_key.tenant.status.value != "active":
+        raise forbidden("Tổ chức đã bị tạm ngưng.")
+
     if api_key.quota_limit > 0 and api_key.quota_used >= api_key.quota_limit:
         from app.core.exceptions import quota_exceeded
         raise quota_exceeded()
@@ -73,4 +90,27 @@ async def get_api_key_auth(
 async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role not in ("admin", "sysadmin"):
         raise forbidden("Admin access required")
+    return current_user
+
+
+def require_role(*roles: str):
+    """Dependency factory: chỉ cho phép các role chỉ định.
+
+    Dùng: ``user: User = Depends(require_role("admin", "sysadmin"))``.
+    So sánh theo .value để chấp nhận cả str lẫn UserRole enum.
+    """
+    allowed = {r.value if hasattr(r, "value") else str(r) for r in roles}
+
+    async def _dep(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role.value not in allowed:
+            raise forbidden(f"Requires role: {', '.join(sorted(allowed))}")
+        return current_user
+
+    return _dep
+
+
+async def require_sysadmin(current_user: User = Depends(get_current_user)) -> User:
+    """Chỉ DeepGuard Ops (xuyên tenant)."""
+    if current_user.role.value != "sysadmin":
+        raise forbidden("System admin access required")
     return current_user

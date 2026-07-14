@@ -30,6 +30,12 @@ ENV/
 # Keep .env.example but not actual .env (secrets)
 backend/.env
 deepguard_db/.env
+serving/serving.env
+ekyc_demo/.env
+
+# Request log + CloudWatch forwarder state (Phase 2)
+backend/app.log*
+backend/scripts/.logfwd_state.json
 
 # Database
 *.db
@@ -76,3 +82,15 @@ alembic/versions/*.py
 # Node (if frontend added later)
 node_modules/
 .next/
+
+# Sample/test media (large binaries, not used by the app)
+frontend/data_images/
+
+# Office lock files (LibreOffice/OnlyOffice temp lock)
+.~lock.*#
+
+# junk/scaffold không commit (newfe_2)
+frontend/next
+frontend/nextjs_tailwind_shadcn_ts@*
+frontend/dashboard-sample.*
+frontend/package-lock.json

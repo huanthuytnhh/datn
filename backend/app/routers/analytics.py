@@ -8,7 +8,7 @@ from deepguard_db.app.db.database import get_db
 from deepguard_db.app.db import crud
 from deepguard_db.app.db.models import User
 
-from app.dependencies import get_current_user
+from app.dependencies import require_role
 from app.schemas.analytics import AnalyticsOverview, UsageInfo
 from app.schemas.detect import DetectionListItem
 from app.schemas.common import Paginated
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 @router.get("/overview", response_model=AnalyticsOverview)
 async def overview(
     days: int = Query(default=30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer", "sysadmin")),
     db: AsyncSession = Depends(get_db),
 ):
     data = await crud.analytics_overview(db, tenant_id=current_user.tenant_id, days=days)
@@ -28,7 +28,7 @@ async def overview(
 
 @router.get("/usage", response_model=UsageInfo)
 async def usage(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("admin", "developer", "compliance", "viewer", "sysadmin")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await crud.get_tenant(db, current_user.tenant_id)

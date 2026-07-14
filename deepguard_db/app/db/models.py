@@ -29,7 +29,7 @@ from enum import Enum
 from typing import Optional, List
 
 from sqlalchemy import (
-    String, Integer, BigInteger, Float, Boolean, ForeignKey,
+    String, Text, Integer, BigInteger, Float, Boolean, ForeignKey,
     DateTime, Index, UniqueConstraint, CheckConstraint, text
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ENUM as PGEnum
@@ -73,16 +73,18 @@ class TenantPlan(str, Enum):
 
 
 class TenantStatus(str, Enum):
+    PENDING   = "pending"      # tự đăng ký — CHỜ sysadmin duyệt (khác suspended)
     ACTIVE    = "active"
     SUSPENDED = "suspended"
     DELETED   = "deleted"
 
 
 class UserRole(str, Enum):
+    VIEWER     = "viewer"        # Chỉ xem (read-only)
     DEVELOPER  = "developer"     # Tích hợp API
     COMPLIANCE = "compliance"    # Audit
     ADMIN      = "admin"         # Tenant admin
-    SYSADMIN   = "sysadmin"      # DeepGuard ops
+    SYSADMIN   = "sysadmin"      # DeepGuard ops (xuyên tenant)
 
 
 class ApiKeyStatus(str, Enum):
@@ -100,6 +102,20 @@ class DetectionVerdict(str, Enum):
     REAL      = "REAL"
     FAKE      = "FAKE"
     UNCERTAIN = "UNCERTAIN"
+
+
+class LivenessVerdict(str, Enum):
+    LIVE     = "LIVE"
+    SPOOF    = "SPOOF"
+    UNCERTAIN = "UNCERTAIN"
+
+
+class SpoofType(str, Enum):
+    PRINT    = "print"          # printed photo
+    SCREEN   = "screen"         # replayed on a screen
+    MASK_3D  = "mask_3d"        # silicone/paper mask
+    DEEPFAKE = "deepfake"       # generated face video
+    UNKNOWN  = "unknown"
 
 
 class JobType(str, Enum):
@@ -161,8 +177,11 @@ class User(Base, TimestampMixin):
     email:          Mapped[str]         = mapped_column(String(255), nullable=False)
     password_hash:  Mapped[str]         = mapped_column(String(255), nullable=False)
     name:           Mapped[str]         = mapped_column(String(200), nullable=False)
+    phone:          Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    timezone:       Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     role:           Mapped[UserRole]    = mapped_column(PGEnum(UserRole, name="user_role"), default=UserRole.DEVELOPER, nullable=False)
     is_active:      Mapped[bool]        = mapped_column(Boolean, default=True, nullable=False)
+    must_change_password: Mapped[bool]  = mapped_column(Boolean, default=False, nullable=False)
     last_login_at:  Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at:     Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -269,7 +288,8 @@ class Detection(Base, TimestampMixin):
 
     request_id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    api_key_id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False)
+    api_key_id:         Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
+    source:             Mapped[str]      = mapped_column(String(20), nullable=False, default="api")  # 'api' | 'playground'
 
     # Detection result
     verdict:            Mapped[DetectionVerdict] = mapped_column(PGEnum(DetectionVerdict, name="detection_verdict"), nullable=False, index=True)
@@ -287,6 +307,9 @@ class Detection(Base, TimestampMixin):
 
     # Optional heatmap URL (S3 link, lưu max 90 ngày)
     heatmap_url:        Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Optional base64 JPEG thumbnail of the original input (max ~320px)
+    image_thumb:        Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Performance
     processing_time_ms: Mapped[int]      = mapped_column(Integer, nullable=False)
@@ -424,3 +447,77 @@ class ModelVersion(Base, TimestampMixin):
         UniqueConstraint("version", name="uq_model_version"),
         CheckConstraint("traffic_percent >= 0 AND traffic_percent <= 100", name="ck_traffic_range"),
     )
+
+
+class LivenessCheck(Base, TimestampMixin):
+    """
+    Kiểm tra liveness (anti-spoofing) cho KYC / face verification.
+    Khác Detection (deepfake forensic): liveness check trả lời "có phải người thật đang ngồi trước camera?",
+    còn deepfake detect trả lời "video/ảnh này có bị AI sinh ra không?". Hai pipeline khác model, khác use case.
+    """
+    __tablename__ = "liveness_checks"
+
+    check_id:           Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    api_key_id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False)
+
+    # Liveness result
+    verdict:            Mapped[LivenessVerdict] = mapped_column(PGEnum(LivenessVerdict, name="liveness_verdict"), nullable=False, index=True)
+    liveness_score:     Mapped[float]    = mapped_column(Float, nullable=False)     # 0-1 (1 = chắc chắn live)
+    confidence:         Mapped[float]    = mapped_column(Float, nullable=False)     # 0-100
+    spoof_type:         Mapped[Optional[SpoofType]] = mapped_column(PGEnum(SpoofType, name="spoof_type", values_callable=lambda x: [e.value for e in x]), nullable=True)
+    threshold_used:     Mapped[float]    = mapped_column(Float, nullable=False)
+
+    # Mode
+    mode:               Mapped[str]      = mapped_column(String(20), nullable=False, default="passive")  # passive | active
+    challenge_type:     Mapped[Optional[str]] = mapped_column(String(50), nullable=True)                  # blink | turn_left | smile | nod
+    challenge_passed:   Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    frame_count:        Mapped[int]      = mapped_column(Integer, default=1, nullable=False)
+
+    # Image metadata (1 frame đại diện)
+    image_hash:         Mapped[str]      = mapped_column(String(64), nullable=False)
+    image_width:        Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    image_height:       Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    image_thumb:        Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Performance
+    processing_time_ms: Mapped[int]      = mapped_column(Integer, nullable=False)
+    model_version:      Mapped[str]      = mapped_column(String(50), nullable=False)
+
+    # Audit
+    user_agent:         Mapped[Optional[str]]  = mapped_column(String(500), nullable=True)
+    ip_address:         Mapped[Optional[str]]  = mapped_column(String(45), nullable=True)
+    metadata_:          Mapped[dict]           = mapped_column("metadata", JSONB, default=dict, nullable=False)
+
+    __table_args__ = (
+        Index("idx_liveness_tenant_created", "tenant_id", "created_at"),
+        Index("idx_liveness_verdict_created", "verdict", "created_at"),
+        Index("idx_liveness_apikey_created", "api_key_id", "created_at"),
+        CheckConstraint("liveness_score >= 0 AND liveness_score <= 1", name="ck_liveness_score_range"),
+        CheckConstraint("confidence >= 0 AND confidence <= 100", name="ck_liveness_confidence_range"),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTIFICATION
+# ─────────────────────────────────────────────────────────────────────────────
+class Notification(Base, TimestampMixin):
+    """In-app notification. user_id NULL = gửi toàn tenant."""
+    __tablename__ = "notifications"
+
+    id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id:   Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    user_id:     Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    type:        Mapped[str]       = mapped_column(String(20), default="info", nullable=False)  # info|success|warning|critical
+    title:       Mapped[str]       = mapped_column(String(255), nullable=False)
+    body:        Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    link:        Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    read:        Mapped[bool]      = mapped_column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        Index("idx_notif_tenant_created", "tenant_id", "created_at"),
+        Index("idx_notif_user_read", "user_id", "read"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Notification {self.type}:{self.title[:20]}>"

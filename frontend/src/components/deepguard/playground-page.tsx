@@ -1,222 +1,306 @@
 'use client';
 
-import { useState, useMemo, useRef } from 'react';
-import { detectImage, type DetectionResponse } from '@/lib/api';
-import { useAuthStore } from '@/store/auth';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import {
+  playgroundDetectImage,
+  playgroundDetectVideo,
+  type DetectionResponse,
+  type VideoDetectionResponse,
+} from '@/lib/api';
+import { Icon, ScoreBar, Gauge, CodeBlock } from '@/components/deepguard/shared';
+import { DG, verdictStyle, riskBandStyle } from '@/lib/dg';
 
-function highlightCode(code: string, language: string): string {
-  // Tokenize first, then colorize — avoids overlapping regex on HTML attributes
-  type Token = { type: string; value: string };
-  const tokens: Token[] = [];
+/* ────────────────────────────────────────────────────────────────
+   Sample presets — wired as real file inputs to detectImage when the
+   asset can be fetched from /samples/*.jpg, else used as visual presets.
+   ──────────────────────────────────────────────────────────────── */
+const SAMPLES = [
+  { id: 'real_face', label: 'ẢNH THẬT', src: '/samples/real_01.jpg' },
+  { id: 'gan_fake', label: 'GAN FAKE', src: '/samples/fake_03.jpg' },
+  { id: 'swap_fake', label: 'SWAP FAKE', src: '/samples/fake_01.jpg' },
+] as const;
 
-  if (language === 'python') {
-    const patterns: [RegExp, string][] = [
-      [/^(\s*#.*)$/gm, 'comment'],
-      [/\b(import|from|as|print|open|True|False|None)\b/g, 'keyword1'],
-      [/\b(def|class|return|if|else|elif|for|in|while|with|try|except|finally|raise|pass|break|continue|lambda|yield|global|nonlocal|assert|del|not|and|or|is)\b/g, 'keyword2'],
-      [/\b(\d+\.?\d*)\b/g, 'number'],
-    ];
-    // Extract strings first (single & double quoted)
-    const stringRe = /("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g;
-    const stringRanges: [number, number][] = [];
-    let m: RegExpExecArray | null;
-    while ((m = stringRe.exec(code)) !== null) {
-      stringRanges.push([m.index, m.index + m[0].length]);
-    }
-
-    // Build character classification map
-    const charClass: (string | null)[] = new Array(code.length).fill(null);
-    for (const [start, end] of stringRanges) {
-      for (let i = start; i < end; i++) charClass[i] = 'string';
-    }
-    for (const [re, cls] of patterns) {
-      re.lastIndex = 0;
-      while ((m = re.exec(code)) !== null) {
-        if (charClass.slice(m.index, m.index + m[0].length).every(c => c === null)) {
-          for (let i = m.index; i < m.index + m[0].length; i++) charClass[i] = cls;
-        }
-      }
-    }
-
-    // Build output
-    let result = '';
-    let i = 0;
-    while (i < code.length) {
-      const cls = charClass[i];
-      if (cls) {
-        let j = i;
-        while (j < code.length && charClass[j] === cls) j++;
-        const text = code.slice(i, j);
-        const color = cls === 'string' ? 'text-orange-300'
-          : cls === 'keyword1' ? 'text-emerald-400'
-          : cls === 'keyword2' ? 'text-purple-400'
-          : cls === 'number' ? 'text-indigo-300'
-          : cls === 'comment' ? 'text-slate-500'
-          : '';
-        result += `<span class="${color}">${escapeHtml(text)}</span>`;
-        i = j;
-      } else {
-        result += escapeHtml(code[i]);
-        i++;
-      }
-    }
-    return result;
-  }
-
-  if (language === 'curl') {
-    const patterns: [RegExp, string][] = [
-      [/\b(curl|POST|GET|PUT|DELETE|PATCH|HEAD|OPTIONS)\b/g, 'keyword2'],
-      [/(-[A-Z])\b/g, 'keyword1'],
-      [/(\\)\s*$/gm, 'comment'],
-    ];
-    const stringRe = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g;
-    const stringRanges: [number, number][] = [];
-    let m: RegExpExecArray | null;
-    while ((m = stringRe.exec(code)) !== null) {
-      stringRanges.push([m.index, m.index + m[0].length]);
-    }
-
-    const charClass: (string | null)[] = new Array(code.length).fill(null);
-    for (const [start, end] of stringRanges) {
-      for (let i = start; i < end; i++) charClass[i] = 'string';
-    }
-    for (const [re, cls] of patterns) {
-      re.lastIndex = 0;
-      while ((m = re.exec(code)) !== null) {
-        if (charClass.slice(m.index, m.index + m[0].length).every(c => c === null)) {
-          for (let i = m.index; i < m.index + m[0].length; i++) charClass[i] = cls;
-        }
-      }
-    }
-
-    let result = '';
-    let i = 0;
-    while (i < code.length) {
-      const cls = charClass[i];
-      if (cls) {
-        let j = i;
-        while (j < code.length && charClass[j] === cls) j++;
-        const text = code.slice(i, j);
-        const color = cls === 'string' ? 'text-orange-300'
-          : cls === 'keyword1' ? 'text-emerald-400'
-          : cls === 'keyword2' ? 'text-purple-400'
-          : cls === 'comment' ? 'text-slate-500'
-          : '';
-        result += `<span class="${color}">${escapeHtml(text)}</span>`;
-        i = j;
-      } else {
-        result += escapeHtml(code[i]);
-        i++;
-      }
-    }
-    return result;
-  }
-
-  if (language === 'js') {
-    const patterns: [RegExp, string][] = [
-      [/\b(const|let|var|await|async|function|return|new|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|typeof|instanceof|class|extends|import|from|export|default)\b/g, 'keyword2'],
-      [/\b(console|fetch|FormData|append|log|json|response|document|window|Array|Object|Map|Set|Promise|Error|Math|Date|Number|String|Boolean|Symbol|RegExp)\b/g, 'keyword1'],
-      [/\b(true|false|null|undefined|NaN|Infinity)\b/g, 'number'],
-      [/^\s*(\/\/.*)$/gm, 'comment'],
-    ];
-    const stringRe = /(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g;
-    const stringRanges: [number, number][] = [];
-    let m: RegExpExecArray | null;
-    while ((m = stringRe.exec(code)) !== null) {
-      stringRanges.push([m.index, m.index + m[0].length]);
-    }
-
-    const charClass: (string | null)[] = new Array(code.length).fill(null);
-    for (const [start, end] of stringRanges) {
-      for (let i = start; i < end; i++) charClass[i] = 'string';
-    }
-    for (const [re, cls] of patterns) {
-      re.lastIndex = 0;
-      while ((m = re.exec(code)) !== null) {
-        if (charClass.slice(m.index, m.index + m[0].length).every(c => c === null)) {
-          for (let i = m.index; i < m.index + m[0].length; i++) charClass[i] = cls;
-        }
-      }
-    }
-
-    let result = '';
-    let i = 0;
-    while (i < code.length) {
-      const cls = charClass[i];
-      if (cls) {
-        let j = i;
-        while (j < code.length && charClass[j] === cls) j++;
-        const text = code.slice(i, j);
-        const color = cls === 'string' ? 'text-orange-300'
-          : cls === 'keyword1' ? 'text-emerald-400'
-          : cls === 'keyword2' ? 'text-purple-400'
-          : cls === 'number' ? 'text-indigo-300'
-          : cls === 'comment' ? 'text-slate-500'
-          : '';
-        result += `<span class="${color}">${escapeHtml(text)}</span>`;
-        i = j;
-      } else {
-        result += escapeHtml(code[i]);
-        i++;
-      }
-    }
-    return result;
-  }
-
-  return escapeHtml(code);
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function CodeBlock({ code, language }: { code: string; language: string }) {
-  const highlighted = useMemo(() => highlightCode(code, language), [code, language]);
-
-  return (
-    <pre className="whitespace-pre-wrap leading-relaxed">
-      <code dangerouslySetInnerHTML={{ __html: highlighted }} />
-    </pre>
+/* Build the canonical JSON payload from the real DetectionResponse. */
+function resultToJSON(r: DetectionResponse): string {
+  return JSON.stringify(
+    {
+      request_id: r.request_id,
+      // Tín hiệu rủi ro (khách eKYC dùng cái này)
+      risk_score: +(r.risk_score ?? r.prob_fake ?? 0).toFixed(4),
+      risk_band: r.risk_band ?? null,
+      decision_hint: r.decision_hint ?? null,
+      thresholds: r.thresholds ?? null,
+      // Chi tiết / tương thích ngược
+      verdict: r.verdict,
+      confidence: r.confidence,
+      prob_fake: +(r.prob_fake ?? 0).toFixed(4),
+      threshold_used: r.threshold_used,
+      face_detected: r.face_detected,
+      processing_time_ms: r.processing_time_ms,
+      model_version: r.model_version,
+      image_width: r.image_width,
+      image_height: r.image_height,
+      created_at: r.created_at,
+    },
+    null,
+    2,
   );
 }
 
-const FACE_IMAGES = [
-  'AB6AXuAdyskTO_iZmH8_oKYMsW5vyZSM-fRAbpfADiFMBA_QLFpxo5H87f2mWroGqBMWvaDIvFkNN3aXF2hGIgVfWmRLICO7HQ3ijKnhCbvD9Z2R-EE_2sVxMo5BKAQJT5OPnXLB1QhRLZao_Wc1SIfK5ez8D0bvrTN1HO7PWQ5I7nS4C8Du9zoJ9Uiy19WfMwMB0Lys1T_c9qBoLnhFGvxyZ3Yjh2a5V1uoIX_An3rg8mDbBkyiY1EyNmW9HMjOLJHaTX-3rykIVgYBiSM8',
-  'AB6AXuDN8F_p4Rz_SAxXqepDm-vDNMTAc6VFhRFPjQOof1dfXBtNWLMq_GhzH-kxRYDqEJk88Ie6P4XkJZ-qlazECGVtIjgMg8EZLyLprbiNgSiBSgKJdxXXmJ06B0S-TAY8KhJgba6mCup6ZaK3yYmGfm5uHAIHvsOE4EKAAx6t8Ou8NDFGF60E-EsA9Jnta-PqYOPljQQ3axLnfEVNebukih54qiqh525Ycz8xeKlmAFhOmvtn5JnYwxLV35fRMArVeR1PSoKhf1LDZU3l',
-  'AB6AXuDWSyQctkQZYRytRgPftcDFqJcGHpkEu2qs_5DAEz2W4sV0QWgWfhESQnpf22yFaRhJ0kWk1sWfoHJdVLIm6ASFzE1EtzWiTTP5wnwFuO3CMHZBm4oXA9C-ahN8HzKziAQyljtsqg_eaLsImw6hI_3Clv49uBQnQQH5LkwXTFPqlgspoyRjMeiWMTTwkWw8aVEIwVCmCwbvnuLMwyrXkiYpmcLHq-iD-UWwqhh4bVol6Tzt5de_2vXbHYC2oTy1Q3zXlYcnzY9f_FJ7',
-  'AB6AXuAvxOkHN83_Q9gDvXzlid68cUr9oWbui14eKFkafZrZEiWPV-3-OPdqUD2s1zOl8fK95R6mGiC2plvwyFp9zwBV-OXIS22942r7HexbmtAVzCKXD6JL_QUb5_ee0YLDyCt-z1zUMQqz6rrtMa37Wt-Syz1BhN2Y_vb94grjwHW3Q8SZQ_7GzODqSuKjWrw0nhX4NxiWiR9iz7a9hiS9LICGFJrY0D59slnGVH00GH7DBGlBrUOh8RF6IQD1P-O5IdKCvKvViRmDFsyg',
-  'AB6AXuCTtF3n6WHYAKwBPLumwdUlIPv88CwIBcgyFVSa2r9IgoDdR2QHEZcFr-Wavcj7C4h2lyIJ1ddyU4l4sZk1UrYmRiZFfFyVryPSbCVNpabIAbt0LF2kPW60eXPqDkF5RTgMXJrbQwe1Aqw0VuRPLKB_KdNNBr1VmfHBPBlN1m01gnt-6d9Bl4UOGNwOT9K3DOeNS6U1Hmjwr78fz-XJE9D5XxhZSSbJpVMn5qWaS60xhRl4QvAiLV0dc1lkH7Efxvi3uJEMQt_Mfn7N',
-  'AB6AXuDUujfp-z1vSGKaz6f4PAALsUB_ibwkGyQf-kOqgJ6QmWLq7rBVdl7Ib42q4BddwUAsbqxisOidc0icte0BgTlTFNOxeFXW_rTciNR1Te__1CeXoEAGfx04Xq3UpP-7D3Nwjd4sIEs3YG2hBXvEOTxW6MNo3BKpCNwjUnI7X0TyRVQhjGVLhKN-fIniTDxu8TPSyy7hGZ73gnTlXWmR48cegh3LOgf82IT9X1iuEuY6lBo9NfwX5Xn5yvPET3DZWKomEJDtM_xgGr4J',
-  'AB6AXuDAW_9gxZBs9OrMYbOer0XQJvxQwlUTptGycuP7cYHCReE5kDNmaO86_WwHC_b8Oh0ytanH-sO5pR9DJRxeMktkBlOvJgLrfQcHyKbuQJKH3OktTVdX77Cb9_XtOyMVjaSEJLPpXFsf6JZn8W7KmLzmYLgwNgi1QB6SAd7CNU-DaH1tej_r7yLCxaR4_4IrUWVTjTaWxDEpK2z650cpCpdI8TqGmGEN1f6VmFFFfpL6FEUqYvKelEWZczn5sQaxgRgHyEcJZ4UUo-gs',
-  'AB6AXuCsloJFVYL11zuxeKgMjagQlzgG4_JoVmwLsAUdY-DvHGEw-iMyiXlP0Mry-Oa7AGvUTAD8P5NgCdnGhTatNnG6GHR-DEaTW8SDePh5hHPsSTHhZQEkqXrTMK7kCCLXnpMmcilKAphEwx-D-AcXGV7nytw2UkoC7Fo6HKpaZYkS6qyclOFo9PwoxAoF5K8TuPkFU7wD0AJGa5-FQCyrxiRf4GSNUoxxEqS7Xl--OJ8ooX1plMn6rnfSgRqhumT3RmbqOUo9s0QOPMk-',
-];
+function videoToJSON(r: VideoDetectionResponse): string {
+  return JSON.stringify(
+    {
+      job_id: r.job_id,
+      verdict: r.verdict,
+      confidence: r.confidence,
+      prob_fake: +(r.prob_fake ?? 0).toFixed(4),
+      frames_analyzed: r.frames_analyzed,
+      frames_fake: r.frames_fake,
+      model_version: r.model_version,
+      processing_time_ms: r.processing_time_ms,
+      created_at: r.created_at,
+    },
+    null,
+    2,
+  );
+}
 
-const FACE_SCORES = [98, 87, 91, 76, 94, 82, 89, 95];
+/* Client-side video frame thumbnail extraction (fallback when the server
+   doesn't return base64 thumbs). Preserved from the original implementation. */
+async function extractFrameThumbs(
+  videoFile: File,
+  frameIds: number[],
+  fps = 30,
+  onProgress?: (done: number, total: number) => void,
+): Promise<Record<number, string>> {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.style.cssText =
+    'position:fixed;left:-10000px;top:-10000px;width:320px;height:240px;opacity:0;pointer-events:none';
+  document.body.appendChild(video);
+
+  const objectUrl = URL.createObjectURL(videoFile);
+  video.src = objectUrl;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onReady = () => {
+        cleanup();
+        resolve();
+      };
+      const onErr = () => {
+        cleanup();
+        reject(new Error(`video load error (code ${video.error?.code})`));
+      };
+      const cleanup = () => {
+        video.removeEventListener('loadeddata', onReady);
+        video.removeEventListener('canplay', onReady);
+        video.removeEventListener('error', onErr);
+      };
+      video.addEventListener('loadeddata', onReady);
+      video.addEventListener('canplay', onReady);
+      video.addEventListener('error', onErr);
+      video.load();
+    });
+
+    const W = video.videoWidth || 320;
+    const H = video.videoHeight || 240;
+    const maxDim = 240;
+    const scale = Math.min(maxDim / W, maxDim / H, 1);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(W * scale));
+    canvas.height = Math.max(1, Math.round(H * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas 2d context unavailable');
+
+    const thumbs: Record<number, string> = {};
+    const total = frameIds.length;
+    let done = 0;
+
+    for (const id of frameIds) {
+      const t = Math.min(id / fps, Math.max(0, (video.duration || 0) - 0.01));
+      await new Promise<void>((resolve) => {
+        const onSeeked = () => {
+          video.removeEventListener('seeked', onSeeked);
+          resolve();
+        };
+        video.addEventListener('seeked', onSeeked);
+        video.currentTime = t;
+      });
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      thumbs[id] = canvas.toDataURL('image/jpeg', 0.8);
+      done++;
+      onProgress?.(done, total);
+    }
+
+    return thumbs;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+    if (video.parentNode) video.parentNode.removeChild(video);
+  }
+}
+
+/* Thumbnail data URL BỀN (base64) cho Recent runs — KHÔNG dùng blob: URL vì blob bị revoke
+   khi chọn file kế tiếp / reload trang -> ERR_FILE_NOT_FOUND. */
+async function fileToThumbDataUrl(file: File, max = 72): Promise<string> {
+  if (!file.type.startsWith('image/')) return '';
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('image load error'));
+      im.src = url;
+    });
+    const w = img.width || max;
+    const h = img.height || max;
+    const scale = Math.min(max / w, max / h, 1);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch {
+    return '';
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/* ── Numbered section divider (V2) ── */
+function SectionDivider({ n, title }: { n: string; title: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <span className="text-[9px] font-black text-dgblue tracking-[0.14em] uppercase tabular-nums">{n}</span>
+      <div className="flex-1 h-px bg-slate-200/80" />
+      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.12em]">{title}</span>
+    </div>
+  );
+}
 
 export default function PlaygroundPage() {
-  const apiKey = useAuthStore((s) => s.apiKey);
   const [threshold, setThreshold] = useState(0.35);
   const [includeHeatmap, setIncludeHeatmap] = useState(true);
   const [codeTab, setCodeTab] = useState<'python' | 'curl' | 'js'>('python');
+  const [outTab, setOutTab] = useState<'visual' | 'json'>('visual');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [activeSample, setActiveSample] = useState<string | null>(null);
   const [result, setResult] = useState<DetectionResponse | null>(null);
+  const [videoResult, setVideoResult] = useState<VideoDetectionResponse | null>(null);
+  const [frameThumbs, setFrameThumbs] = useState<Record<number, string>>({});
+  const [extracting, setExtracting] = useState<{ done: number; total: number } | null>(null);
+  const [videoCanPlay, setVideoCanPlay] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState('');
+  const [runs, setRuns] = useState<
+    { name: string; src: string; verdict: string; confidence: number }[]
+  >([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAnalyze = async () => {
-    if (!selectedFile) { setError('Vui lòng chọn ảnh trước'); return; }
-    if (!apiKey) { setError('Chưa có API Key. Vào API Keys → tạo key → key sẽ tự lưu'); return; }
+  const isVideo = selectedFile?.type.startsWith('video/') ?? false;
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(selectedFile);
+    setPreviewUrl(url);
+    setVideoCanPlay(true);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedFile]);
+
+  const firstThumb = useMemo(() => {
+    if (!videoResult) return null;
+    for (const fr of videoResult.frame_results) {
+      if (frameThumbs[fr.frame_id]) return frameThumbs[fr.frame_id];
+    }
+    return null;
+  }, [videoResult, frameThumbs]);
+
+  const resetOutputs = () => {
+    setResult(null);
+    setVideoResult(null);
+    setFrameThumbs({});
     setError('');
+  };
+
+  const pickFile = (f: File) => {
+    setSelectedFile(f);
+    setActiveSample(null);
+    resetOutputs();
+  };
+
+  const pickSample = async (s: (typeof SAMPLES)[number]) => {
+    setActiveSample(s.id);
+    resetOutputs();
+    try {
+      const res = await fetch(s.src);
+      if (!res.ok) throw new Error('not found');
+      const blob = await res.blob();
+      const file = new File([blob], `${s.id}.jpg`, { type: blob.type || 'image/jpeg' });
+      setSelectedFile(file);
+    } catch {
+      // Asset not available — keep it as a visual preset (preview the path only).
+      setSelectedFile(null);
+      setPreviewUrl(s.src);
+      setError('Không tải được sample asset — đây là preset hiển thị.');
+    }
+  };
+
+  const handleAnalyze = async () => {
+    if (!selectedFile) {
+      setError('Vui lòng chọn file hoặc sample trước');
+      return;
+    }
+    setError('');
+    setResult(null);
+    setVideoResult(null);
     setIsAnalyzing(true);
     try {
-      const res = await detectImage(selectedFile, apiKey, threshold);
-      setResult(res);
+      if (isVideo) {
+        const res = await playgroundDetectVideo(selectedFile, 3);
+        setVideoResult(res);
+        const thumbs: Record<number, string> = {};
+        for (const fr of res.frame_results) {
+          if (fr.thumb) thumbs[fr.frame_id] = fr.thumb;
+        }
+        setFrameThumbs(thumbs);
+
+        const missing = res.frame_results.filter((f) => !f.thumb).map((f) => f.frame_id);
+        if (missing.length > 0) {
+          setExtracting({ done: 0, total: missing.length });
+          try {
+            const clientThumbs = await extractFrameThumbs(selectedFile, missing, 30, (done, total) =>
+              setExtracting({ done, total }),
+            );
+            setFrameThumbs((prev) => ({ ...prev, ...clientThumbs }));
+          } catch (err) {
+            console.warn('client-side frame extraction failed:', err);
+          } finally {
+            setExtracting(null);
+          }
+        }
+        const videoRunSrc = res.frame_results.find((f) => f.thumb)?.thumb ?? '';
+        setRuns((p) =>
+          [{ name: selectedFile.name, src: videoRunSrc, verdict: res.verdict, confidence: res.confidence }, ...p].slice(0, 5),
+        );
+      } else {
+        const res = await playgroundDetectImage(selectedFile, threshold, includeHeatmap);
+        setResult(res);
+        const imgRunSrc = await fileToThumbDataUrl(selectedFile);   // base64 bền, không phải blob
+        setRuns((p) =>
+          [{ name: selectedFile.name, src: imgRunSrc, verdict: res.verdict, confidence: res.confidence }, ...p].slice(0, 5),
+        );
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Detect thất bại');
     } finally {
@@ -224,327 +308,692 @@ export default function PlaygroundPage() {
     }
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(getCodeContent());
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
+  /* ── Code snippets ── */
   const pythonCode = `import requests
 
 url = "https://api.deepguard.io/v1/detect/image"
 headers = {'x-api-key': 'demo-key-vietbank-2024'}
 payload = {'threshold': ${threshold.toFixed(4)}, 'include_heatmap': ${includeHeatmap}}
-files = [('image', open('target_media.mp4','rb'))]
+files = [('file', open('${selectedFile?.name ?? 'target_media.jpg'}','rb'))]
 
 response = requests.post(url, headers=headers, data=payload, files=files)
 print(response.json())`;
 
-  const curlCode = `curl -X POST "https://api.deepguard.io/v1/detect/image" \\
+  const curlCode = `curl -X POST "https://api.deepguard.io/v1/detect/image?threshold=${threshold.toFixed(4)}" \\
   -H "x-api-key: demo-key-vietbank-2024" \\
-  -F "threshold=${threshold.toFixed(4)}" \\
   -F "include_heatmap=${includeHeatmap}" \\
-  -F "image=@target_media.mp4"`;
+  -F "file=@${selectedFile?.name ?? 'target_media.jpg'}"`;
 
   const jsCode = `const formData = new FormData();
-formData.append('threshold', '${threshold.toFixed(4)}');
-formData.append('include_heatmap', '${includeHeatmap}');
-formData.append('image', fileInput.files[0]);
+formData.append('file', fileInput.files[0]);
 
-const response = await fetch('https://api.deepguard.io/v1/detect/image', {
-  method: 'POST',
-  headers: { 'x-api-key': 'demo-key-vietbank-2024' },
-  body: formData
-});
+const response = await fetch(
+  'https://api.deepguard.io/v1/detect/image?threshold=${threshold.toFixed(4)}',
+  {
+    method: 'POST',
+    headers: { 'x-api-key': 'demo-key-vietbank-2024' },
+    body: formData
+  }
+);
 const data = await response.json();
 console.log(data);`;
 
-  const getCodeContent = () => {
-    switch (codeTab) {
-      case 'python': return pythonCode;
-      case 'curl': return curlCode;
-      case 'js': return jsCode;
-    }
+  const codeContent = codeTab === 'python' ? pythonCode : codeTab === 'curl' ? curlCode : jsCode;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(codeContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const getCodeLanguage = () => {
-    switch (codeTab) {
-      case 'python': return 'python';
-      case 'curl': return 'curl';
-      case 'js': return 'js';
-    }
-  };
+  /* ── Derived verdict + risk-band state ── */
+  const v = result?.verdict ?? videoResult?.verdict ?? null;
+  const vStyle = v ? verdictStyle(v) : null;
+  // Risk band (chỉ ảnh — định vị eKYC: trả tín hiệu rủi ro, không nhãn cứng)
+  const rBand = result?.risk_band ?? null;
+  const rStyle = rBand ? riskBandStyle(rBand) : null;
+  const riskScore = result?.risk_score ?? null;
+  // Accent: ưu tiên màu risk band cho ảnh; video vẫn theo verdict
+  const accentColor = rStyle?.color ?? vStyle?.color ?? '#94a3b8';
+  const activeResult = result ?? videoResult;
+  const jsonOutput = result ? resultToJSON(result) : videoResult ? videoToJSON(videoResult) : null;
 
   return (
-    <>
-      {/* TOP GRID: Input + Results */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* LEFT: INPUT & CONFIG */}
-        <div className="lg:col-span-4 space-y-6">
-          <section className="glass-panel rounded-2xl p-6 shadow-sm border border-white">
-            <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-[#0050cb] rounded-full" /> 01. Media Input
-            </h3>
+    <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 items-start">
+      {/* ════════════════ LEFT COLUMN ════════════════ */}
+      <div className="space-y-4">
+        {/* 01 — Media Input */}
+        <section className="glass-panel rounded-2xl p-5 shadow-sm border border-white">
+          <SectionDivider n="01" title="Media Input" />
 
-            {/* Upload Zone */}
-            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/bmp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); }} />
-            <div
-              className="upload-dashed rounded-2xl p-10 flex flex-col items-center justify-center text-center cursor-pointer bg-white/30 group mb-6"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <div className="w-16 h-16 rounded-full bg-[#0050cb]/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <span className="material-symbols-outlined text-4xl text-[#0050cb]/40 group-hover:text-[#0050cb] transition-colors">upload_file</span>
-              </div>
-              {selectedFile ? (
-                <p className="text-sm font-bold text-[#0050cb]">{selectedFile.name}</p>
-              ) : (
-                <p className="text-sm font-bold text-slate-700">Kéo tệp vào đây hoặc click chọn</p>
-              )}
-              <p className="text-[11px] text-slate-400 mt-1">Hỗ trợ JPG, PNG, WEBP, BMP (Max 10MB)</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/bmp,video/mp4,video/webm,video/quicktime,video/mpeg"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) pickFile(f);
+            }}
+          />
+
+          {/* Drop zone */}
+          <div
+            data-tour="pg-upload"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) pickFile(f);
+            }}
+            className={`upload-dashed rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer mb-4 group transition-all ${
+              dragOver ? 'bg-dgblue/5 border-dgblue' : 'bg-white/30'
+            }`}
+          >
+            <div className="w-12 h-12 rounded-full bg-dgblue/5 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <Icon name="upload_file" className="text-[26px] text-dgblue/50 group-hover:text-dgblue transition-colors" />
             </div>
-            {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 mb-4 border border-red-200">{error}</p>}
+            {selectedFile ? (
+              <p className="text-xs font-bold text-dgblue max-w-full truncate">{selectedFile.name}</p>
+            ) : (
+              <p className="text-xs font-bold text-slate-700">Kéo file hoặc click để chọn</p>
+            )}
+            <p className="text-[10px] text-slate-400 mt-1">JPG · PNG · WEBP · MP4 (Ảnh 10MB / Video 200MB)</p>
+          </div>
 
-            {/* Sample Buttons */}
-            <div className="space-y-3 mb-8">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sample Presets</p>
-              <div className="grid grid-cols-3 gap-2">
-                <button className="py-2 text-[10px] font-bold bg-white border border-slate-200 rounded-lg hover:border-[#0050cb] hover:text-[#0050cb] transition-all">ẢNH THẬT</button>
-                <button className="py-2 text-[10px] font-bold bg-white border border-slate-200 rounded-lg hover:border-[#0050cb] hover:text-[#0050cb] transition-all">GAN FAKE</button>
-                <button className="py-2 text-[10px] font-bold bg-white border border-slate-200 rounded-lg hover:border-[#0050cb] hover:text-[#0050cb] transition-all">SWAP FAKE</button>
-              </div>
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 px-3 py-2 mb-4 rounded-lg bg-dgfake/5 border border-dgfake/20">
+              <Icon name="error" className="text-[15px] text-dgfake shrink-0" />
+              <span className="text-xs font-semibold text-dgfake">{error}</span>
             </div>
+          )}
 
-            <hr className="border-slate-100 mb-6" />
-
-            <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-[#0050cb] rounded-full" /> 02. Parameters
-            </h3>
-
-            {/* Threshold Slider */}
-            <div className="space-y-4 mb-6">
-              <div className="flex justify-between items-center">
-                <label className="text-xs font-bold text-slate-600">Threshold</label>
-                <span className="text-xs font-mono font-bold text-[#0050cb] bg-[#0050cb]/5 px-2 py-0.5 rounded border border-[#0050cb]/10">{threshold.toFixed(4)}</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.0001"
-                value={threshold}
-                onChange={(e) => setThreshold(parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#0050cb]"
-              />
-            </div>
-
-            {/* Toggles */}
-            <div className="space-y-3 mb-8">
-              <label className="flex items-center justify-between p-3 bg-white/40 rounded-xl border border-white cursor-pointer hover:bg-white transition-colors">
-                <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-[#0050cb]">analytics</span>
-                  <span className="text-xs font-bold text-slate-700">Include DCT Heatmap</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={includeHeatmap}
-                  onChange={(e) => setIncludeHeatmap(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 text-[#0050cb] focus:ring-[#0050cb] accent-[#0050cb]"
-                />
-              </label>
-            </div>
-
-            {/* Submit Button */}
-            <button
-              onClick={handleAnalyze}
-              disabled={isAnalyzing}
-              className="w-full py-4 bg-[#0050cb] text-white rounded-2xl font-black text-xs tracking-widest shadow-xl shadow-[#0050cb]/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 group disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isAnalyzing ? (
-                <>
-                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  ĐANG PHÂN TÍCH...
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined group-hover:rotate-45 transition-transform">rocket_launch</span>
-                  PHÂN TÍCH LIVE
-                </>
-              )}
-            </button>
-          </section>
-        </div>
-
-        {/* RIGHT: ANALYSIS RESULTS */}
-        <div className="lg:col-span-8 space-y-6">
-          {/* Final Verdict Card */}
-          {(() => {
-            const v = result?.verdict ?? 'FAKE';
-            const verdictColor = v === 'FAKE' ? '#ba1a1a' : v === 'REAL' ? '#2e7d32' : '#ed6c02';
-            const conf = result ? result.confidence.toFixed(1) : '94.1';
-            const probFake = result ? (result.prob_fake * 100).toFixed(1) : '94.12';
-            return (
-              <div className="glass-panel rounded-2xl p-8 shadow-md relative overflow-hidden flex flex-col md:flex-row gap-8 items-center" style={{ borderTop: `4px solid ${verdictColor}` }}>
-                {/* Status Badge */}
-                <div className="absolute top-0 right-0 p-4 flex gap-2">
-                  {result && (
-                    <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[9px] font-bold">{result.processing_time_ms}ms</span>
-                  )}
-                </div>
-
-                {/* Preview */}
-                <div className="relative w-full max-w-[340px] aspect-square bg-slate-100 rounded-2xl overflow-hidden shadow-2xl group shrink-0 flex items-center justify-center">
-                  {selectedFile ? (
-                    <img
-                      className="w-full h-full object-cover"
-                      src={URL.createObjectURL(selectedFile)}
-                      alt="Preview"
-                    />
-                  ) : (
-                    <span className="material-symbols-outlined text-[80px] text-slate-300">image</span>
-                  )}
-                  {result && <div className="scan-line" />}
-                </div>
-
-                {/* Analysis Score */}
-                <div className="flex-1 space-y-6 min-w-0">
-                  <div>
-                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Kết quả chẩn đoán</h4>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-6xl font-black tracking-tighter" style={{ color: verdictColor }}>
-                        {result ? result.verdict : '—'}
-                      </span>
-                      {result && <span className="text-xl font-bold text-slate-400">/ {conf}%</span>}
-                    </div>
-                    {result && (
-                      <p className="text-xs text-slate-500 mt-2">
-                        Face detected: {result.face_detected ? 'Yes' : 'No'} · Model: {result.model_version}
-                      </p>
-                    )}
-                    {!result && !isAnalyzing && (
-                      <p className="text-xs text-slate-400 mt-2">Chọn ảnh và bấm Phân Tích để xem kết quả</p>
-                    )}
-                  </div>
-
-                  {result && (
-                    <div className="space-y-4">
-                      {[
-                        { label: 'Prob Fake (combined)', value: parseFloat(probFake), color: verdictColor },
-                        { label: 'CNN Score', value: result.prob_cnn * 100, color: '#0050cb' },
-                        { label: 'Spatial Score', value: (result.spatial_score ?? 0) * 100, color: '#ed6c02' },
-                      ].map((bar) => (
-                        <div key={bar.label} className="space-y-1">
-                          <div className="flex justify-between text-[10px] font-black uppercase">
-                            <span className="text-slate-400">{bar.label}</span>
-                            <span style={{ color: bar.color }}>{bar.value.toFixed(1)}%</span>
-                          </div>
-                          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(bar.value, 100)}%`, backgroundColor: bar.color }} />
-                          </div>
-                        </div>
-                      ))}
-                      <div className="grid grid-cols-2 gap-4 pt-2">
-                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                          <p className="text-[9px] font-black text-slate-400 uppercase">Latency</p>
-                          <p className="text-sm font-bold text-slate-700">{result.processing_time_ms}ms</p>
-                        </div>
-                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                          <p className="text-[9px] font-black text-slate-400 uppercase">Threshold</p>
-                          <p className="text-sm font-bold text-slate-700">{result.threshold_used}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Face Tiles Grid */}
-          <section className="glass-panel rounded-2xl p-6 shadow-sm">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-[#0050cb] rounded-full" /> 03. Face Extraction (Lưới 16 khung hình)
-              </h3>
-              <button className="text-[10px] font-bold text-[#0050cb] hover:underline">Xem tất cả</button>
-            </div>
-            <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
-              {FACE_IMAGES.map((img, i) => (
-                <div
-                  key={i}
-                  className="group relative rounded-xl overflow-hidden aspect-square border border-slate-100 bg-slate-50 hover:border-[#ba1a1a] transition-all cursor-crosshair"
+          {/* Sample presets */}
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.14em] mb-2">Sample Presets</p>
+          <div data-tour="pg-samples" className="grid grid-cols-3 gap-2 mb-5">
+            {SAMPLES.map((s) => {
+              const sel = activeSample === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => pickSample(s)}
+                  className={`relative rounded-xl overflow-hidden border-2 transition-colors aspect-square ${
+                    sel ? 'border-dgblue' : 'border-slate-200 hover:border-dgblue/50'
+                  }`}
                 >
                   <img
-                    className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all"
-                    src={`https://lh3.googleusercontent.com/aida-public/${img}`}
-                    alt={`Frame ${i + 1}`}
+                    src={s.src}
+                    alt={s.label}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                    }}
                   />
-                  <div className="absolute inset-0 bg-[#ba1a1a]/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <span className="text-[8px] text-white font-black italic">{FACE_SCORES[i]}%</span>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-1">
+                    <span className="text-[8px] font-black text-white tracking-wide">{s.label}</span>
                   </div>
-                </div>
-              ))}
+                  {sel && (
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-dgblue flex items-center justify-center">
+                      <Icon name="check" className="text-[10px] text-white" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 02-inline — Parameters */}
+          <SectionDivider n="02" title="Parameters" />
+
+          {/* Threshold slider */}
+          <div data-tour="pg-threshold" className="mb-5">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-slate-600">Threshold</label>
+              <span className="text-xs font-mono font-bold text-dgblue bg-dgblue/5 px-2 py-0.5 rounded border border-dgblue/10 tabular-nums">
+                {threshold.toFixed(4)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.0001"
+              value={threshold}
+              onChange={(e) => setThreshold(parseFloat(e.target.value))}
+              className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-dgblue"
+            />
+            <div className="flex justify-between mt-1.5">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.1em]">Nhạy (Real)</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.1em]">Chặt (Fake)</span>
+            </div>
+          </div>
+
+          {/* Heatmap toggle */}
+          <label className="flex items-center justify-between p-3 mb-5 bg-white/40 rounded-xl border border-white cursor-pointer hover:bg-white transition-colors">
+            <span className="flex items-center gap-2.5">
+              <Icon name="blur_on" className="text-[18px] text-dgblue" />
+              <span>
+                <span className="block text-xs font-bold text-slate-700 leading-tight">DCT Heatmap</span>
+                <span className="block text-[10px] text-slate-400 mt-0.5">{includeHeatmap ? 'Bật' : 'Tắt'}</span>
+              </span>
+            </span>
+            <span
+              className="relative inline-block w-9 h-5 rounded-full shrink-0 transition-colors"
+              style={{ background: includeHeatmap ? DG.primary : '#e2e8f0' }}
+            >
+              <span
+                className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all"
+                style={{ left: includeHeatmap ? 18 : 2 }}
+              />
+            </span>
+            <input
+              type="checkbox"
+              checked={includeHeatmap}
+              onChange={(e) => setIncludeHeatmap(e.target.checked)}
+              className="sr-only"
+            />
+          </label>
+
+          {/* Analyze CTA */}
+          <button
+            data-tour="pg-analyze"
+            onClick={handleAnalyze}
+            disabled={isAnalyzing}
+            className="w-full py-3.5 bg-dgblue text-white rounded-2xl font-black text-xs tracking-widest shadow-xl shadow-dgblue/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 group disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
+          >
+            {isAnalyzing ? (
+              <>
+                <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                ĐANG PHÂN TÍCH…
+              </>
+            ) : (
+              <>
+                <Icon name={isVideo ? 'video_search' : 'rocket_launch'} className="text-[18px] group-hover:rotate-12 transition-transform" />
+                {isVideo ? 'PHÂN TÍCH VIDEO' : 'PHÂN TÍCH'}
+              </>
+            )}
+          </button>
+        </section>
+
+        {/* 03 — Recent runs */}
+        {runs.length > 0 && (
+          <section className="glass-panel rounded-2xl px-4 py-4 shadow-sm border border-white">
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.12em]">Recent runs</span>
+              <button
+                onClick={() => setRuns([])}
+                className="text-[10px] font-bold text-dgfake hover:opacity-80 transition-opacity"
+              >
+                Xoá
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {runs.map((r, i) => {
+                const rs = verdictStyle(r.verdict);
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100"
+                  >
+                    {r.src ? (
+                      <img src={r.src} alt="" className="w-7 h-7 rounded-md object-cover shrink-0" />
+                    ) : (
+                      <span className="w-7 h-7 rounded-md bg-slate-200 flex items-center justify-center shrink-0">
+                        <Icon name="image" className="text-[14px] text-slate-400" />
+                      </span>
+                    )}
+                    <span className="flex-1 text-[11px] font-semibold text-slate-600 truncate">{r.name}</span>
+                    <span className="text-[10px] font-black shrink-0 tabular-nums" style={{ color: rs.color }}>
+                      {r.verdict}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </section>
-        </div>
+        )}
       </div>
 
-      {/* BOTTOM SECTION: CODE & TECHNICAL SPECS — Separate grid like original HTML */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-8">
-        {/* Technical Details */}
-        <div className="lg:col-span-4 glass-panel rounded-2xl p-6 shadow-sm border-l-4 border-[#0050cb]">
-          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Technical Breakdown</h3>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <span className="material-symbols-outlined text-[#0050cb] text-[28px]">memory</span>
-              <div>
-                <p className="text-xs font-bold text-slate-800">Architecture: EfficientNet-B4</p>
-                <p className="text-[10px] text-slate-500 leading-relaxed">Spatial-Frequency Dual Stream Network.</p>
-              </div>
+      {/* ════════════════ RIGHT COLUMN ════════════════ */}
+      <div className="space-y-4">
+        {/* Verdict hero card */}
+        <div
+          className="glass-panel rounded-2xl shadow-md relative overflow-hidden"
+        >
+          <div className="p-6 flex flex-col md:flex-row gap-7 items-start">
+            {/* Preview */}
+            <div
+              className={`relative bg-slate-100 rounded-2xl overflow-hidden shadow-inner shrink-0 flex items-center justify-center border border-slate-200 ${
+                isVideo && previewUrl ? 'w-full max-w-[340px] aspect-video' : 'w-[300px] h-[300px]'
+              }`}
+            >
+              {previewUrl && isVideo && videoCanPlay ? (
+                <video
+                  key={previewUrl}
+                  className="w-full h-full object-contain bg-black"
+                  src={previewUrl}
+                  controls
+                  muted
+                  autoPlay
+                  loop
+                  playsInline
+                  preload="auto"
+                  onError={() => setVideoCanPlay(false)}
+                >
+                  Browser không hỗ trợ định dạng video này.
+                </video>
+              ) : previewUrl && isVideo ? (
+                <div className="relative w-full h-full bg-slate-900 flex items-center justify-center">
+                  {firstThumb ? (
+                    <img src={firstThumb} alt="Video frame" className="w-full h-full object-contain" />
+                  ) : (
+                    <Icon name="movie" className="text-[60px] text-slate-500" />
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-black/70 text-white text-[10px] font-bold px-3 py-2 text-center">
+                    Browser không decode được codec — xem frame bên dưới
+                  </div>
+                </div>
+              ) : previewUrl ? (
+                <img className="w-full h-full object-cover" src={previewUrl} alt="Preview" />
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <Icon name="image" className="text-[56px] text-slate-300" />
+                  <span className="text-xs font-semibold text-slate-400">Chưa có media</span>
+                </div>
+              )}
+
+              {/* Grad-CAM THẬT từ model SFDCT; fallback gradient minh hoạ nếu response chưa có heatmap */}
+              {result && includeHeatmap && result.heatmap ? (
+                <img
+                  src={result.heatmap}
+                  alt="Grad-CAM"
+                  title="Grad-CAM (SFDCT) — vùng model tập trung"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              ) : result && includeHeatmap && v && v !== 'REAL' ? (
+                <div
+                  className="heatmap-overlay absolute inset-0 pointer-events-none"
+                  style={{
+                    background: `radial-gradient(ellipse at 42% 45%, ${accentColor}cc 0%, ${accentColor}55 32%, transparent 65%), radial-gradient(ellipse at 66% 58%, ${accentColor}88 0%, transparent 48%)`,
+                    mixBlendMode: 'multiply',
+                    opacity: 0.65,
+                  }}
+                />
+              ) : null}
+
+              {/* Scan line while analyzing */}
+              {isAnalyzing && <div className="scan-line" />}
             </div>
-            <div className="flex items-center gap-4">
-              <span className="material-symbols-outlined text-[#0050cb] text-[28px]">hub</span>
-              <div>
-                <p className="text-xs font-bold text-slate-800">Processing Engine: DeepDetect v2.1</p>
-                <p className="text-[10px] text-slate-500">Optimized for VietBank Cloud Inference.</p>
-              </div>
+
+            {/* Result panel */}
+            <div className="flex-1 min-w-0 w-full">
+              <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                {result ? 'Điểm rủi ro deepfake' : 'Kết quả chẩn đoán'}
+              </h4>
+
+              {/* Ảnh → dẫn bằng risk-score (định vị eKYC); Video → dẫn bằng verdict */}
+              {result ? (
+                <>
+                  <div className="flex items-baseline gap-3 flex-wrap mb-2">
+                    <span className="text-5xl font-black tracking-tighter leading-none tabular-nums" style={{ color: accentColor }}>
+                      {riskScore != null ? Math.round(riskScore * 100) : '—'}
+                    </span>
+                    <span className="text-sm font-bold text-slate-400">/100</span>
+                    {rStyle && (
+                      <span
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black tracking-wide"
+                        style={{ color: rStyle.color, background: rStyle.bg, border: `1px solid ${rStyle.border}` }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: rStyle.dot }} />
+                        {rStyle.label}
+                      </span>
+                    )}
+                    <span className="ml-auto text-[10px] font-bold text-slate-500 font-mono bg-slate-100 px-2 py-1 rounded-md tabular-nums">
+                      {result.processing_time_ms}ms
+                    </span>
+                  </div>
+                  {rStyle && (
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">Gợi ý</span>
+                      <span className="text-[12px] font-bold" style={{ color: rStyle.color }}>{rStyle.hint}</span>
+                      <span className="text-[10px] text-slate-400">
+                        · verdict {v} ({result.confidence.toFixed(1)}%)
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-baseline gap-3 flex-wrap mb-1">
+                  <span className="text-5xl font-black tracking-tighter leading-none" style={{ color: accentColor }}>
+                    {v ?? '—'}
+                  </span>
+                  {videoResult ? (
+                    <span className="text-xl font-bold text-slate-400 font-mono tabular-nums">
+                      {videoResult.confidence.toFixed(1)}%
+                    </span>
+                  ) : (
+                    <span className="text-sm font-medium text-slate-400 self-center">Chọn media &amp; bấm Phân Tích</span>
+                  )}
+                  {videoResult && (
+                    <span className="ml-auto text-[10px] font-bold text-slate-500 font-mono bg-slate-100 px-2 py-1 rounded-md tabular-nums">
+                      {videoResult.processing_time_ms}ms
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {result && (
+                <p className="text-[11px] text-slate-400 mb-5 leading-relaxed">
+                  Face: {result.face_detected ? 'Phát hiện' : 'Không rõ'} · {result.model_version}
+                  {result.image_width && result.image_height
+                    ? ` · ${result.image_width}×${result.image_height}px`
+                    : ''}
+                </p>
+              )}
+              {videoResult && (
+                <p className="text-[11px] text-slate-400 mb-5 leading-relaxed">
+                  {videoResult.frames_analyzed} frame phân tích · {videoResult.frames_fake} fake · {videoResult.model_version}
+                </p>
+              )}
+
+              {/* Image breakdown */}
+              {result && (
+                <div className="flex flex-col md:flex-row gap-6 items-start">
+                  <div className="flex-1 w-full space-y-3.5">
+                    <ScoreBar label="Prob Fake" value={result.prob_fake * 100} color={accentColor} />
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      {[
+                        ['Latency', `${result.processing_time_ms}ms`],
+                        ['Threshold', result.threshold_used.toFixed(2)],
+                        ['Risk', result.risk_band ?? '—'],
+                      ].map(([l, val]) => (
+                        <div key={l} className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.1em] mb-1">{l}</p>
+                          <p className="text-[13px] font-black text-slate-700 font-mono tabular-nums">{val}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="shrink-0 self-center md:self-start">
+                    <Gauge value={result.confidence} color={accentColor} size={120} />
+                  </div>
+                </div>
+              )}
+
+              {/* Video breakdown */}
+              {videoResult && (
+                <div className="space-y-3.5">
+                  <ScoreBar label="Prob Fake (avg)" value={videoResult.prob_fake * 100} color={accentColor} />
+                  <ScoreBar
+                    label="Frames Fake"
+                    value={(videoResult.frames_fake / Math.max(videoResult.frames_analyzed, 1)) * 100}
+                    color={DG.primary}
+                  />
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    {[
+                      ['Frames', String(videoResult.frames_analyzed)],
+                      ['Fake', String(videoResult.frames_fake)],
+                      ['Latency', `${videoResult.processing_time_ms}ms`],
+                    ].map(([l, val], i) => (
+                      <div key={l} className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.1em] mb-1">{l}</p>
+                        <p
+                          className={`text-[13px] font-black font-mono tabular-nums ${
+                            i === 1 ? 'text-dgfake' : 'text-slate-700'
+                          }`}
+                        >
+                          {val}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty placeholder */}
+              {!activeResult && !isAnalyzing && (
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="h-[52px] rounded-xl border border-dashed border-slate-200 bg-slate-50"
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Code Snippet with Syntax Highlighting */}
-        <div className="lg:col-span-8 rounded-2xl overflow-hidden shadow-sm flex flex-col bg-slate-900">
-          <div className="flex items-center justify-between px-6 py-3 bg-slate-800/50 border-b border-slate-700">
-            <div className="flex gap-6">
-              {(['python', 'curl', 'js'] as const).map((tab) => (
+        {/* Evidence — Grad-CAM + Frequency (chỉ ảnh, nhìn chuyên nghiệp) */}
+        {result && (result.heatmap || result.frequency) && (
+          <section className="glass-panel rounded-2xl p-5 shadow-sm border border-white">
+            <SectionDivider n="04" title="Bằng chứng trực quan" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Grad-CAM overlay */}
+              <figure className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 m-0">
+                <div className="aspect-square relative">
+                  {previewUrl && <img src={previewUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                  {result.heatmap ? (
+                    <img
+                      src={result.heatmap}
+                      alt="Grad-CAM"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-[11px] font-semibold text-slate-400">Heatmap không khả dụng</span>
+                    </div>
+                  )}
+                </div>
+                <figcaption className="px-3.5 py-2.5 bg-white border-t border-slate-100">
+                  <p className="text-[11px] font-black text-slate-700 flex items-center gap-1.5">
+                    <Icon name="blur_on" className="text-[15px] text-dgblue" /> Grad-CAM
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                    Vùng ảnh model tập trung khi quyết định (nóng = ảnh hưởng mạnh).
+                  </p>
+                </figcaption>
+              </figure>
+
+              {/* Frequency spectrum (2D-DCT) */}
+              <figure className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 m-0">
+                <div className="aspect-square relative">
+                  {result.frequency ? (
+                    <img
+                      src={result.frequency}
+                      alt="Phổ tần số 2D-DCT"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-[11px] font-semibold text-slate-400">Phổ tần số không khả dụng</span>
+                    </div>
+                  )}
+                </div>
+                <figcaption className="px-3.5 py-2.5 bg-white border-t border-slate-100">
+                  <p className="text-[11px] font-black text-slate-700 flex items-center gap-1.5">
+                    <Icon name="graphic_eq" className="text-[15px] text-dgblue" /> Phổ tần số (2D-DCT)
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                    log|DCT|: đốm/nhiễu ở dải tần cao thường lộ dấu vết tổng hợp GAN.
+                  </p>
+                </figcaption>
+              </figure>
+            </div>
+          </section>
+        )}
+
+        {/* Output tabs: Visual / JSON */}
+        <div className="glass-panel rounded-2xl shadow-sm border border-white overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <div className="flex gap-1">
+              {(
+                [
+                  ['visual', 'Phân tích', 'insights'],
+                  ['json', 'Response JSON', 'data_object'],
+                ] as const
+              ).map(([id, label, ic]) => (
                 <button
-                  key={tab}
-                  onClick={() => setCodeTab(tab)}
-                  className={`text-[11px] font-bold pb-1 transition-colors ${
-                    codeTab === tab
-                      ? 'text-white border-b-2 border-[#0050cb]'
-                      : 'text-slate-400 hover:text-white'
+                  key={id}
+                  onClick={() => setOutTab(id)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    outTab === id ? 'bg-dgblue/10 text-dgblue' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
                   }`}
                 >
-                  {tab === 'python' ? 'PYTHON' : tab === 'curl' ? 'cURL' : 'JS FETCH'}
+                  <Icon name={ic} className="text-[15px]" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span
+              className="text-[10px] font-bold px-2.5 py-1 rounded-full tabular-nums"
+              style={
+                activeResult
+                  ? { background: '#f0fdf4', color: DG.real }
+                  : { background: '#f1f5f9', color: '#94a3b8' }
+              }
+            >
+              {activeResult ? 'HTTP 200' : 'No request yet'}
+            </span>
+          </div>
+
+          {outTab === 'json' ? (
+            jsonOutput ? (
+              <div className="p-4">
+                <CodeBlock code={jsonOutput} language="json" />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-11 px-6 text-center">
+                <Icon name="data_object" className="text-[38px] text-slate-300 mb-2.5" />
+                <p className="text-xs font-medium text-slate-400">Response JSON sẽ hiện sau khi phân tích</p>
+              </div>
+            )
+          ) : activeResult ? (
+            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                { icon: 'memory', title: 'EfficientNet-B4', sub: 'Spatial-Frequency dual-stream' },
+                { icon: 'blur_on', title: 'DCT Analysis', sub: includeHeatmap ? 'Heatmap bật' : 'Heatmap tắt' },
+                {
+                  icon: 'verified',
+                  title: v === 'FAKE' ? 'Dấu hiệu giả mạo' : v === 'REAL' ? 'Không phát hiện' : 'Cần xem xét',
+                  sub: result ? `Ngưỡng ${result.threshold_used.toFixed(2)}` : 'Phân tích video',
+                },
+              ].map((b) => (
+                <div key={b.title} className="flex gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-100 items-start">
+                  <Icon name={b.icon} className="text-[22px] text-dgblue shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-slate-800 mb-0.5">{b.title}</p>
+                    <p className="text-[10px] text-slate-400 leading-snug">{b.sub}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-11 px-6 text-center">
+              <Icon name="insights" className="text-[38px] text-slate-300 mb-2.5" />
+              <p className="text-xs font-medium text-slate-400">Chi tiết phân tích kỹ thuật sẽ hiện ở đây</p>
+            </div>
+          )}
+        </div>
+
+        {/* Frame analysis grid (video only) */}
+        {videoResult && (
+          <section className="glass-panel rounded-2xl p-5 shadow-sm border border-white">
+            <div className="flex justify-between items-center mb-4">
+              <SectionDivider n="03" title={`Frame Analysis · ${videoResult.frame_results.length} frames`} />
+            </div>
+            {extracting && (
+              <p className="text-[10px] font-bold text-slate-500 italic mb-3">
+                Đang trích frame {extracting.done}/{extracting.total}…
+              </p>
+            )}
+            <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
+              {videoResult.frame_results.map((fr) => {
+                const pct = (fr.prob_fake * 100).toFixed(0);
+                const fake = fr.prob_fake >= 0.5;
+                const thumb = frameThumbs[fr.frame_id];
+                return (
+                  <div
+                    key={fr.frame_id}
+                    className={`group relative rounded-xl aspect-square border overflow-hidden bg-slate-100 ${
+                      fake ? 'border-dgfake/40' : 'border-dgreal/40'
+                    }`}
+                  >
+                    {thumb ? (
+                      <img src={thumb} alt={`Frame ${fr.frame_id}`} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Icon name="image" className="text-[20px] text-slate-300 animate-pulse" />
+                      </div>
+                    )}
+                    <div
+                      className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-0.5 ${
+                        fake ? 'bg-dgfake/60' : 'bg-dgreal/50'
+                      }`}
+                    >
+                      <span className="text-[9px] text-white font-black">#{fr.frame_id}</span>
+                      <span className="text-[8px] text-white font-bold tabular-nums">{pct}%</span>
+                    </div>
+                    <div
+                      className={`absolute bottom-0 inset-x-0 py-0.5 text-center text-[8px] font-black text-white tabular-nums ${
+                        fake ? 'bg-dgfake/80' : 'bg-dgreal/80'
+                      }`}
+                    >
+                      {pct}%
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Code snippet */}
+        <div data-tour="pg-code" className="rounded-2xl overflow-hidden shadow-sm border border-slate-800 bg-slate-900">
+          <div className="flex items-center justify-between px-5 py-3 bg-slate-800/50 border-b border-slate-700">
+            <div className="flex gap-5">
+              {(
+                [
+                  ['python', 'PYTHON'],
+                  ['curl', 'cURL'],
+                  ['js', 'JS FETCH'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setCodeTab(id)}
+                  className={`text-[11px] font-bold pb-1 transition-colors ${
+                    codeTab === id ? 'text-white border-b-2 border-dgblue' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {label}
                 </button>
               ))}
             </div>
             <button
               onClick={handleCopy}
-              className="flex items-center gap-2 text-[10px] font-bold text-slate-400 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-white transition-colors"
             >
-              <span className="material-symbols-outlined text-[16px]">{copied ? 'check' : 'content_copy'}</span>
-              {copied ? 'Đã sao chép!' : 'Copy Code'}
+              <Icon name={copied ? 'check' : 'content_copy'} className="text-[14px]" />
+              {copied ? 'Đã sao chép!' : 'Copy'}
             </button>
           </div>
-          <div className="p-6 text-[12px] font-mono leading-relaxed overflow-x-auto text-blue-100 custom-scrollbar">
-            <CodeBlock code={getCodeContent()} language={getCodeLanguage()} />
-          </div>
+          <pre className="p-5 text-[12px] font-mono leading-relaxed overflow-x-auto text-blue-100 custom-scrollbar whitespace-pre">
+            <code>{codeContent}</code>
+          </pre>
         </div>
       </div>
-    </>
+    </div>
   );
 }

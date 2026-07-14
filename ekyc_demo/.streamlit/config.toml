@@ -1,0 +1,4 @@
+# Chạy demo ở 8601 — TRÁNH cổng 8501 (đó là serving deepfake SFDCT).
+[server]
+port = 8601
+headless = true

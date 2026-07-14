@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 import uuid
 
-from sqlalchemy import select, update, delete, and_, func, desc
+from sqlalchemy import select, update, delete, and_, func, desc, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -96,6 +96,19 @@ async def update_last_login(db: AsyncSession, user_id: uuid.UUID) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# INVITATION
+# ─────────────────────────────────────────────────────────────────────────────
+async def get_invitation_by_token(db: AsyncSession, token: str) -> Optional[Invitation]:
+    """Tra invitation theo token (kèm tenant để hiển thị tên tổ chức)."""
+    q = (
+        select(Invitation)
+        .where(Invitation.token == token)
+        .options(selectinload(Invitation.tenant))
+    )
+    return (await db.execute(q)).scalar_one_or_none()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API_KEY
 # ─────────────────────────────────────────────────────────────────────────────
 def _hash_api_key(plain_key: str) -> str:
@@ -133,6 +146,8 @@ async def validate_api_key(db: AsyncSession, plain_key: str) -> Optional[ApiKey]
         ApiKey.key_hash == key_hash,
         ApiKey.status == ApiKeyStatus.ACTIVE,
         ApiKey.deleted_at.is_(None),
+        # G0.1: key hết hạn KHÔNG được auth (NULL = không hết hạn)
+        (ApiKey.expires_at.is_(None)) | (ApiKey.expires_at > datetime.now(timezone.utc)),
     ).options(selectinload(ApiKey.tenant))
     return (await db.execute(q)).scalar_one_or_none()
 
@@ -156,7 +171,8 @@ async def list_api_keys(db: AsyncSession, tenant_id: uuid.UUID) -> List[ApiKey]:
 # ─────────────────────────────────────────────────────────────────────────────
 async def create_detection(
     db: AsyncSession, *,
-    tenant_id: uuid.UUID, api_key_id: uuid.UUID,
+    tenant_id: uuid.UUID, api_key_id: Optional[uuid.UUID] = None,
+    source: str = "api",
     verdict: DetectionVerdict, confidence: float, prob_fake: float,
     prob_cnn: float, threshold_used: float, image_hash: str,
     processing_time_ms: int, model_version: str,
@@ -165,15 +181,17 @@ async def create_detection(
     heatmap_url: Optional[str] = None,
     image_width: Optional[int] = None,
     image_height: Optional[int] = None,
+    image_thumb: Optional[str] = None,
     user_agent: Optional[str] = None, ip_address: Optional[str] = None,
 ) -> Detection:
     det = Detection(
-        tenant_id=tenant_id, api_key_id=api_key_id,
+        tenant_id=tenant_id, api_key_id=api_key_id, source=source,
         verdict=verdict, confidence=confidence, prob_fake=prob_fake,
         prob_cnn=prob_cnn, spatial_score=spatial_score,
         frequency_score=frequency_score, threshold_used=threshold_used,
         image_hash=image_hash, image_width=image_width,
         image_height=image_height, heatmap_url=heatmap_url,
+        image_thumb=image_thumb,
         processing_time_ms=processing_time_ms, model_version=model_version,
         user_agent=user_agent, ip_address=ip_address,
     )
@@ -232,9 +250,9 @@ async def analytics_overview(
 
     q = select(
         func.count().label("total"),
-        func.sum((Detection.verdict == DetectionVerdict.FAKE).cast(int)).label("fake_count"),
-        func.sum((Detection.verdict == DetectionVerdict.REAL).cast(int)).label("real_count"),
-        func.sum((Detection.verdict == DetectionVerdict.UNCERTAIN).cast(int)).label("uncertain_count"),
+        func.sum((Detection.verdict == DetectionVerdict.FAKE).cast(Integer)).label("fake_count"),
+        func.sum((Detection.verdict == DetectionVerdict.REAL).cast(Integer)).label("real_count"),
+        func.sum((Detection.verdict == DetectionVerdict.UNCERTAIN).cast(Integer)).label("uncertain_count"),
         func.avg(Detection.processing_time_ms).label("avg_latency"),
         func.percentile_cont(0.95).within_group(Detection.processing_time_ms).label("p95_latency"),
     ).where(
@@ -255,6 +273,109 @@ async def analytics_overview(
         "avg_latency_ms":   int(result.avg_latency or 0),
         "p95_latency_ms":   int(result.p95_latency or 0),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PLATFORM (sysadmin — cross-tenant, KHÔNG filter theo tenant_id)
+# ─────────────────────────────────────────────────────────────────────────────
+async def list_all_tenants(
+    db: AsyncSession, *, page: int = 1, limit: int = 20,
+) -> tuple[List[dict], int]:
+    """List TẤT CẢ tenants (xuyên tenant) kèm user_count. Returns (items, total)."""
+    total = (await db.execute(select(func.count()).select_from(Tenant))).scalar_one()
+
+    user_count_sq = (
+        select(User.tenant_id, func.count().label("user_count"))
+        .where(User.deleted_at.is_(None))
+        .group_by(User.tenant_id)
+        .subquery()
+    )
+    q = (
+        select(Tenant, func.coalesce(user_count_sq.c.user_count, 0))
+        .join(user_count_sq, user_count_sq.c.tenant_id == Tenant.id, isouter=True)
+        .order_by(desc(Tenant.created_at))
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    rows = (await db.execute(q)).all()
+
+    items = [
+        {
+            "id":            t.id,
+            "name":          t.name,
+            "plan":          t.plan.value,
+            "status":        t.status.value,
+            "monthly_quota": t.monthly_quota,
+            "current_usage": t.current_usage,
+            "user_count":    user_count,
+            "created_at":    t.created_at,
+        }
+        for t, user_count in rows
+    ]
+    return items, total
+
+
+async def platform_overview(db: AsyncSession, *, days: int = 30) -> dict:
+    """Aggregate xuyên tenant cho Platform Console (sysadmin)."""
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+
+    total_tenants = (await db.execute(select(func.count()).select_from(Tenant))).scalar_one()
+    active_tenants = (
+        await db.execute(
+            select(func.count()).select_from(Tenant).where(Tenant.status == "active")
+        )
+    ).scalar_one()
+    total_users = (
+        await db.execute(
+            select(func.count()).select_from(User).where(User.deleted_at.is_(None))
+        )
+    ).scalar_one()
+
+    q = select(
+        func.count().label("total"),
+        func.sum((Detection.verdict == DetectionVerdict.FAKE).cast(Integer)).label("fake_count"),
+        func.avg(Detection.processing_time_ms).label("avg_latency"),
+    ).where(Detection.created_at >= start)
+    result = (await db.execute(q)).one()
+
+    total = result.total or 0
+    fake = result.fake_count or 0
+
+    return {
+        "total_tenants":  total_tenants,
+        "active_tenants": active_tenants,
+        "total_users":    total_users,
+        "total_requests": total,
+        "fake_detected":  fake,
+        "fake_rate":      round(fake / total * 100, 2) if total else 0.0,
+        "avg_latency_ms": int(result.avg_latency or 0),
+    }
+
+
+async def tenant_user_count(db: AsyncSession, tenant_id: uuid.UUID) -> int:
+    q = select(func.count()).select_from(User).where(
+        User.tenant_id == tenant_id, User.deleted_at.is_(None)
+    )
+    return (await db.execute(q)).scalar_one()
+
+
+async def update_tenant_admin(
+    db: AsyncSession, tenant_id: uuid.UUID, *,
+    status: Optional[str] = None,
+    plan: Optional[str] = None,
+    monthly_quota: Optional[int] = None,
+) -> Optional[Tenant]:
+    """Sysadmin update: status | plan | monthly_quota. Caller commit."""
+    tenant = await db.get(Tenant, tenant_id)
+    if not tenant:
+        return None
+    if status is not None:
+        tenant.status = status
+    if plan is not None:
+        tenant.plan = plan
+    if monthly_quota is not None:
+        tenant.monthly_quota = monthly_quota
+    return tenant
 
 
 # ─────────────────────────────────────────────────────────────────────────────
